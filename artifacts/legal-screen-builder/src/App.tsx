@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
-  Plus, X, RotateCcw, ChevronRight, ChevronLeft, ArrowRight, Lightbulb,
-  Camera, Trash2, Edit3, Copy, ChevronUp, ChevronDown, FileSearch,
+  Plus, X, ChevronRight, ChevronLeft, ArrowRight, Lightbulb,
+  Trash2, Edit3, ChevronUp, ChevronDown, FileSearch,
   Video, FileText, Mic, Image, File, BookOpen, Scale, Clock, XCircle,
-  Quote, Check, AlertTriangle, Layers,
+  Quote, Check, Layers,
 } from "lucide-react";
 import { Block, BlockType, ChatEntry, DataMap, Evidence, EvidenceType, Project, Screen, ScreenType, BLOCK_FIELDS } from "./types";
 import { loadProject, saveProject, addScreen, updateScreen, deleteScreen, updateBlock, addBlock, removeBlock, moveBlock, addEvidence, deleteEvidence, addCitation, deleteCitation } from "./store";
@@ -529,18 +529,30 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
         )}
       </div>
 
-      {/* Right: live preview */}
-      <div style={{ flex: 1, background: "#0e0e0e", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <div style={{ transform: "scale(0.43)", transformOrigin: "center" }}>
-          <BlockCanvas
-            blocks={[]}
-            screenNumber="—"
-            footerCitations={[]}
-          />
+      {/* Right: answer summary */}
+      <div style={{ flex: 1, minWidth: 0, background: "#0e0e0e", display: "flex", flexDirection: "column", overflowY: "auto", padding: "28px 32px" }}>
+        <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 16 }}>COLLECTED SO FAR</div>
+        {history.length === 0 && (
+          <div style={{ color: "#444", fontSize: 13, lineHeight: 1.6 }}>
+            Your answers will appear here as you go. The screen assembles itself when you finish.
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {history.map((entry, i) => (
+            <div key={i}>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>{entry.question}</div>
+              <div style={{ fontSize: 14, color: "#ddd", fontWeight: 700, lineHeight: 1.45, borderLeft: `3px solid ${ORANGE}`, paddingLeft: 10 }}>
+                {entry.answer || <span style={{ color: "#333", fontStyle: "italic" }}>—</span>}
+              </div>
+            </div>
+          ))}
         </div>
-        <div style={{ position: "absolute", color: "#444", fontSize: 13, pointerEvents: "none" }}>
-          Screen preview builds after completion
-        </div>
+        {history.length > 0 && (
+          <div style={{ marginTop: 24, padding: "12px 14px", background: "#111", border: `1px solid ${ORANGE}22`, borderRadius: 6 }}>
+            <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>SCREEN TYPE</div>
+            <div style={{ fontSize: 14, color: "#bbb" }}>{SCREEN_TYPES.find(t => t.id === screenType)?.label}</div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -618,8 +630,8 @@ function EditView({ screen, project, onUpdate, onBack, onUpdateProject }: {
       </div>
 
       {/* Canvas */}
-      <div style={{ flex: 1, background: "#0e0e0e", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", padding: 24 }}>
-        <div style={{ transform: "scale(0.56)", transformOrigin: "center" }}>
+      <div style={{ flex: 1, minWidth: 0, background: "#0e0e0e", overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.54)", transformOrigin: "center" }}>
           <BlockCanvas
             blocks={screen.blocks}
             screenNumber={screen.screenNumber}
@@ -673,12 +685,9 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
 
       {/* Right: Screen grid */}
       <div style={{ flex: 1, padding: "32px 36px", overflowY: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900 }}>Screens</div>
-            <div style={{ color: "#777", fontSize: 13, marginTop: 2 }}>{project.screens.length} screen{project.screens.length !== 1 ? "s" : ""}</div>
-          </div>
-          <Btn onClick={onNewScreen} variant="orange"><Plus size={15} /> New Screen</Btn>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 22, fontWeight: 900 }}>Screens</div>
+          <div style={{ color: "#777", fontSize: 13, marginTop: 2 }}>{project.screens.length} screen{project.screens.length !== 1 ? "s" : ""}</div>
         </div>
 
         {project.screens.length === 0 && (
@@ -698,8 +707,8 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
             >
               {/* Mini preview */}
-              <div style={{ height: 140, background: "#0a0a0a", overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ transform: "scale(0.13)", transformOrigin: "center", pointerEvents: "none" }}>
+              <div style={{ height: 140, background: "#0a0a0a", overflow: "hidden", position: "relative" }}>
+                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.13)", transformOrigin: "center", pointerEvents: "none" }}>
                   <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber} footerCitations={screen.footerCitations} />
                 </div>
               </div>

@@ -1,0 +1,304 @@
+You’re getting much closer. Before adding more templates or export features, I want to redesign the architecture so this can eventually become a professional product.
+
+Stop thinking in terms of screen types.
+
+Think in terms of building blocks.
+
+Every screen is made from reusable components.
+
+Examples:
+
+* Header
+* Subheader
+* Large Headline
+* Quote
+* Timeline
+* Evidence Card
+* Contradiction Card
+* Question Box
+* Callout
+* Conclusion
+* Legal Analysis
+* Policy Comparison
+* Report Comparison
+* Image
+* Video Still
+* Transcript
+* Timeline Event
+* Violation Footer
+
+Every screen should simply be different combinations of these components.
+
+⸻
+
+Build a Screen Engine
+
+Instead of:
+
+Contradiction.tsx
+Quote.tsx
+PriorIncident.tsx
+
+I want : 
+
+ScreenEngine
+
+↓
+
+Blocks
+
+↓
+
+Theme
+
+↓
+
+Generated Layout
+
+
+The Screen Engine should decide:
+
+* what blocks belong
+* what order
+* spacing
+* typography
+* emphasis
+* icon placement
+* orange highlights
+* section dividers
+
+⸻
+
+Separate the AI from the UI
+
+I don’t want components asking questions.
+
+I want:
+
+Conversation Engine
+
+↓
+
+Screen Model
+
+↓
+
+Renderer
+
+Conversation Engine
+
+asks questions
+
+↓
+
+creates structured data
+
+↓
+
+Renderer creates beautiful presentation
+
+⸻
+
+Every screen should be editable
+
+After AI generates it…
+
+I want to click
+
+Headline
+
+Quote
+
+Evidence
+
+Icon
+
+Footer
+
+and edit them directly.
+
+I should never have to regenerate an entire screen just because I changed one sentence.
+
+⸻
+
+Build a Project System
+
+Every project should contain:
+
+Case
+
+↓
+
+Incidents
+
+↓
+
+Evidence
+
+↓
+
+Screens
+
+↓
+
+Timeline
+
+↓
+
+Witnesses
+
+↓
+
+Exports
+
+Not just isolated slides.
+
+⸻
+
+Build an Evidence Library
+
+Every piece of evidence should exist once.
+
+Example
+
+Bodycam
+
+↓
+
+Timestamp 7:43
+
+↓
+
+Used in
+
+* Screen 5
+* Screen 12
+* Timeline
+* Contradiction
+* Admission
+
+If I update the timestamp, every screen updates automatically.
+
+⸻
+
+Build a Citation System
+
+Instead of manually typing statutes every time,
+
+Create a Citation Library.
+
+Examples
+
+42 U.S.C. §1983
+
+Monell
+
+First Amendment
+
+Fourth Amendment
+
+KRS statutes
+
+Agency policies
+
+Department policies
+
+Then every screen can simply reference them.
+
+⸻
+
+Build Smart Relationships
+
+The app should know that:
+
+This quote
+
+↓
+
+comes from
+
+Bodycam
+
+↓
+
+at
+
+7:43
+
+↓
+
+spoken by
+
+Scott W.
+
+↓
+
+supports
+
+Count 8
+
+↓
+
+used on
+
+Screen 5
+
+↓
+
+contradicts
+
+Driver Report
+
+I don’t want duplicated information.
+
+⸻
+
+AI should become my investigator
+
+Instead of only asking questions,
+
+AI should also ask things like:
+
+“Do you have evidence supporting that?”
+
+“Does policy mention this?”
+
+“Did another witness confirm it?”
+
+“Would this work better as a contradiction?”
+
+“This statement sounds like an admission.”
+
+“This appears to establish prior notice.”
+
+It should actively help me build the strongest presentation.
+
+⸻
+
+Future Features
+
+Design the architecture so it can eventually support:
+
+* AI transcript analysis
+* Video timestamp extraction
+* Drag-and-drop evidence
+* PDF import
+* OCR
+* Bodycam synchronization
+* Timeline generation
+* Search across an entire case
+* Multiple themes
+* PowerPoint export
+* PDF exhibit packets
+* Court presentation mode
+* AI-generated summaries
+* AI-generated timelines
+* AI-generated contradictions
+
+Do not hardcode today’s five screen types.
+
+Design this like a platform that can grow to hundreds of layouts.
+
+⸻
+
+One other feature I would add early—because I think it would become one of the app’s biggest strengths—is an “Evidence Vault.” Instead of asking you to retype quotes or facts into every screen, you’d import your videos, reports, photos, and transcripts once. Then, while building a screen, you could click “Insert Evidence,” select a quote, timestamp, image, or document excerpt, and the builder would automatically fill in the relevant fields. That avoids duplicate work and keeps every screen tied back to the original evidence, which is incredibly valuable as a case grows.

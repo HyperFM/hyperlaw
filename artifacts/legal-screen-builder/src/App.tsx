@@ -1,0 +1,754 @@
+import React, { useState, useRef } from "react";
+import { ChevronRight, ChevronLeft, AlertTriangle, Quote, Clock, User, Shield, CheckCircle, XCircle, MessageSquare, FileSearch, Camera, Plus, X, RotateCcw } from "lucide-react";
+
+const SCREEN_TYPES = [
+  {
+    id: "contradiction",
+    label: "Contradiction",
+    blurb: "Two statements that can't both be true",
+    icon: XCircle,
+  },
+  {
+    id: "quote",
+    label: "Quote Breakdown",
+    blurb: "Why one quote matters",
+    icon: Quote,
+  },
+  {
+    id: "prior_incident",
+    label: "Prior Incident",
+    blurb: "This wasn't the first time",
+    icon: Clock,
+  },
+];
+
+const FOOTER_PRESETS = [
+  "COUNT 1 • FIRST AMENDMENT",
+  "COUNT 4 • MONELL",
+  "COUNT 8 • FALSE REPORTING",
+  "42 U.S.C. § 1983",
+  "KRS 519.040(1)(d)",
+  "AGENCY POLICY",
+];
+
+const QUESTIONS: Record<string, Array<{ key: string; label: string; placeholder: string; type: string; default?: string }>> = {
+  contradiction: [
+    { key: "person", label: "Who is this screen about?", placeholder: "e.g. Supervisor Scott W.", type: "text" },
+    { key: "violation", label: "What violation/issue tag goes under their name?", placeholder: "e.g. Real-Time Fabrication", type: "text" },
+    { key: "screenNumber", label: "Screen number", placeholder: "05", type: "text", default: "01" },
+    { key: "headline", label: "Big headline (the hook)", placeholder: "e.g. Why would he assume she's lying?", type: "text" },
+    { key: "statementA", label: "Statement A — the quote", placeholder: "Exact words", type: "textarea" },
+    { key: "statementASource", label: "Who said Statement A, and source?", placeholder: "e.g. Scott W., bodycam 14:32", type: "text" },
+    { key: "statementB", label: "Statement B — the conflicting quote or fact", placeholder: "Exact words or fact", type: "textarea" },
+    { key: "statementBSource", label: "Who said/proved Statement B, and source?", placeholder: "e.g. Driver's report, GPS log", type: "text" },
+    { key: "whyConflict", label: "Why do these conflict?", placeholder: "One sharp sentence", type: "textarea" },
+    { key: "proof", label: "What proves the contradiction?", placeholder: "e.g. The bus never left the station.", type: "textarea" },
+    { key: "legalSignificance", label: "What's the legal significance?", placeholder: "e.g. This isn't investigation — it's prejudgment.", type: "textarea" },
+  ],
+  quote: [
+    { key: "person", label: "Who said the quote?", placeholder: "e.g. Supervisor Scott W.", type: "text" },
+    { key: "violation", label: "Violation/issue tag", placeholder: "e.g. Real-Time Fabrication", type: "text" },
+    { key: "screenNumber", label: "Screen number", placeholder: "05", type: "text", default: "01" },
+    { key: "headline", label: "Headline above the quote", placeholder: "e.g. Have a nice day.", type: "text" },
+    { key: "subheadline", label: "Follow-up headline (the question it raises)", placeholder: "e.g. Why did this response trigger a threat of removal?", type: "textarea" },
+    { key: "leadIn", label: "What did the other person say first?", placeholder: "e.g. Plaintiff ended the conversation by saying:", type: "text" },
+    { key: "leadInQuote", label: "Their exact words", placeholder: '"Have a nice day."', type: "text" },
+    { key: "quote", label: "The quote being broken down", placeholder: "Exact words", type: "textarea" },
+    { key: "when", label: "When was it said? Before or after what?", placeholder: "e.g. Spoken after he already had the facts.", type: "text" },
+    { key: "facts", label: "List the facts that make the quote suspicious (one per line)", placeholder: "Plaintiff did not threaten anyone\nPlaintiff did not use profanity\n...", type: "textarea" },
+    { key: "significance", label: "Why does this quote matter legally?", placeholder: "What it proves or implies", type: "textarea" },
+  ],
+  prior_incident: [
+    { key: "label", label: "Top eyebrow label", placeholder: "PRIOR DOCUMENTED INCIDENT", type: "text", default: "PRIOR DOCUMENTED INCIDENT" },
+    { key: "date", label: "Date and short tag", placeholder: "e.g. May 7, 2026 • Same Safety Issue", type: "text" },
+    { key: "screenNumber", label: "Screen number", placeholder: "04", type: "text", default: "01" },
+    { key: "headline", label: "Headline", placeholder: "This wasn't the first time.", type: "text", default: "This wasn't the first time." },
+    { key: "points", label: "Describe what happened (one bullet per line)", placeholder: "Plaintiff documented a similar safety violation weeks before...\nWhile Plaintiff was still standing at the fare box...\n...", type: "textarea" },
+    { key: "resolution", label: "How did it end? (police, supervisor, reports, preservation)", placeholder: "e.g. No supervisor was called. No police responded. Plaintiff preserved the recording.", type: "textarea" },
+  ],
+};
+
+const ICONS_CYCLE = [User, MessageSquare, Shield, CheckCircle, XCircle, FileSearch, Clock, AlertTriangle];
+
+function pickIcon(i: number) {
+  return ICONS_CYCLE[i % ICONS_CYCLE.length];
+}
+
+interface ScreenData {
+  [key: string]: string | string[];
+  footerTags: string[];
+}
+
+function ScreenFrame({ children, footer, screenNumber }: { children: React.ReactNode; footer: string[]; screenNumber?: string }) {
+  return (
+    <div
+      id="screen-canvas"
+      style={{
+        width: 1080,
+        height: 1080,
+        background: "#0a0a0a",
+        border: "3px solid #d9711f",
+        position: "relative",
+        padding: "44px 48px 36px 48px",
+        boxSizing: "border-box",
+        fontFamily: "'Arial Black', Arial, sans-serif",
+        color: "#fff",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div style={{ position: "absolute", left: 28, top: 28, bottom: 80, width: 5, background: "#d9711f" }} />
+      <div style={{ position: "absolute", top: 36, right: 44, fontSize: 40, fontWeight: 900, color: "#8a8a8a", fontFamily: "Arial, sans-serif" }}>
+        {screenNumber || "01"}
+      </div>
+      <div style={{ flex: 1, paddingLeft: 24, display: "flex", flexDirection: "column" }}>{children}</div>
+      {footer && footer.length > 0 && (
+        <div
+          style={{
+            borderTop: "1px solid #d9711f88",
+            paddingTop: 14,
+            marginLeft: 24,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 10,
+            fontFamily: "Arial, sans-serif",
+            fontSize: 16,
+            fontWeight: 700,
+            color: "#d9711f",
+            letterSpacing: 0.5,
+          }}
+        >
+          {footer.map((f, i) => (
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {i > 0 && <span style={{ color: "#666" }}>•</span>}
+              {f}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Eyebrow({ person, violation }: { person: string; violation?: string }) {
+  return (
+    <div style={{ marginBottom: 14, fontFamily: "Arial, sans-serif" }}>
+      <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 22, letterSpacing: 0.5 }}>{person}</div>
+      {violation && (
+        <div style={{ color: "#aaa", fontWeight: 700, fontSize: 15, letterSpacing: 1.5, marginTop: 2 }}>
+          {violation.toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Headline({ children, color = "#fff", size = 52 }: { children: React.ReactNode; color?: string; size?: number }) {
+  return (
+    <div
+      style={{
+        fontFamily: "'Arial Black', Arial, sans-serif",
+        fontWeight: 900,
+        fontSize: size,
+        lineHeight: 1.04,
+        color,
+        textTransform: "uppercase",
+        letterSpacing: -0.5,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Divider({ width = "100%", mt = 18, mb = 18 }: { width?: string; mt?: number; mb?: number }) {
+  return <div style={{ width, height: 2, background: "#d9711f", marginTop: mt, marginBottom: mb }} />;
+}
+
+function Block({ icon: Icon, label, sub, children }: { icon: React.ElementType; label: string; sub?: string; children: React.ReactNode; accent?: boolean }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <Icon size={20} color="#d9711f" />
+        <span style={{ fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: 14, color: "#d9711f", letterSpacing: 0.5 }}>
+          {label}
+        </span>
+        {sub && <span style={{ fontFamily: "Arial, sans-serif", fontSize: 13, color: "#888" }}>— {sub}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Quoted({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontFamily: "'Arial Black', Arial, sans-serif",
+        fontWeight: 900,
+        fontSize: 23,
+        lineHeight: 1.3,
+        textTransform: "uppercase",
+      }}
+    >
+      "{children}"
+    </div>
+  );
+}
+
+function ArrowDown() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", color: "#d9711f" }}>
+      <ChevronRight size={26} style={{ transform: "rotate(90deg)" }} />
+    </div>
+  );
+}
+
+function ContradictionScreen({ data }: { data: ScreenData }) {
+  const footer = (data.footerTags as string[]) || [];
+  return (
+    <ScreenFrame footer={footer} screenNumber={data.screenNumber as string}>
+      <Eyebrow person={(data.person as string) || "PERSON"} violation={data.violation as string} />
+      <Headline size={46}>{(data.headline as string) || "THE STATEMENTS DON'T MATCH."}</Headline>
+      <Divider mt={20} mb={22} />
+      <div style={{ display: "flex", gap: 28, flex: 1 }}>
+        <div style={{ flex: 1.3, display: "flex", flexDirection: "column", gap: 16 }}>
+          <Block icon={User} label="STATEMENT A" sub={data.statementASource as string}>
+            <Quoted>{(data.statementA as string) || "—"}</Quoted>
+          </Block>
+          <ArrowDown />
+          <Block icon={MessageSquare} label="STATEMENT B" sub={data.statementBSource as string} accent>
+            <Quoted>{(data.statementB as string) || "—"}</Quoted>
+          </Block>
+          {data.proof && (
+            <div style={{ fontFamily: "Arial, sans-serif", fontSize: 17, color: "#fff", marginTop: 6 }}>
+              <span style={{ color: "#d9711f", fontWeight: 800 }}>PROOF: </span>
+              {data.proof as string}
+            </div>
+          )}
+        </div>
+        <div style={{ width: 2, background: "#d9711f55" }} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, fontFamily: "Arial, sans-serif" }}>
+          {data.whyConflict && (
+            <div>
+              <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 16, marginBottom: 6 }}>WHY THIS CONFLICTS</div>
+              <div style={{ fontSize: 18, lineHeight: 1.4 }}>{data.whyConflict as string}</div>
+            </div>
+          )}
+          {data.legalSignificance && (
+            <div
+              style={{
+                border: "1.5px solid #d9711f",
+                borderRadius: 4,
+                padding: "14px 16px",
+                marginTop: "auto",
+                background: "#d9711f0d",
+              }}
+            >
+              <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 14, marginBottom: 6, letterSpacing: 0.5 }}>
+                LEGAL SIGNIFICANCE
+              </div>
+              <div style={{ fontSize: 17, lineHeight: 1.4, fontWeight: 700 }}>{data.legalSignificance as string}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </ScreenFrame>
+  );
+}
+
+function QuoteScreen({ data }: { data: ScreenData }) {
+  const footer = (data.footerTags as string[]) || [];
+  const facts = ((data.facts as string) || "").split("\n").map((f) => f.trim()).filter(Boolean);
+  return (
+    <ScreenFrame footer={footer} screenNumber={data.screenNumber as string}>
+      <Eyebrow person={(data.person as string) || "PERSON"} violation={data.violation as string} />
+      <Headline size={42} color="#fff">{data.headline as string}</Headline>
+      {data.subheadline && (
+        <Headline size={42} color="#d9711f">{data.subheadline as string}</Headline>
+      )}
+      <Divider mt={18} mb={18} />
+      {(data.leadIn || data.leadInQuote) && (
+        <div style={{ fontFamily: "Arial, sans-serif", fontSize: 19, marginBottom: 10 }}>
+          {data.leadIn as string} <span style={{ fontWeight: 800 }}>{data.leadInQuote as string}</span>
+        </div>
+      )}
+      {data.quote && (
+        <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+          <Quote size={36} color="#d9711f" style={{ flexShrink: 0, marginTop: 4 }} />
+          <div
+            style={{
+              fontFamily: "'Arial Black', Arial, sans-serif",
+              fontWeight: 900,
+              fontSize: 28,
+              lineHeight: 1.25,
+              textTransform: "uppercase",
+            }}
+          >
+            {data.quote as string}
+          </div>
+        </div>
+      )}
+      {data.when && (
+        <div style={{ fontFamily: "Arial, sans-serif", fontSize: 15, color: "#aaa", marginBottom: 18 }}>
+          {data.when as string}
+        </div>
+      )}
+      <Divider mt={0} mb={18} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
+        {facts.map((f, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start", fontFamily: "Arial, sans-serif" }}>
+            <CheckCircle size={22} color="#d9711f" style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontSize: 18, lineHeight: 1.3 }}>{f}</span>
+          </div>
+        ))}
+      </div>
+      {data.significance && (
+        <div
+          style={{
+            border: "1.5px solid #d9711f",
+            borderRadius: 4,
+            padding: "14px 16px",
+            marginTop: 14,
+            background: "#d9711f0d",
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 14, marginBottom: 6, letterSpacing: 0.5 }}>
+            WHY THIS MATTERS
+          </div>
+          <div style={{ fontSize: 17, lineHeight: 1.4, fontWeight: 700 }}>{data.significance as string}</div>
+        </div>
+      )}
+    </ScreenFrame>
+  );
+}
+
+function PriorIncidentScreen({ data }: { data: ScreenData }) {
+  const footer = (data.footerTags as string[]) || [];
+  const points = ((data.points as string) || "").split("\n").map((p) => p.trim()).filter(Boolean);
+  return (
+    <ScreenFrame footer={footer} screenNumber={data.screenNumber as string}>
+      <div style={{ fontFamily: "Arial, sans-serif", marginBottom: 14 }}>
+        <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 20, letterSpacing: 0.5 }}>
+          {(data.label as string) || "PRIOR DOCUMENTED INCIDENT"}
+        </div>
+        {data.date && <div style={{ color: "#aaa", fontWeight: 700, fontSize: 15, marginTop: 2 }}>{data.date as string}</div>}
+      </div>
+      <Headline size={48}>{(data.headline as string) || "This wasn't the first time."}</Headline>
+      <Divider mt={20} mb={26} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
+        {points.map((p, i) => {
+          const Icon = pickIcon(i);
+          return (
+            <div key={i} style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+              <div
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: "50%",
+                  border: "2px solid #d9711f",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  color: "#d9711f",
+                }}
+              >
+                <Icon size={22} />
+              </div>
+              <div style={{ fontFamily: "Arial, sans-serif", fontSize: 19, lineHeight: 1.4, paddingTop: 8 }}>{p}</div>
+            </div>
+          );
+        })}
+      </div>
+      {data.resolution && (
+        <div style={{ fontFamily: "Arial, sans-serif", fontSize: 17, lineHeight: 1.4, marginTop: 14, color: "#ddd" }}>
+          {data.resolution as string}
+        </div>
+      )}
+    </ScreenFrame>
+  );
+}
+
+const RENDERERS: Record<string, React.ComponentType<{ data: ScreenData }>> = {
+  contradiction: ContradictionScreen,
+  quote: QuoteScreen,
+  prior_incident: PriorIncidentScreen,
+};
+
+export default function App() {
+  const [stage, setStage] = useState<"select" | "questions" | "result">("select");
+  const [screenType, setScreenType] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [qIndex, setQIndex] = useState(0);
+  const [footerTags, setFooterTags] = useState<string[]>([]);
+  const [customTag, setCustomTag] = useState("");
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+
+  const questions = screenType ? QUESTIONS[screenType] : [];
+  const currentQ = questions[qIndex];
+
+  function startType(id: string) {
+    setScreenType(id);
+    const defaults: Record<string, string> = {};
+    QUESTIONS[id].forEach((q) => {
+      if (q.default) defaults[q.key] = q.default;
+    });
+    setAnswers(defaults);
+    setQIndex(0);
+    setFooterTags([]);
+    setStage("questions");
+  }
+
+  function setAnswer(key: string, val: string) {
+    setAnswers((a) => ({ ...a, [key]: val }));
+  }
+
+  function next() {
+    if (qIndex < questions.length - 1) setQIndex(qIndex + 1);
+    else setStage("result");
+  }
+
+  function back() {
+    if (qIndex > 0) setQIndex(qIndex - 1);
+    else setStage("select");
+  }
+
+  function toggleFooterTag(tag: string) {
+    setFooterTags((tags) => (tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag]));
+  }
+
+  function addCustomTag() {
+    if (customTag.trim()) {
+      setFooterTags((tags) => [...tags, customTag.trim().toUpperCase()]);
+      setCustomTag("");
+    }
+  }
+
+  function resetAll() {
+    setStage("select");
+    setScreenType(null);
+    setAnswers({});
+    setQIndex(0);
+    setFooterTags([]);
+  }
+
+  const Renderer = screenType ? RENDERERS[screenType] : null;
+  const previewData: ScreenData = { ...answers, footerTags };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#161616", color: "#fff", fontFamily: "Arial, sans-serif" }}>
+      {/* Header */}
+      <div
+        style={{
+          borderBottom: "1px solid #2a2a2a",
+          padding: "16px 28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 10, height: 10, background: "#d9711f", borderRadius: 2 }} />
+          <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: 0.5 }}>LEGAL SCREEN BUILDER</span>
+        </div>
+        {stage !== "select" && (
+          <button
+            onClick={resetAll}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "transparent",
+              border: "1px solid #444",
+              color: "#aaa",
+              borderRadius: 6,
+              padding: "8px 14px",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <RotateCcw size={14} /> New Screen
+          </button>
+        )}
+      </div>
+
+      {/* Select stage */}
+      {stage === "select" && (
+        <div style={{ maxWidth: 880, margin: "0 auto", padding: "60px 24px" }}>
+          <h1 style={{ fontSize: 34, fontWeight: 900, marginBottom: 8 }}>Choose a screen type</h1>
+          <p style={{ color: "#999", marginBottom: 36, fontSize: 16 }}>
+            Answer a few guided questions while watching your evidence screen build itself in real time.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+            {SCREEN_TYPES.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => startType(t.id)}
+                  style={{
+                    background: "#1d1d1d",
+                    border: "1px solid #333",
+                    borderRadius: 10,
+                    padding: 24,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    color: "#fff",
+                    transition: "border-color 0.15s",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#d9711f")}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#333")}
+                >
+                  <Icon size={26} color="#d9711f" style={{ marginBottom: 14 }} />
+                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>{t.label}</div>
+                  <div style={{ color: "#999", fontSize: 14 }}>{t.blurb}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 40, padding: 18, border: "1px dashed #333", borderRadius: 10, color: "#777", fontSize: 14 }}>
+            More screen types (Timeline, Policy Violation, Admission, Pattern, Investigation Failure, etc.) coming next — these three cover your most-used formats first.
+          </div>
+        </div>
+      )}
+
+      {/* Questions stage */}
+      {stage === "questions" && currentQ && Renderer && (
+        <div style={{ display: "flex", minHeight: "calc(100vh - 65px)" }}>
+          <div style={{ width: 440, flexShrink: 0, borderRight: "1px solid #2a2a2a", padding: "36px 32px", display: "flex", flexDirection: "column" }}>
+            <div style={{ color: "#d9711f", fontWeight: 800, fontSize: 13, letterSpacing: 1, marginBottom: 8 }}>
+              QUESTION {qIndex + 1} OF {questions.length}
+            </div>
+            <div style={{ width: "100%", height: 4, background: "#2a2a2a", borderRadius: 2, marginBottom: 28 }}>
+              <div
+                style={{
+                  width: `${((qIndex + 1) / questions.length) * 100}%`,
+                  height: "100%",
+                  background: "#d9711f",
+                  borderRadius: 2,
+                  transition: "width 0.2s",
+                }}
+              />
+            </div>
+
+            <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 18, lineHeight: 1.3 }}>{currentQ.label}</div>
+
+            {currentQ.type === "textarea" ? (
+              <textarea
+                autoFocus
+                value={answers[currentQ.key] || ""}
+                onChange={(e) => setAnswer(currentQ.key, e.target.value)}
+                placeholder={currentQ.placeholder}
+                rows={6}
+                style={{
+                  background: "#1d1d1d",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  padding: 14,
+                  color: "#fff",
+                  fontSize: 15,
+                  fontFamily: "Arial, sans-serif",
+                  resize: "vertical",
+                  outline: "none",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "#d9711f")}
+                onBlur={(e) => (e.target.style.borderColor = "#333")}
+              />
+            ) : (
+              <input
+                autoFocus
+                value={answers[currentQ.key] || ""}
+                onChange={(e) => setAnswer(currentQ.key, e.target.value)}
+                placeholder={currentQ.placeholder}
+                style={{
+                  background: "#1d1d1d",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  padding: 14,
+                  color: "#fff",
+                  fontSize: 15,
+                  fontFamily: "Arial, sans-serif",
+                  outline: "none",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "#d9711f")}
+                onBlur={(e) => (e.target.style.borderColor = "#333")}
+                onKeyDown={(e) => e.key === "Enter" && next()}
+              />
+            )}
+
+            <div style={{ marginTop: "auto", display: "flex", gap: 10, paddingTop: 28 }}>
+              <button
+                onClick={back}
+                style={{
+                  flex: "0 0 auto",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "transparent",
+                  border: "1px solid #444",
+                  color: "#ccc",
+                  borderRadius: 8,
+                  padding: "12px 18px",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                <ChevronLeft size={16} /> Back
+              </button>
+              <button
+                onClick={next}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  background: "#d9711f",
+                  border: "none",
+                  color: "#0a0a0a",
+                  borderRadius: 8,
+                  padding: "12px 18px",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                {qIndex === questions.length - 1 ? "Build Screen" : "Next"} <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, overflow: "auto", background: "#111" }}>
+            <div style={{ transform: "scale(0.5)", transformOrigin: "center" }}>
+              <Renderer data={previewData} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Result stage */}
+      {stage === "result" && Renderer && (
+        <div style={{ display: "flex", minHeight: "calc(100vh - 65px)" }}>
+          <div style={{ width: 360, flexShrink: 0, borderRight: "1px solid #2a2a2a", padding: "32px 28px", overflowY: "auto" }}>
+            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Legal footer tags</div>
+            <div style={{ color: "#999", fontSize: 13, marginBottom: 18 }}>Select the counts/statutes that apply.</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+              {FOOTER_PRESETS.map((tag) => (
+                <label key={tag} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={footerTags.includes(tag)}
+                    onChange={() => toggleFooterTag(tag)}
+                    style={{ accentColor: "#d9711f", width: 16, height: 16 }}
+                  />
+                  {tag}
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+              <input
+                value={customTag}
+                onChange={(e) => setCustomTag(e.target.value)}
+                placeholder="Custom tag"
+                onKeyDown={(e) => e.key === "Enter" && addCustomTag()}
+                style={{
+                  flex: 1,
+                  background: "#1d1d1d",
+                  border: "1px solid #333",
+                  borderRadius: 6,
+                  padding: "9px 10px",
+                  color: "#fff",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+              <button
+                onClick={addCustomTag}
+                style={{ background: "#2a2a2a", border: "1px solid #444", borderRadius: 6, padding: "0 12px", color: "#fff", cursor: "pointer" }}
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+
+            {footerTags.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 28 }}>
+                {footerTags.map((t) => (
+                  <span
+                    key={t}
+                    onClick={() => toggleFooterTag(t)}
+                    style={{
+                      background: "#d9711f22",
+                      border: "1px solid #d9711f",
+                      color: "#d9711f",
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    {t} <X size={11} />
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => setStage("questions")}
+              style={{
+                width: "100%",
+                background: "transparent",
+                border: "1px solid #444",
+                color: "#ccc",
+                borderRadius: 8,
+                padding: "12px",
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: "pointer",
+                marginBottom: 10,
+              }}
+            >
+              Edit Answers
+            </button>
+
+            <div
+              style={{
+                marginTop: 20,
+                padding: 14,
+                background: "#1d1d1d",
+                border: "1px solid #333",
+                borderRadius: 8,
+                color: "#999",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <Camera size={16} color="#d9711f" style={{ marginBottom: 6 }} />
+              <br />
+              Use your device's screenshot tool on the screen at right for a clean 1:1 capture — trim to the orange border.
+            </div>
+          </div>
+
+          <div
+            style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, overflow: "auto", background: "#111" }}
+            ref={canvasWrapRef}
+          >
+            <div style={{ transform: "scale(0.62)", transformOrigin: "center" }}>
+              <Renderer data={previewData} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -5,15 +5,54 @@ import {
   Video, FileText, Mic, Image, File, BookOpen, Scale, Clock, XCircle,
   Quote, Check, Layers,
 } from "lucide-react";
-import { Block, BlockType, ChatEntry, DataMap, Evidence, EvidenceType, Project, Screen, ScreenType, BLOCK_FIELDS } from "./types";
-import { loadProject, saveProject, addScreen, updateScreen, deleteScreen, updateBlock, addBlock, removeBlock, moveBlock, addEvidence, deleteEvidence, addCitation, deleteCitation } from "./store";
+import {
+  Block, BlockType, DataMap, Evidence, EvidenceType,
+  Project, Screen, ScreenType, BLOCK_FIELDS,
+} from "./types";
+import {
+  loadProject, saveProject,
+  addScreen, updateScreen, deleteScreen,
+  updateBlock, addBlock, removeBlock, moveBlock,
+  addEvidence, deleteEvidence, addCitation, deleteCitation,
+} from "./store";
 import { TREES, detectSuggestion, buildScreen, newBlock } from "./engine";
 import { BlockCanvas } from "./BlockCanvas";
 
 const ORANGE = "#d9711f";
 
-// ─── Screen type definitions ──────────────────────────────────────────────────
+// ─── Conversation state (lifted to App so it survives re-renders) ─────────────
+interface ConvState {
+  nodeId: string;
+  data: DataMap;
+  history: { nodeId: string; nodeKey: string; question: string; answer: string }[];
+  input: string;
+}
+const FRESH_CONV: ConvState = { nodeId: "start", data: {}, history: [], input: "" };
 
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+interface EBState { error: string | null }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode; onReset?: () => void }, EBState> {
+  state: EBState = { error: null };
+  static getDerivedStateFromError(err: Error): EBState { return { error: err.message }; }
+  componentDidCatch(err: Error, info: React.ErrorInfo) { console.error("[LSB Error]", err.message, info.componentStack); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, color: "#fff" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: ORANGE, marginBottom: 12 }}>Something went wrong</div>
+          <pre style={{ fontFamily: "monospace", fontSize: 12, color: "#777", maxWidth: 540, textAlign: "center", whiteSpace: "pre-wrap", marginBottom: 24, lineHeight: 1.5 }}>{this.state.error}</pre>
+          <button onClick={() => { this.setState({ error: null }); this.props.onReset?.(); }}
+            style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "10px 22px", color: "#000", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+            Go Back to Screens
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ─── Screen type definitions ──────────────────────────────────────────────────
 const SCREEN_TYPES: { id: ScreenType; label: string; blurb: string; icon: React.ElementType }[] = [
   { id: "contradiction", label: "Contradiction", blurb: "Two statements that can't both be true", icon: XCircle },
   { id: "quote", label: "Quote Breakdown", blurb: "Why one quote matters", icon: Quote },
@@ -39,18 +78,16 @@ const BLOCK_TYPES: { type: BlockType; label: string }[] = [
 ];
 
 const EVIDENCE_ICONS: Record<EvidenceType, React.ElementType> = {
-  bodycam: Video,
-  report: FileText,
-  statement: Mic,
-  document: File,
-  photo: Image,
-  other: FileSearch,
+  bodycam: Video, report: FileText, statement: Mic,
+  document: File, photo: Image, other: FileSearch,
 };
 
-// ─── Shared UI primitives ─────────────────────────────────────────────────────
-
-function Btn({ children, onClick, variant = "ghost", style: ext }: { children: React.ReactNode; onClick: () => void; variant?: "orange" | "ghost" | "danger"; style?: React.CSSProperties }) {
-  const base: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, borderRadius: 7, padding: "9px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", border: "none" };
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+function Btn({ children, onClick, variant = "ghost", style: ext }: {
+  children: React.ReactNode; onClick: () => void;
+  variant?: "orange" | "ghost" | "danger"; style?: React.CSSProperties;
+}) {
+  const base: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, borderRadius: 7, padding: "9px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", border: "none", fontFamily: "Arial, sans-serif" };
   const vars: Record<string, React.CSSProperties> = {
     orange: { background: ORANGE, color: "#0a0a0a" },
     ghost: { background: "transparent", border: "1px solid #444", color: "#ccc" },
@@ -64,10 +101,8 @@ function Panel({ children, style: ext }: { children: React.ReactNode; style?: Re
 }
 
 function FieldInput({ label, value, type = "text", onChange, evidenceItems, onInsertEvidence }: {
-  label: string; value: string; type?: string;
-  onChange: (v: string) => void;
-  evidenceItems?: Evidence[];
-  onInsertEvidence?: (e: Evidence) => void;
+  label: string; value: string; type?: string; onChange: (v: string) => void;
+  evidenceItems?: Evidence[]; onInsertEvidence?: (e: Evidence) => void;
 }) {
   const [showVault, setShowVault] = useState(false);
   const inputStyle: React.CSSProperties = { background: "#111", border: "1px solid #333", borderRadius: 6, padding: "8px 10px", color: "#fff", fontSize: 14, fontFamily: "Arial, sans-serif", outline: "none", width: "100%", boxSizing: "border-box" };
@@ -76,28 +111,24 @@ function FieldInput({ label, value, type = "text", onChange, evidenceItems, onIn
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <label style={{ fontSize: 12, color: "#888", fontWeight: 700, letterSpacing: 0.5 }}>{label.toUpperCase()}</label>
         {evidenceItems && evidenceItems.length > 0 && (
-          <button onClick={() => setShowVault(v => !v)} style={{ background: "none", border: "none", color: ORANGE, fontSize: 11, fontWeight: 700, cursor: "pointer", letterSpacing: 0.3 }}>
-            ⬆ FROM VAULT
-          </button>
+          <button onClick={() => setShowVault(v => !v)} style={{ background: "none", border: "none", color: ORANGE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>⬆ FROM VAULT</button>
         )}
       </div>
-      {type === "textarea" ? (
-        <textarea value={value} onChange={e => onChange(e.target.value)} rows={4}
-          style={{ ...inputStyle, resize: "vertical" }}
-          onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-      ) : (
-        <input value={value} onChange={e => onChange(e.target.value)}
-          style={inputStyle}
-          onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-      )}
+      {type === "textarea"
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4}
+            style={{ ...inputStyle, resize: "vertical" }}
+            onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
+        : <input value={value} onChange={e => onChange(e.target.value)}
+            style={inputStyle}
+            onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
+      }
       {showVault && evidenceItems && (
         <div style={{ marginTop: 6, background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 6, overflow: "hidden" }}>
           {evidenceItems.map(e => (
             <button key={e.id} onClick={() => { onInsertEvidence?.(e); setShowVault(false); }}
               style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #222", padding: "8px 10px", textAlign: "left", color: "#ddd", cursor: "pointer", fontSize: 13 }}
               onMouseEnter={ev => (ev.currentTarget.style.background = "#1e1e1e")}
-              onMouseLeave={ev => (ev.currentTarget.style.background = "none")}
-            >
+              onMouseLeave={ev => (ev.currentTarget.style.background = "none")}>
               <div style={{ fontWeight: 700, color: ORANGE, marginBottom: 2 }}>{e.label}</div>
               <div style={{ color: "#888", fontSize: 12 }}>{e.content.slice(0, 80)}{e.content.length > 80 ? "…" : ""}</div>
             </button>
@@ -109,38 +140,27 @@ function FieldInput({ label, value, type = "text", onChange, evidenceItems, onIn
 }
 
 // ─── Block editor panel ───────────────────────────────────────────────────────
-
 function BlockEditorPanel({ screen, selectedId, evidence, onUpdateBlock, onSelectBlock, onAddBlock, onRemoveBlock, onMoveBlock }: {
-  screen: Screen;
-  selectedId: string | null;
-  evidence: Evidence[];
-  onUpdateBlock: (b: Block) => void;
-  onSelectBlock: (id: string | null) => void;
+  screen: Screen; selectedId: string | null; evidence: Evidence[];
+  onUpdateBlock: (b: Block) => void; onSelectBlock: (id: string | null) => void;
   onAddBlock: (type: BlockType, afterId?: string) => void;
-  onRemoveBlock: (id: string) => void;
-  onMoveBlock: (id: string, dir: "up" | "down") => void;
+  onRemoveBlock: (id: string) => void; onMoveBlock: (id: string, dir: "up" | "down") => void;
 }) {
   const selectedBlock = screen.blocks.find(b => b.id === selectedId) || null;
-  const fields = selectedBlock ? BLOCK_FIELDS[selectedBlock.type] : [];
+  const fields = selectedBlock ? (BLOCK_FIELDS[selectedBlock.type] ?? []) : [];
   const [showAddMenu, setShowAddMenu] = useState(false);
 
   function updateField(key: string, val: string) {
     if (!selectedBlock) return;
     onUpdateBlock({ ...selectedBlock, data: { ...selectedBlock.data, [key]: val } });
   }
-
   function getEvidenceForField(key: string): Evidence[] {
     if (!["quote", "content", "contentA", "contentB", "policyContent", "actualContent", "items"].includes(key)) return [];
     return evidence;
   }
 
-  function insertEvidence(key: string, e: Evidence) {
-    updateField(key, e.content + (e.timestamp ? ` [${e.timestamp}]` : ""));
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
-      {/* Block list */}
       <div style={{ borderBottom: "1px solid #2a2a2a", padding: "16px 20px" }}>
         <div style={{ fontSize: 11, color: "#666", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>BLOCKS</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -148,17 +168,14 @@ function BlockEditorPanel({ screen, selectedId, evidence, onUpdateBlock, onSelec
             <div key={b.id} onClick={() => onSelectBlock(b.id === selectedId ? null : b.id)}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 6, background: b.id === selectedId ? "#d9711f22" : "#111", border: `1px solid ${b.id === selectedId ? ORANGE : "#2a2a2a"}`, cursor: "pointer" }}>
               <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: b.id === selectedId ? ORANGE : "#bbb", letterSpacing: 0.3 }}>
-                {BLOCK_TYPES.find(t => t.type === b.type)?.label || b.type}
+                {BLOCK_TYPES.find(t => t.type === b.type)?.label ?? b.type}
               </span>
-              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "up"); }} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }} disabled={idx === 0}>
-                <ChevronUp size={13} />
-              </button>
-              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "down"); }} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }} disabled={idx === screen.blocks.length - 1}>
-                <ChevronDown size={13} />
-              </button>
-              <button onClick={ev => { ev.stopPropagation(); onRemoveBlock(b.id); }} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}>
-                <X size={13} />
-              </button>
+              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "up"); }} disabled={idx === 0}
+                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}><ChevronUp size={13} /></button>
+              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "down"); }} disabled={idx === screen.blocks.length - 1}
+                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}><ChevronDown size={13} /></button>
+              <button onClick={ev => { ev.stopPropagation(); onRemoveBlock(b.id); }}
+                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}><X size={13} /></button>
             </div>
           ))}
         </div>
@@ -173,8 +190,7 @@ function BlockEditorPanel({ screen, selectedId, evidence, onUpdateBlock, onSelec
                 <button key={t.type} onClick={() => { onAddBlock(t.type, selectedId || undefined); setShowAddMenu(false); }}
                   style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #1a1a1a", padding: "8px 12px", textAlign: "left", color: "#ccc", fontSize: 12, cursor: "pointer" }}
                   onMouseEnter={e => (e.currentTarget.style.color = ORANGE)}
-                  onMouseLeave={e => (e.currentTarget.style.color = "#ccc")}
-                >
+                  onMouseLeave={e => (e.currentTarget.style.color = "#ccc")}>
                   {t.label}
                 </button>
               ))}
@@ -183,57 +199,47 @@ function BlockEditorPanel({ screen, selectedId, evidence, onUpdateBlock, onSelec
         </div>
       </div>
 
-      {/* Field editor */}
       {selectedBlock && fields.length > 0 && (
         <div style={{ padding: "16px 20px" }}>
           <div style={{ fontSize: 11, color: "#666", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>
             EDIT · {BLOCK_TYPES.find(t => t.type === selectedBlock.type)?.label?.toUpperCase()}
           </div>
           {fields.map(f => (
-            <FieldInput
-              key={f.key}
-              label={f.label}
-              value={selectedBlock.data[f.key] || ""}
+            <FieldInput key={f.key} label={f.label} value={selectedBlock.data[f.key] ?? ""}
               type={f.type === "textarea" ? "textarea" : "text"}
               onChange={v => updateField(f.key, v)}
               evidenceItems={getEvidenceForField(f.key)}
-              onInsertEvidence={e => insertEvidence(f.key, e)}
-            />
+              onInsertEvidence={e => updateField(f.key, e.content + (e.timestamp ? ` [${e.timestamp}]` : ""))} />
           ))}
         </div>
       )}
-
       {selectedBlock && fields.length === 0 && (
-        <div style={{ padding: "16px 20px", color: "#555", fontSize: 13 }}>
-          This block has no editable fields.
-        </div>
+        <div style={{ padding: "16px 20px", color: "#555", fontSize: 13 }}>This block has no editable fields.</div>
       )}
-
       {!selectedBlock && (
-        <div style={{ padding: "20px", color: "#555", fontSize: 13, lineHeight: 1.6 }}>
-          Click any block on the canvas to edit it.
-        </div>
+        <div style={{ padding: "20px", color: "#555", fontSize: 13, lineHeight: 1.6 }}>Click any block on the canvas to select and edit it.</div>
       )}
     </div>
   );
 }
 
 // ─── Evidence Vault panel ─────────────────────────────────────────────────────
-
-function EvidenceVaultPanel({ evidence, onAdd, onDelete }: { evidence: Evidence[]; onAdd: (e: Evidence) => void; onDelete: (id: string) => void }) {
+function EvidenceVaultPanel({ evidence, onAdd, onDelete }: {
+  evidence: Evidence[]; onAdd: (e: Evidence) => void; onDelete: (id: string) => void;
+}) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<Partial<Evidence>>({ type: "bodycam" });
 
   function submit() {
     if (!form.label || !form.content) return;
-    onAdd({ id: crypto.randomUUID(), type: form.type || "other", label: form.label, source: form.source || "", content: form.content, timestamp: form.timestamp });
-    setForm({ type: "bodycam" });
-    setAdding(false);
+    onAdd({ id: crypto.randomUUID(), type: form.type ?? "other", label: form.label, source: form.source ?? "", content: form.content, timestamp: form.timestamp });
+    setForm({ type: "bodycam" }); setAdding(false);
   }
 
   const EV_TYPES: { value: EvidenceType; label: string }[] = [
-    { value: "bodycam", label: "Bodycam" }, { value: "report", label: "Report" }, { value: "statement", label: "Statement" },
-    { value: "document", label: "Document" }, { value: "photo", label: "Photo" }, { value: "other", label: "Other" },
+    { value: "bodycam", label: "Bodycam" }, { value: "report", label: "Report" },
+    { value: "statement", label: "Statement" }, { value: "document", label: "Document" },
+    { value: "photo", label: "Photo" }, { value: "other", label: "Other" },
   ];
 
   return (
@@ -245,7 +251,6 @@ function EvidenceVaultPanel({ evidence, onAdd, onDelete }: { evidence: Evidence[
         </div>
         <Btn onClick={() => setAdding(v => !v)} variant="orange"><Plus size={14} /> Add</Btn>
       </div>
-
       {adding && (
         <Panel style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ marginBottom: 10 }}>
@@ -255,26 +260,22 @@ function EvidenceVaultPanel({ evidence, onAdd, onDelete }: { evidence: Evidence[
               {EV_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
-          <FieldInput label="Label (e.g. Bodycam – June 3)" value={form.label || ""} onChange={v => setForm(f => ({ ...f, label: v }))} />
-          <FieldInput label="Source (officer name, report #, etc.)" value={form.source || ""} onChange={v => setForm(f => ({ ...f, source: v }))} />
-          {form.type === "bodycam" && <FieldInput label="Timestamp" value={form.timestamp || ""} onChange={v => setForm(f => ({ ...f, timestamp: v }))} />}
-          <FieldInput label="Content (quote, description, or excerpt)" value={form.content || ""} type="textarea" onChange={v => setForm(f => ({ ...f, content: v }))} />
+          <FieldInput label="Label" value={form.label ?? ""} onChange={v => setForm(f => ({ ...f, label: v }))} />
+          <FieldInput label="Source" value={form.source ?? ""} onChange={v => setForm(f => ({ ...f, source: v }))} />
+          {form.type === "bodycam" && <FieldInput label="Timestamp" value={form.timestamp ?? ""} onChange={v => setForm(f => ({ ...f, timestamp: v }))} />}
+          <FieldInput label="Content" value={form.content ?? ""} type="textarea" onChange={v => setForm(f => ({ ...f, content: v }))} />
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <Btn onClick={submit} variant="orange"><Check size={13} /> Save</Btn>
             <Btn onClick={() => setAdding(false)}>Cancel</Btn>
           </div>
         </Panel>
       )}
-
       {evidence.length === 0 && !adding && (
-        <div style={{ color: "#555", fontSize: 13, lineHeight: 1.6 }}>
-          No evidence yet. Add items from your bodycam footage, reports, and statements — then insert them directly into any screen while building.
-        </div>
+        <div style={{ color: "#555", fontSize: 13, lineHeight: 1.6 }}>No evidence yet. Add items from your bodycam footage, reports, and statements — then insert them while building screens.</div>
       )}
-
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {evidence.map(e => {
-          const Icon = EVIDENCE_ICONS[e.type] || File;
+          const Icon = EVIDENCE_ICONS[e.type] ?? File;
           return (
             <Panel key={e.id} style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -284,9 +285,7 @@ function EvidenceVaultPanel({ evidence, onAdd, onDelete }: { evidence: Evidence[
                   {e.source && <div style={{ color: "#888", fontSize: 12 }}>{e.source}{e.timestamp ? ` · ${e.timestamp}` : ""}</div>}
                   <div style={{ color: "#bbb", fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>{e.content.slice(0, 120)}{e.content.length > 120 ? "…" : ""}</div>
                 </div>
-                <button onClick={() => onDelete(e.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}>
-                  <Trash2 size={13} />
-                </button>
+                <button onClick={() => onDelete(e.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}><Trash2 size={13} /></button>
               </div>
             </Panel>
           );
@@ -297,7 +296,6 @@ function EvidenceVaultPanel({ evidence, onAdd, onDelete }: { evidence: Evidence[
 }
 
 // ─── Citation Library panel ───────────────────────────────────────────────────
-
 function CitationLibraryPanel({ citations, onAdd, onDelete, screenCitations, onToggle }: {
   citations: Project["citations"]; onAdd: (label: string) => void; onDelete: (id: string) => void;
   screenCitations?: string[]; onToggle?: (label: string) => void;
@@ -309,11 +307,9 @@ function CitationLibraryPanel({ citations, onAdd, onDelete, screenCitations, onT
     <div style={{ padding: "20px" }}>
       <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Citation Library</div>
       <div style={{ color: "#777", fontSize: 12, marginBottom: 16 }}>Save once — add to any screen footer.</div>
-
       {onToggle && screenCitations !== undefined && (
         <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>ACTIVE ON THIS SCREEN</div>
       )}
-
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
         {citations.map(c => {
           const active = screenCitations?.includes(c.label);
@@ -327,15 +323,12 @@ function CitationLibraryPanel({ citations, onAdd, onDelete, screenCitations, onT
               )}
               <span style={{ flex: 1, fontSize: 13, color: active ? "#fff" : "#bbb" }}>{c.label}</span>
               {!c.builtin && (
-                <button onClick={() => onDelete(c.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}>
-                  <X size={12} />
-                </button>
+                <button onClick={() => onDelete(c.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 2 }}><X size={12} /></button>
               )}
             </div>
           );
         })}
       </div>
-
       <div style={{ display: "flex", gap: 8 }}>
         <input value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()}
           placeholder="Add custom citation…"
@@ -349,72 +342,76 @@ function CitationLibraryPanel({ citations, onAdd, onDelete, screenCitations, onT
 }
 
 // ─── Conversation view ────────────────────────────────────────────────────────
-
-function ConversationView({ screenType, evidence, onComplete, onBack }: {
+// NOTE: all conversation progress lives in App state so remounting never resets it.
+function ConversationView({ screenType, evidence, conv, onConvChange, onComplete, onBack }: {
   screenType: ScreenType; evidence: Evidence[];
+  conv: ConvState; onConvChange: (c: ConvState) => void;
   onComplete: (data: DataMap) => void; onBack: () => void;
 }) {
   const tree = TREES[screenType];
-  const [currentNodeId, setCurrentNodeId] = useState("start");
-  const [data, setData] = useState<DataMap>({});
-  const [input, setInput] = useState("");
-  const [history, setHistory] = useState<ChatEntry[]>([]);
+  // Defensive: if nodeId is somehow invalid, fall back to "start"
+  const node = tree[conv.nodeId] ?? tree["start"];
   const [suggestion, setSuggestion] = useState<ScreenType | null>(null);
   const [dismissed, setDismissed] = useState<ScreenType | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const node = tree[currentNodeId];
-  const progress = Object.keys(tree).findIndex(k => k === currentNodeId) + 1;
+  const progress = Math.max(1, Object.keys(tree).findIndex(k => k === conv.nodeId) + 1);
   const total = Object.keys(tree).length;
-  const typeDef = SCREEN_TYPES.find(t => t.id === screenType);
 
   useEffect(() => {
     if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
-  }, [history]);
+  }, [conv.history]);
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, [currentNodeId]);
+    const id = setTimeout(() => {
+      if (node.type === "textarea") textareaRef.current?.focus();
+      else if (node.type === "text") inputRef.current?.focus();
+    }, 60);
+    return () => clearTimeout(id);
+  }, [conv.nodeId, node.type]);
 
-  function submitAnswer(raw?: string) {
-    const answer = (raw ?? input).trim();
-    const newData = { ...data, [node.key]: answer };
-    setData(newData);
-    setHistory(h => [...h, { nodeId: node.id, question: node.question, answer }]);
-    setInput("");
+  function advance(answer: string, nodeId: string, nodeKey: string, question: string) {
+    const newData = { ...conv.data, [nodeKey]: answer };
+    const newHistory = [...conv.history, { nodeId, nodeKey, question, answer }];
 
     const detected = detectSuggestion(newData, screenType);
     if (detected && detected !== dismissed) setSuggestion(detected);
 
-    const nextId = typeof node.next === "function" ? node.next(answer, newData) : node.next;
-    if (nextId === null) { onComplete(newData); }
-    else setCurrentNodeId(nextId);
+    let nextId: string | null;
+    try {
+      nextId = typeof node.next === "function" ? node.next(answer, newData) : node.next;
+    } catch {
+      nextId = null;
+    }
+
+    if (nextId === null) {
+      onConvChange({ ...conv, data: newData, history: newHistory, input: "" });
+      onComplete(newData);
+    } else {
+      onConvChange({ nodeId: nextId, data: newData, history: newHistory, input: "" });
+    }
+  }
+
+  function submitAnswer(raw?: string) {
+    const answer = (raw !== undefined ? raw : conv.input).trim();
+    advance(answer, node.id, node.key, node.question);
   }
 
   function choiceSubmit(label: string, value: string) {
-    const newData = { ...data, [node.key]: value };
-    setData(newData);
-    setHistory(h => [...h, { nodeId: node.id, question: node.question, answer: label }]);
-    setInput("");
-
-    const detected = detectSuggestion(newData, screenType);
-    if (detected && detected !== dismissed) setSuggestion(detected);
-
-    const nextId = typeof node.next === "function" ? node.next(value, newData) : node.next;
-    if (nextId === null) { onComplete(newData); }
-    else setCurrentNodeId(nextId);
+    advance(value, node.id, node.key, node.question);
+    // We pass the choice label as the displayed answer but value as the data value
+    // advance uses value; override history display label by patching after
   }
 
   function goBack() {
-    if (history.length === 0) { onBack(); return; }
-    const prev = history[history.length - 1];
-    setHistory(h => h.slice(0, -1));
-    const newData = { ...data };
-    delete newData[prev.nodeId];
-    setData(newData);
-    setCurrentNodeId(prev.nodeId);
-    setInput(prev.answer);
+    if (conv.history.length === 0) { onBack(); return; }
+    const prev = conv.history[conv.history.length - 1];
+    const newHistory = conv.history.slice(0, -1);
+    const newData = { ...conv.data };
+    delete newData[prev.nodeKey]; // Use stored nodeKey (the data key, not tree key)
+    onConvChange({ nodeId: prev.nodeId, data: newData, history: newHistory, input: prev.answer });
   }
 
   const sugDef = suggestion ? SCREEN_TYPES.find(t => t.id === suggestion) : null;
@@ -422,38 +419,58 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
     !node.evidenceTypes || node.evidenceTypes.length === 0 || node.evidenceTypes.includes(e.type)
   );
 
-  // Build preview data from current conversation answers
-  const previewData: DataMap = data;
+  // For choice nodes, use a custom advance that shows the label (not value) in history
+  function choiceAdvance(label: string, value: string) {
+    const newData = { ...conv.data, [node.key]: value };
+    const newHistory = [...conv.history, { nodeId: node.id, nodeKey: node.key, question: node.question, answer: label }];
+
+    const detected = detectSuggestion(newData, screenType);
+    if (detected && detected !== dismissed) setSuggestion(detected);
+
+    let nextId: string | null;
+    try {
+      nextId = typeof node.next === "function" ? node.next(value, newData) : node.next;
+    } catch {
+      nextId = null;
+    }
+
+    if (nextId === null) {
+      onConvChange({ ...conv, data: newData, history: newHistory, input: "" });
+      onComplete(newData);
+    } else {
+      onConvChange({ nodeId: nextId, data: newData, history: newHistory, input: "" });
+    }
+  }
 
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
       {/* Left: conversation */}
-      <div style={{ width: 460, flexShrink: 0, borderRight: "1px solid #2a2a2a", display: "flex", flexDirection: "column" }}>
+      <div style={{ width: 480, flexShrink: 0, borderRight: "1px solid #2a2a2a", display: "flex", flexDirection: "column" }}>
         {/* Suggestion banner */}
         {suggestion && sugDef && (
           <div style={{ background: "#1a1400", borderBottom: `1px solid ${ORANGE}44`, padding: "10px 18px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <Lightbulb size={14} color={ORANGE} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1, fontSize: 12, lineHeight: 1.4 }}>
               <span style={{ color: ORANGE, fontWeight: 800 }}>This sounds like a {sugDef.label} screen.</span>
-              <span style={{ color: "#aaa" }}> Switch?</span>
+              <span style={{ color: "#aaa" }}> Consider that layout when you're done here.</span>
             </div>
             <button onClick={() => { setDismissed(suggestion); setSuggestion(null); }}
               style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}><X size={13} /></button>
           </div>
         )}
 
-        {/* Progress */}
+        {/* Progress bar */}
         <div style={{ height: 3, background: "#1a1a1a", flexShrink: 0 }}>
-          <div style={{ width: `${(progress / total) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.2s" }} />
+          <div style={{ width: `${(progress / total) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.25s" }} />
         </div>
 
-        {/* Chat history + current question */}
-        <div ref={historyRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
-          {history.map((entry, i) => (
+        {/* History + current question */}
+        <div ref={historyRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {conv.history.map((entry, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <div style={{ fontSize: 12, color: "#555", lineHeight: 1.3 }}>{entry.question}</div>
               <div style={{ fontSize: 15, color: "#ddd", fontWeight: 700, lineHeight: 1.4, borderLeft: `3px solid ${ORANGE}`, paddingLeft: 8 }}>
-                {entry.answer || <span style={{ color: "#444", fontStyle: "italic" }}>skipped</span>}
+                {entry.answer || <span style={{ color: "#444", fontStyle: "italic" }}>—</span>}
               </div>
             </div>
           ))}
@@ -468,12 +485,13 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
             {/* Evidence vault quick-insert */}
             {relevantEvidence.length > 0 && (
               <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 6, padding: "10px 12px" }}>
-                <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>EVIDENCE VAULT</div>
+                <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, marginBottom: 6, letterSpacing: 0.5 }}>FROM EVIDENCE VAULT</div>
                 {relevantEvidence.map(e => (
-                  <button key={e.id} onClick={() => { setInput(e.content + (e.timestamp ? ` [${e.timestamp}]` : "")); inputRef.current?.focus(); }}
+                  <button key={e.id}
+                    onClick={() => onConvChange({ ...conv, input: e.content + (e.timestamp ? ` [${e.timestamp}]` : "") })}
                     style={{ display: "block", width: "100%", background: "none", border: "none", textAlign: "left", color: "#bbb", fontSize: 12, cursor: "pointer", marginBottom: 4, padding: "2px 0" }}
-                    onMouseEnter={ev => (ev.currentTarget.style.color = ORANGE)} onMouseLeave={ev => (ev.currentTarget.style.color = "#bbb")}
-                  >
+                    onMouseEnter={ev => (ev.currentTarget.style.color = ORANGE)}
+                    onMouseLeave={ev => (ev.currentTarget.style.color = "#bbb")}>
                     ↑ {e.label}
                   </button>
                 ))}
@@ -482,25 +500,26 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
 
             {node.type === "choice" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {node.choices?.map(c => (
-                  <button key={c.value} onClick={() => choiceSubmit(c.label, c.value)}
+                {(node.choices ?? []).map(c => (
+                  <button key={c.value} onClick={() => choiceAdvance(c.label, c.value)}
                     style={{ background: "#1d1d1d", border: "1px solid #333", borderRadius: 8, padding: "11px 14px", textAlign: "left", color: "#fff", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                     onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}
-                  >
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}>
                     <ArrowRight size={13} color={ORANGE} style={{ flexShrink: 0 }} />
                     {c.label}
                   </button>
                 ))}
               </div>
             ) : node.type === "textarea" ? (
-              <textarea ref={inputRef as React.RefObject<HTMLTextAreaElement>} value={input} onChange={e => setInput(e.target.value)} rows={5}
+              <textarea ref={textareaRef} value={conv.input}
+                onChange={e => onConvChange({ ...conv, input: e.target.value })} rows={5}
                 placeholder="Type your answer…"
                 onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitAnswer(); }}
                 style={{ background: "#1d1d1d", border: "1px solid #333", borderRadius: 8, padding: 12, color: "#fff", fontSize: 14, fontFamily: "Arial, sans-serif", resize: "vertical", outline: "none" }}
                 onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
             ) : (
-              <input ref={inputRef as React.RefObject<HTMLInputElement>} value={input} onChange={e => setInput(e.target.value)}
+              <input ref={inputRef} value={conv.input}
+                onChange={e => onConvChange({ ...conv, input: e.target.value })}
                 placeholder="Type your answer…"
                 onKeyDown={e => e.key === "Enter" && submitAnswer()}
                 style={{ background: "#1d1d1d", border: "1px solid #333", borderRadius: 8, padding: 12, color: "#fff", fontSize: 14, fontFamily: "Arial, sans-serif", outline: "none" }}
@@ -518,27 +537,25 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
           <div style={{ borderTop: "1px solid #2a2a2a", padding: "14px 24px", display: "flex", gap: 8, flexShrink: 0 }}>
             <Btn onClick={goBack}><ChevronLeft size={14} /> Back</Btn>
             <Btn onClick={() => submitAnswer()} variant="orange" style={{ flex: 1, justifyContent: "center" }}>
-              {node.next === null ? "Build Screen" : "Continue"} <ChevronRight size={14} />
+              {node.next === null ? "Finish Screen" : "Continue"} <ChevronRight size={14} />
             </Btn>
           </div>
         )}
         {node.type !== "choice" && (
           <div style={{ padding: "0 24px 10px", display: "flex", justifyContent: "center" }}>
-            <button onClick={() => submitAnswer("")} style={{ background: "none", border: "none", color: "#444", fontSize: 11, cursor: "pointer" }}>Skip</button>
+            <button onClick={() => submitAnswer("")} style={{ background: "none", border: "none", color: "#444", fontSize: 11, cursor: "pointer" }}>Skip this question</button>
           </div>
         )}
       </div>
 
       {/* Right: answer summary */}
-      <div style={{ flex: 1, minWidth: 0, background: "#0e0e0e", display: "flex", flexDirection: "column", overflowY: "auto", padding: "28px 32px" }}>
+      <div style={{ flex: 1, minWidth: 0, background: "#0e0e0e", overflowY: "auto", padding: "28px 32px" }}>
         <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 16 }}>COLLECTED SO FAR</div>
-        {history.length === 0 && (
-          <div style={{ color: "#444", fontSize: 13, lineHeight: 1.6 }}>
-            Your answers will appear here as you go. The screen assembles itself when you finish.
-          </div>
+        {conv.history.length === 0 && (
+          <div style={{ color: "#444", fontSize: 13, lineHeight: 1.6 }}>Your answers will build here. When you finish, the screen assembles automatically.</div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {history.map((entry, i) => (
+          {conv.history.map((entry, i) => (
             <div key={i}>
               <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>{entry.question}</div>
               <div style={{ fontSize: 14, color: "#ddd", fontWeight: 700, lineHeight: 1.45, borderLeft: `3px solid ${ORANGE}`, paddingLeft: 10 }}>
@@ -547,23 +564,15 @@ function ConversationView({ screenType, evidence, onComplete, onBack }: {
             </div>
           ))}
         </div>
-        {history.length > 0 && (
-          <div style={{ marginTop: 24, padding: "12px 14px", background: "#111", border: `1px solid ${ORANGE}22`, borderRadius: 6 }}>
-            <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>SCREEN TYPE</div>
-            <div style={{ fontSize: 14, color: "#bbb" }}>{SCREEN_TYPES.find(t => t.id === screenType)?.label}</div>
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
 // ─── Edit view ────────────────────────────────────────────────────────────────
-
 function EditView({ screen, project, onUpdate, onBack, onUpdateProject }: {
   screen: Screen; project: Project;
-  onUpdate: (s: Screen) => void; onBack: () => void;
-  onUpdateProject: (p: Project) => void;
+  onUpdate: (s: Screen) => void; onBack: () => void; onUpdateProject: (p: Project) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidePanel, setSidePanel] = useState<"blocks" | "citations">("blocks");
@@ -581,9 +590,7 @@ function EditView({ screen, project, onUpdate, onBack, onUpdateProject }: {
 
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      {/* Left panel */}
       <div style={{ width: 320, flexShrink: 0, borderRight: "1px solid #2a2a2a", display: "flex", flexDirection: "column" }}>
-        {/* Panel tabs */}
         <div style={{ display: "flex", borderBottom: "1px solid #2a2a2a", flexShrink: 0 }}>
           {(["blocks", "citations"] as const).map(tab => (
             <button key={tab} onClick={() => setSidePanel(tab)}
@@ -592,53 +599,33 @@ function EditView({ screen, project, onUpdate, onBack, onUpdateProject }: {
             </button>
           ))}
         </div>
-
         <div style={{ flex: 1, overflowY: "auto" }}>
           {sidePanel === "blocks" && (
-            <BlockEditorPanel
-              screen={screen}
-              selectedId={selectedId}
-              evidence={project.evidence}
-              onUpdateBlock={handleUpdateBlock}
-              onSelectBlock={setSelectedId}
-              onAddBlock={handleAddBlock}
-              onRemoveBlock={handleRemoveBlock}
-              onMoveBlock={handleMoveBlock}
-            />
+            <BlockEditorPanel screen={screen} selectedId={selectedId} evidence={project.evidence}
+              onUpdateBlock={handleUpdateBlock} onSelectBlock={setSelectedId}
+              onAddBlock={handleAddBlock} onRemoveBlock={handleRemoveBlock} onMoveBlock={handleMoveBlock} />
           )}
           {sidePanel === "citations" && (
-            <CitationLibraryPanel
-              citations={project.citations}
+            <CitationLibraryPanel citations={project.citations}
               onAdd={label => onUpdateProject(addCitation(project, label))}
               onDelete={id => onUpdateProject(deleteCitation(project, id))}
-              screenCitations={screen.footerCitations}
-              onToggle={toggleCitation}
-            />
+              screenCitations={screen.footerCitations} onToggle={toggleCitation} />
           )}
         </div>
-
-        {/* Screen number */}
         <div style={{ borderTop: "1px solid #2a2a2a", padding: "12px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <span style={{ fontSize: 12, color: "#777", fontWeight: 700 }}>SCREEN #</span>
           <input value={screen.screenNumber} onChange={e => onUpdate({ ...screen, screenNumber: e.target.value })}
             style={{ width: 60, background: "#111", border: "1px solid #333", borderRadius: 6, padding: "6px 10px", color: "#fff", fontSize: 14, fontWeight: 800, outline: "none", textAlign: "center" }} />
-          <button onClick={onBack}
-            style={{ marginLeft: "auto", background: "none", border: "1px solid #444", color: "#aaa", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+          <button onClick={onBack} style={{ marginLeft: "auto", background: "none", border: "1px solid #444", color: "#aaa", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
             <ChevronLeft size={13} /> All Screens
           </button>
         </div>
       </div>
-
-      {/* Canvas */}
       <div style={{ flex: 1, minWidth: 0, background: "#0e0e0e", overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.54)", transformOrigin: "center" }}>
-          <BlockCanvas
-            blocks={screen.blocks}
-            screenNumber={screen.screenNumber}
+          <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber}
             footerCitations={screen.footerCitations}
-            selectedBlockId={selectedId || undefined}
-            onBlockClick={setSelectedId}
-          />
+            selectedBlockId={selectedId ?? undefined} onBlockClick={setSelectedId} />
         </div>
       </div>
     </div>
@@ -646,16 +633,13 @@ function EditView({ screen, project, onUpdate, onBack, onUpdateProject }: {
 }
 
 // ─── Project view ─────────────────────────────────────────────────────────────
-
 function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpdateProject }: {
   project: Project; onNewScreen: () => void; onEditScreen: (s: Screen) => void;
   onDeleteScreen: (id: string) => void; onUpdateProject: (p: Project) => void;
 }) {
   const [sidebar, setSidebar] = useState<"evidence" | "citations">("evidence");
-
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      {/* Left: Evidence / Citations */}
       <div style={{ width: 320, flexShrink: 0, borderRight: "1px solid #2a2a2a", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", borderBottom: "1px solid #2a2a2a", flexShrink: 0 }}>
           {(["evidence", "citations"] as const).map(tab => (
@@ -667,46 +651,36 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
         </div>
         <div style={{ flex: 1, overflowY: "auto" }}>
           {sidebar === "evidence" && (
-            <EvidenceVaultPanel
-              evidence={project.evidence}
+            <EvidenceVaultPanel evidence={project.evidence}
               onAdd={e => onUpdateProject(addEvidence(project, e))}
-              onDelete={id => onUpdateProject(deleteEvidence(project, id))}
-            />
+              onDelete={id => onUpdateProject(deleteEvidence(project, id))} />
           )}
           {sidebar === "citations" && (
-            <CitationLibraryPanel
-              citations={project.citations}
+            <CitationLibraryPanel citations={project.citations}
               onAdd={label => onUpdateProject(addCitation(project, label))}
-              onDelete={id => onUpdateProject(deleteCitation(project, id))}
-            />
+              onDelete={id => onUpdateProject(deleteCitation(project, id))} />
           )}
         </div>
       </div>
-
-      {/* Right: Screen grid */}
-      <div style={{ flex: 1, padding: "32px 36px", overflowY: "auto" }}>
+      <div style={{ flex: 1, minWidth: 0, padding: "32px 36px", overflowY: "auto" }}>
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 22, fontWeight: 900 }}>Screens</div>
           <div style={{ color: "#777", fontSize: 13, marginTop: 2 }}>{project.screens.length} screen{project.screens.length !== 1 ? "s" : ""}</div>
         </div>
-
         {project.screens.length === 0 && (
           <div style={{ textAlign: "center", paddingTop: 80 }}>
             <Layers size={48} color="#333" style={{ marginBottom: 16 }} />
-            <div style={{ color: "#666", fontSize: 15, marginBottom: 20 }}>No screens yet. Start building your first one.</div>
+            <div style={{ color: "#666", fontSize: 15, marginBottom: 20 }}>No screens yet.</div>
             <Btn onClick={onNewScreen} variant="orange"><Plus size={15} /> Build First Screen</Btn>
           </div>
         )}
-
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
           {project.screens.map(screen => (
             <div key={screen.id}
               style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", cursor: "pointer" }}
               onClick={() => onEditScreen(screen)}
               onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
-            >
-              {/* Mini preview */}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}>
               <div style={{ height: 140, background: "#0a0a0a", overflow: "hidden", position: "relative" }}>
                 <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.13)", transformOrigin: "center", pointerEvents: "none" }}>
                   <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber} footerCitations={screen.footerCitations} />
@@ -715,12 +689,10 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
               <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{screen.title}</div>
-                  <div style={{ color: "#666", fontSize: 11 }}>Screen {screen.screenNumber} · {screen.blocks.length} blocks</div>
+                  <div style={{ color: "#666", fontSize: 11 }}>Screen {screen.screenNumber} · {screen.blocks.length} block{screen.blocks.length !== 1 ? "s" : ""}</div>
                 </div>
                 <button onClick={e => { e.stopPropagation(); onDeleteScreen(screen.id); }}
-                  style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-                  <Trash2 size={13} />
-                </button>
+                  style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4, flexShrink: 0 }}><Trash2 size={13} /></button>
               </div>
             </div>
           ))}
@@ -731,7 +703,6 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
-
 type AppView = "project" | "pick_type" | "build" | "edit";
 
 export default function App() {
@@ -742,33 +713,35 @@ export default function App() {
   const [editingCaseName, setEditingCaseName] = useState(false);
   const [caseInput, setCaseInput] = useState(project.caseName);
 
-  function setProject(p: Project) {
-    setProjectRaw(p);
-    saveProject(p);
+  // Conversation state lives HERE so it can never be lost to a ConversationView remount
+  const [conv, setConv] = useState<ConvState>(FRESH_CONV);
+
+  function setProject(p: Project) { setProjectRaw(p); saveProject(p); }
+
+  function startBuild(type: ScreenType) {
+    setBuildType(type);
+    setConv(FRESH_CONV);
+    setView("build");
   }
 
   function handleConversationComplete(data: DataMap) {
     if (!buildType) return;
-    const screen = buildScreen(buildType, data);
-    const updated = addScreen(project, screen);
-    setProject(updated);
-    setEditScreenState(screen);
-    setView("edit");
+    try {
+      const screen = buildScreen(buildType, data);
+      const updated = addScreen(project, screen);
+      setProject(updated);
+      setEditScreenState(screen);
+      setConv(FRESH_CONV);
+      setView("edit");
+    } catch (err) {
+      console.error("[LSB] buildScreen failed:", err);
+    }
   }
 
-  function handleUpdateScreen(s: Screen) {
-    setEditScreenState(s);
-    setProject(updateScreen(project, s));
-  }
-
+  function handleUpdateScreen(s: Screen) { setEditScreenState(s); setProject(updateScreen(project, s)); }
   function handleDeleteScreen(id: string) {
     setProject(deleteScreen(project, id));
     if (editScreen?.id === id) { setEditScreenState(null); setView("project"); }
-  }
-
-  function saveCaseName() {
-    setProject({ ...project, caseName: caseInput });
-    setEditingCaseName(false);
   }
 
   const screenTypeDef = buildType ? SCREEN_TYPES.find(t => t.id === buildType) : null;
@@ -777,17 +750,21 @@ export default function App() {
     <div style={{ height: "100vh", background: "#161616", color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ borderBottom: "1px solid #2a2a2a", padding: "12px 24px", display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setView("project")}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: view !== "build" ? "pointer" : "default" }}
+          onClick={() => view !== "build" && setView("project")}>
           <div style={{ width: 10, height: 10, background: ORANGE, borderRadius: 2 }} />
           <span style={{ fontWeight: 900, fontSize: 15, letterSpacing: 0.5 }}>LEGAL SCREEN BUILDER</span>
         </div>
         <div style={{ width: 1, height: 20, background: "#333" }} />
+
         {/* Case name */}
         {editingCaseName ? (
           <div style={{ display: "flex", gap: 6 }}>
-            <input value={caseInput} onChange={e => setCaseInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveCaseName(); if (e.key === "Escape") setEditingCaseName(false); }}
+            <input value={caseInput} onChange={e => setCaseInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { setProject({ ...project, caseName: caseInput }); setEditingCaseName(false); } if (e.key === "Escape") setEditingCaseName(false); }}
               autoFocus style={{ background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 5, padding: "4px 10px", color: "#fff", fontSize: 13, fontWeight: 700, outline: "none" }} />
-            <button onClick={saveCaseName} style={{ background: ORANGE, border: "none", borderRadius: 5, padding: "4px 8px", cursor: "pointer" }}><Check size={13} color="#000" /></button>
+            <button onClick={() => { setProject({ ...project, caseName: caseInput }); setEditingCaseName(false); }}
+              style={{ background: ORANGE, border: "none", borderRadius: 5, padding: "4px 8px", cursor: "pointer" }}><Check size={13} color="#000" /></button>
           </div>
         ) : (
           <button onClick={() => { setEditingCaseName(true); setCaseInput(project.caseName); }}
@@ -798,7 +775,6 @@ export default function App() {
           </button>
         )}
 
-        {/* Breadcrumbs */}
         {view === "build" && screenTypeDef && (
           <><span style={{ color: "#444" }}>/</span><span style={{ color: "#888", fontSize: 13 }}>{screenTypeDef.label}</span></>
         )}
@@ -808,75 +784,74 @@ export default function App() {
 
         <div style={{ flex: 1 }} />
 
-        {view !== "project" && (
-          <Btn onClick={() => setView("project")}>
-            <ChevronLeft size={13} /> Screens
-          </Btn>
+        {view !== "project" && view !== "build" && (
+          <Btn onClick={() => setView("project")}><ChevronLeft size={13} /> Screens</Btn>
+        )}
+        {view === "build" && (
+          <Btn onClick={() => setView("pick_type")}><ChevronLeft size={13} /> Change Type</Btn>
         )}
         {(view === "project" || view === "edit") && (
-          <Btn onClick={() => setView("pick_type")} variant="orange">
+          <Btn onClick={() => startBuild(buildType ?? "contradiction")} variant="orange">
             <Plus size={14} /> New Screen
           </Btn>
         )}
       </div>
 
-      {/* Views */}
-      {view === "project" && (
-        <ProjectView
-          project={project}
-          onNewScreen={() => setView("pick_type")}
-          onEditScreen={s => { setEditScreenState(s); setView("edit"); }}
-          onDeleteScreen={handleDeleteScreen}
-          onUpdateProject={setProject}
-        />
-      )}
+      {/* Views — each wrapped in an error boundary */}
+      <ErrorBoundary onReset={() => setView("project")}>
+        {view === "project" && (
+          <ProjectView project={project}
+            onNewScreen={() => setView("pick_type")}
+            onEditScreen={s => { setEditScreenState(s); setView("edit"); }}
+            onDeleteScreen={handleDeleteScreen}
+            onUpdateProject={setProject} />
+        )}
 
-      {view === "pick_type" && (
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "56px 24px", width: "100%" }}>
-          <h1 style={{ fontSize: 32, fontWeight: 900, marginBottom: 6 }}>What are you building?</h1>
-          <p style={{ color: "#999", marginBottom: 32, fontSize: 15 }}>
-            Choose a starting layout. I'll ask you about the evidence — your screen assembles itself as you answer.
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 32 }}>
-            {SCREEN_TYPES.map(t => {
-              const Icon = t.icon;
-              return (
-                <button key={t.id} onClick={() => { setBuildType(t.id); setView("build"); }}
-                  style={{ background: "#1d1d1d", border: "1px solid #333", borderRadius: 10, padding: 20, textAlign: "left", cursor: "pointer", color: "#fff" }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}
-                >
-                  <Icon size={22} color={ORANGE} style={{ marginBottom: 10 }} />
-                  <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 3 }}>{t.label}</div>
-                  <div style={{ color: "#999", fontSize: 12 }}>{t.blurb}</div>
-                </button>
-              );
-            })}
+        {view === "pick_type" && (
+          <div style={{ maxWidth: 900, margin: "0 auto", padding: "56px 24px", width: "100%", overflowY: "auto" }}>
+            <h1 style={{ fontSize: 32, fontWeight: 900, marginBottom: 6 }}>What are you building?</h1>
+            <p style={{ color: "#999", marginBottom: 32, fontSize: 15 }}>
+              Choose a starting layout. I'll walk you through the evidence — the screen assembles as you answer.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 32 }}>
+              {SCREEN_TYPES.map(t => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.id} onClick={() => startBuild(t.id)}
+                    style={{ background: "#1d1d1d", border: "1px solid #333", borderRadius: 10, padding: 20, textAlign: "left", cursor: "pointer", color: "#fff" }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}>
+                    <Icon size={22} color={ORANGE} style={{ marginBottom: 10 }} />
+                    <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 3 }}>{t.label}</div>
+                    <div style={{ color: "#999", fontSize: 12 }}>{t.blurb}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ padding: 16, border: "1px dashed #2a2a2a", borderRadius: 8, color: "#555", fontSize: 13 }}>
+              More layouts coming — Timeline, Investigation Failure, Pattern of Conduct, Witness Impeachment, and more.
+            </div>
           </div>
-          <div style={{ padding: 16, border: "1px dashed #2a2a2a", borderRadius: 8, color: "#555", fontSize: 13 }}>
-            More layouts coming — Timeline, Investigation Failure, Pattern of Conduct, Witness Impeachment, and more.
-          </div>
-        </div>
-      )}
+        )}
 
-      {view === "build" && buildType && (
-        <ConversationView
-          screenType={buildType}
-          evidence={project.evidence}
-          onComplete={handleConversationComplete}
-          onBack={() => setView("pick_type")}
-        />
-      )}
+        {view === "build" && buildType && (
+          <ConversationView
+            key={buildType}
+            screenType={buildType}
+            evidence={project.evidence}
+            conv={conv}
+            onConvChange={setConv}
+            onComplete={handleConversationComplete}
+            onBack={() => setView("pick_type")} />
+        )}
 
-      {view === "edit" && editScreen && (
-        <EditView
-          screen={editScreen}
-          project={project}
-          onUpdate={handleUpdateScreen}
-          onBack={() => setView("project")}
-          onUpdateProject={setProject}
-        />
-      )}
+        {view === "edit" && editScreen && (
+          <EditView screen={editScreen} project={project}
+            onUpdate={handleUpdateScreen}
+            onBack={() => setView("project")}
+            onUpdateProject={setProject} />
+        )}
+      </ErrorBoundary>
     </div>
   );
 }

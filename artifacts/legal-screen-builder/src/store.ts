@@ -1,13 +1,28 @@
-import { AppData, Incident, HLCase } from "./types";
+import { AppData, Incident, HLCase, Reminder, IncidentCategory, CaseStatus } from "./types";
 
 const KEY = "hl_v3";
 
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as AppData;
+    if (raw) {
+      const d = JSON.parse(raw) as Partial<AppData>;
+      return {
+        incidents: (d.incidents ?? []).map(i => ({
+          dateOfEvent: "",
+          location: "",
+          category: "other" as IncidentCategory,
+          ...i,
+        })),
+        cases: (d.cases ?? []).map(c => ({
+          status: "open" as CaseStatus,
+          ...c,
+        })),
+        reminders: d.reminders ?? [],
+      };
+    }
   } catch {}
-  return { incidents: [], cases: [] };
+  return { incidents: [], cases: [], reminders: [] };
 }
 
 export function saveData(data: AppData): void {
@@ -28,6 +43,7 @@ export function updateIncident(data: AppData, incident: Incident): AppData {
 
 export function deleteIncident(data: AppData, id: string): AppData {
   return {
+    ...data,
     incidents: data.incidents.filter(i => i.id !== id),
     cases: data.cases.map(c => ({ ...c, incidentIds: c.incidentIds.filter(iid => iid !== id) })),
   };
@@ -45,16 +61,29 @@ export function updateCase(data: AppData, hlCase: HLCase): AppData {
 
 export function deleteCase(data: AppData, id: string): AppData {
   return {
+    ...data,
     incidents: data.incidents.map(i => i.caseId === id ? { ...i, caseId: null } : i),
     cases: data.cases.filter(c => c.id !== id),
+    reminders: data.reminders.filter(r => r.caseId !== id),
   };
 }
 
 export function addIncidentToCase(data: AppData, incidentId: string, caseId: string): AppData {
   return {
+    ...data,
     incidents: data.incidents.map(i => i.id === incidentId ? { ...i, caseId } : i),
     cases: data.cases.map(c => c.id === caseId && !c.incidentIds.includes(incidentId)
       ? { ...c, incidentIds: [...c.incidentIds, incidentId] }
       : c),
   };
+}
+
+// ─── Reminder mutations ───────────────────────────────────────────────────────
+
+export function addReminder(data: AppData, reminder: Reminder): AppData {
+  return { ...data, reminders: [...data.reminders, reminder] };
+}
+
+export function deleteReminder(data: AppData, id: string): AppData {
+  return { ...data, reminders: data.reminders.filter(r => r.id !== id) };
 }

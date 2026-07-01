@@ -1,0 +1,241 @@
+HyperLaw Implementation Plan (Build Order)
+
+This is the step-by-step build order for the simplified HyperLaw system.
+
+The goal is to implement a structured Incident → Case → Tutor system with minimal complexity first, then expand intelligence later.
+
+⸻
+
+PHASE 1 — CORE DATA STRUCTURE (FOUNDATION)
+
+1. Create Data Models
+
+Define simple core objects:
+
+Incident
+
+* id
+* title (optional auto-generated or user-defined)
+* description (user input text)
+* date_of_event
+* location (city/state optional)
+* category (employment, police, appeal, other)
+* created_at
+
+Case
+
+* id
+* title
+* list_of_incidents[]
+* created_at
+* status (open / in progress / closed)
+
+Reminder
+
+* id
+* case_id
+* label
+* due_date
+
+⸻
+
+PHASE 2 — INCIDENT CREATION FLOW (PRIMARY USER ENTRY)
+
+2. Build “New Incident” Screen
+
+This is the MAIN action in the app.
+
+User inputs:
+
+* “What happened?” (large text field)
+* When did it happen?
+* Where did it happen?
+* Type of situation:
+    * Employment
+    * Police interaction
+    * Court / appeal
+    * Other
+
+Optional:
+
+* attach files (future feature placeholder)
+
+3. Save Incident Logic
+
+* Save to local database / backend
+* Do NOT run AI processing yet
+* Do NOT generate citations
+* Do NOT auto-analyze
+
+⸻
+
+PHASE 3 — CASE CREATION SYSTEM
+
+4. Convert Incident → Case
+
+After saving an Incident:
+
+Prompt user:
+
+“Add this to an existing Case or create a new one?”
+
+If new:
+
+* create Case object
+* attach incident to case
+
+If existing:
+
+* append incident to case
+
+⸻
+
+5. Case View Screen
+
+Each case shows:
+
+* Case title
+* List of incidents (chronological)
+* Simple timeline view (basic list is fine initially)
+* “Add Incident” button
+
+NO AI PROCESSING HERE YET
+
+⸻
+
+PHASE 4 — REMINDER SYSTEM (LIGHTWEIGHT)
+
+6. Add Reminder Feature
+
+Inside Case view:
+
+Button:
+
+“Add Deadline Reminder”
+
+User inputs:
+
+* label (e.g. “filing deadline”)
+* date
+
+Store in Reminder table.
+
+7. Profile → Reminders Section
+
+Show:
+
+* upcoming deadlines
+* linked case name
+* edit/delete options
+
+Optional notifications later.
+
+⸻
+
+PHASE 5 — TUTOR LAYER (READ-ONLY AI)
+
+8. Tutor Screen (Case-Aware)
+
+Tutor reads:
+
+* selected Incident OR Case
+
+Tutor behavior:
+
+* explains what user described in simple language
+* identifies missing information
+* suggests what to look into next
+* asks clarifying questions
+
+IMPORTANT RULES:
+
+* No automatic filings
+* No generating legal documents
+* No assumed legal conclusions
+
+Tutor is strictly:
+
+“explanatory + educational assistant”
+
+⸻
+
+PHASE 6 — TEMPLATE SUGGESTION SYSTEM (ASSISTED ONLY)
+
+9. Add “Suggested Templates” Section (static first)
+
+Inside Case view:
+
+Show:
+
+* Complaint template (general)
+* Civil cover sheet (general reference)
+* Appeal forms (if applicable category selected)
+
+Each item:
+
+* description
+* link to official source (manual links only)
+
+NO auto-filling documents yet.
+
+⸻
+
+PHASE 7 — AI ENHANCEMENT LAYER (LATER PHASE)
+
+Only after system is stable:
+
+* integrate Claude
+* enhance Tutor reasoning
+* improve categorization suggestions
+* optionally summarize incidents
+
+BUT:
+AI must remain optional and non-destructive.
+
+⸻
+
+IMPORTANT PRODUCT RULES
+
+1. No background AI processing
+
+Everything must be user-triggered or screen-triggered.
+
+2. No auto legal conclusions
+
+System must never assert legal outcomes.
+
+3. Keep data explicit and visible
+
+User should always see:
+
+* incident text
+* case structure
+* reminders
+* tutor explanations separately
+
+⸻
+
+FINAL PRODUCT FLOW
+
+User experience should feel like:
+
+1. User describes what happened
+2. System saves it as an Incident
+3. Incident is grouped into a Case
+4. User views structured timeline
+5. Tutor helps them understand it
+6. Reminders help them stay on track
+
+⸻
+
+CORE DESIGN INTENT
+
+HyperLaw is NOT:
+
+* an AI legal decision engine
+* an auto filing system
+* a citation generator
+
+HyperLaw IS:
+
+a structured incident-to-case organizer with optional AI explanation support

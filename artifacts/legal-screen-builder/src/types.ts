@@ -94,6 +94,21 @@ export interface ChatEntry {
   answer: string;
 }
 
+// ─── Legal Knowledge Library ──────────────────────────────────────────────────
+
+export interface LegalItem {
+  id: string;
+  category: "federal" | "state" | "agency" | "case_law" | "custom";
+  subcategory: string;
+  name: string;
+  citation: string;
+  summary: string;
+  elements?: string[];
+  keywords: string[];
+  notes?: string;
+  custom?: boolean;
+}
+
 // ─── Block field definitions (for editor) ────────────────────────────────────
 
 export interface BlockFieldDef {

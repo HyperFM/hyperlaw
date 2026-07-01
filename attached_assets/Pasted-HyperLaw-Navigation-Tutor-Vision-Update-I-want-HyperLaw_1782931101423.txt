@@ -1,0 +1,112 @@
+HyperLaw Navigation & Tutor Vision Update
+
+I want HyperLaw’s navigation to reflect how people naturally build a case and learn from it.
+
+🏠 Home
+
+The user’s dashboard.
+
+Shows:
+
+* Continue recent case
+* Recent projects
+* Recent exports
+* AI suggestions
+* Quick actions
+* Case progress
+
+This is where users always return.
+
+⸻
+
+🛠 Build (Center Tab)
+
+This is the heart of HyperLaw.
+
+Everything is created here.
+
+Users can:
+
+* Build legal screens
+* Create documents
+* Organize evidence
+* Manage projects
+* Build timelines
+* Create visual exhibits
+* Edit and arrange presentation slides
+
+As users work, HyperLaw automatically understands the facts being entered.
+
+No additional setup should be required.
+
+⸻
+
+🎓 Tutor
+
+Tutor should automatically learn from whatever the user is currently building.
+
+Instead of asking the user to start over or explain everything again, Tutor should use the facts already contained in the active project.
+
+For example:
+
+If the user builds a screen discussing an officer’s actions, Tutor immediately recognizes the legal concepts that may be relevant and begins teaching from those facts.
+
+Tutor should explain:
+
+* Why certain facts matter
+* Which evidence strengthens an argument
+* Which facts weaken it
+* What additional evidence may be useful
+* Questions the user should consider next
+
+Tutor should never simply label legal violations.
+
+Its purpose is to teach legal reasoning using the user’s own evidence.
+
+⸻
+
+🧠 Learning Mode
+
+Tutor should also include an optional learning mode.
+
+Users can study their own case using interactive learning cards.
+
+Examples include:
+
+* Fact Cards
+* Legal Concept Cards
+* Evidence Cards
+* Question Cards
+* “Why does this matter?” cards
+* “What would strengthen this?” cards
+
+These should feel like modern study cards rather than traditional flashcards.
+
+The goal is to help users genuinely remember legal concepts by connecting them directly to their own case.
+
+⸻
+
+👤 Profile
+
+Contains:
+
+* Account
+* Subscription
+* Settings
+* Theme
+* Saved Preferences
+* Export History
+* Case Backups
+* AI Preferences
+
+⸻
+
+Remaining Navigation Tabs
+
+I have not finalized the remaining one or two tabs yet.
+
+For now, please design the navigation so additional modules can be added later without requiring another redesign.
+
+The overall navigation should be modular and expandable as HyperLaw grows.
+
+Hyper Law Replit  : Let’s finish all the things above you didnt get to because of the usage limit and then let’s continue building for ai but Do not hardcode business logic into the UI. Design every AI feature behind interfaces or service layers so manual implementations can later be replaced with AI without changing the user experience. For example today: Tutor ↓ Question Tree ↓ User Answers later: Tutor ↓ Claude ↓ Follow-up Questions The UI doesn’t change.  Only the engine changes.  ⸻  Today: Analyze ↓ User manually enters: - Contradiction - Admission - Policy later: Analyze ↓ Claude reads transcript ↓ Suggests: - Contradictions - Admissions - Policy issues Again…  Same interface.  Different engine. Also update the name, legal screen builder, and anything in any way throughout the Hyper law and then can you make a little reminder just for me at the top of the screen or somewhere on the screen that says connect your API keys from Claude for Expansion… also i want you to make a little symbol like the one im sending you white and black use the same picture and hide it at the bottom of the profile screen and when people press it i want it to take them to a white screen thst fades in a cool effect description : import { useState } from “react”;  export default function App() {   const [copied, setCopied] = useState(null);    const items = [     {       id: “tagline”,       label: “TAGLINE”,       content: `HyperLaw started as:  “I need a faster way to make these orange screens.”  Now it’s evolving into:  “I want one place where someone can understand their evidence, organize it, build exhibits, learn legal concepts, and eventually analyze it with AI.”`,     },     {       id: “description”,       label: “FULL DESCRIPTION”,       content: `HyperLaw  Built by Hyper Quency Modula — the same person behind ShortHop, EDGE, and a stack of federal civil rights cases filed pro se from an office in Lexington, Kentucky.  HyperLaw didn’t come from a legal background. It came from midnight deadlines, six active federal cases, forty minutes of footage that needed to become a courtroom argument by morning, and no attorney to call.  The pressure built the product.  This isn’t a tool built by lawyers for lawyers. It’s built by someone who had to become one — and decided nobody else should have to figure it out alone in the dark under pressure.  HyperLaw grows with you. It teaches while it builds. It explains while it generates. It doesn’t just hand you the document — it shows you why it works.  For the pro se litigant. The paralegal. The student. The person who just needs to know their rights before it’s too late.  The law wasn’t built for everyone. HyperLaw was.`,     },   ];    function copy(id, content) {     navigator.clipboard.writeText(content).then(() => {       setCopied(id);       setTimeout(() => setCopied(null), 2500);     });   }    return (     <div style={{ minHeight: “100vh”, background: “#0a0a0a”, padding: “36px 24px”, fontFamily: “Arial, sans-serif” }}>       <div style={{ maxWidth: 580, margin: “0 auto” }}>          {/* Header */}         <div style={{ display: “flex”, alignItems: “center”, gap: 10, marginBottom: 36 }}>           <div style={{ width: 10, height: 10, background: “#d9711f”, borderRadius: 2 }} />           <span style={{ color: “#d9711f”, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>HYPERLAW</span>           <span style={{ color: “#333”, fontSize: 13 }}>— Save to Notes</span>         </div>          {items.map((item) => (           <div key={item.id} style={{ marginBottom: 24 }}>             <div style={{ color: “#555”, fontWeight: 800, fontSize: 11, letterSpacing: 2, marginBottom: 12 }}>               {item.label}             </div>             <div style={{ background: “#141414”, border: “1px solid #222”, borderRadius: 12, padding: “24px 22px”, marginBottom: 10 }}>               {item.id === “tagline” ? (                 <>                   <p style={{ color: “#aaa”, fontSize: 15, lineHeight: 1.7, margin: “0 0 16px 0” }}>                     HyperLaw started as:                   </p>                   <p style={{ color: “#fff”, fontSize: 18, fontWeight: 800, lineHeight: 1.5, margin: “0 0 24px 0”, borderLeft: “3px solid #d9711f”, paddingLeft: 14 }}>                     “I need a faster way to make these orange screens.”                   </p>                   <p style={{ color: “#aaa”, fontSize: 15, lineHeight: 1.7, margin: “0 0 16px 0” }}>                     Now it’s evolving into:                   </p>                   <p style={{ color: “#fff”, fontSize: 18, fontWeight: 800, lineHeight: 1.5, margin: 0, borderLeft: “3px solid #d9711f”, paddingLeft: 14 }}>                     “I want one place where someone can understand their evidence, organize it, build exhibits, learn legal concepts, and eventually analyze it with AI.”                   </p>                 </>               ) : (                 <>                   <p style={{ color: “#d9711f”, fontWeight: 900, fontSize: 22, margin: “0 0 20px 0”, letterSpacing: -0.3 }}>                     HyperLaw                   </p>                   {item.content.split(”\n\n”).slice(1).map((para, i) => (                     <p key={i} style={{                       color: para.startsWith(“For the”) || para === “The law wasn’t built for everyone. HyperLaw was.” ? “#d9711f” : para.startsWith(“The pressure”) || para.startsWith(“This isn’t”) ? “#fff” : “#ccc”,                       fontSize: 15,                       lineHeight: 1.75,                       margin: “0 0 16px 0”,                       fontWeight: para === “The law wasn’t built for everyone. HyperLaw was.” || para.startsWith(“The pressure”) ? 800 : 400,                     }}>                       {para}                     </p>                   ))}                 </>               )}             </div>             <button               onClick={() => copy(item.id, item.content)}               style={{                 width: “100%”,                 padding: “14px”,                 background: copied === item.id ? “#1a3a1a” : “#d9711f”,                 border: copied === item.id ? “1px solid #2d6a2d” : “none”,                 borderRadius: 8,                 color: copied === item.id ? “#4caf50” : “#0a0a0a”,                 fontWeight: 800,                 fontSize: 14,                 cursor: “pointer”,                 transition: “all 0.2s”,                 letterSpacing: 0.5,               }}             >               {copied === item.id ? “✓ Copied — paste into Notes” : `Copy ${item.label}`}             </button>           </div>         ))}        </div>     </div>   ); }

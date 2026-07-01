@@ -1,0 +1,263 @@
+HYPERLAW PLATFORM REDESIGN (Vision Update)
+
+We’re no longer building Legal Screen Builder.
+
+The platform is now officially called:
+
+HyperLaw
+
+This is no longer just a screen generator.
+
+HyperLaw is an AI-assisted legal evidence platform that helps users:
+
+* Analyze evidence
+* Understand legal concepts
+* Build persuasive visual exhibits
+* Organize cases
+* Prepare courtroom-ready presentations
+
+The current screen builder is only one module of a much larger platform.
+
+⸻
+
+BRAND UPDATE
+
+Replace all references to “Legal Screen Builder” with:
+
+HyperLaw
+
+Logo:
+Update the app icon and branding to use the new HyperLaw logo. The icon should match the premium black and burnt-orange visual identity we’ve established.
+
+⸻
+
+COMPLETE NAVIGATION REDESIGN
+
+The current bottom navigation feels like placeholders.
+
+I don’t want tabs named after current features (“Screens”, “Laws”, “Citations”).
+
+I want the navigation to represent the future vision of HyperLaw.
+
+The bottom navigation should become:
+
+🏠 Home
+
+The user’s dashboard.
+
+* Continue recent case
+* Recent projects
+* Case statistics
+* Recent exports
+* Quick actions
+
+⸻
+
+🛠 Build
+
+This is the primary workspace.
+
+Contains:
+
+* Screen Builder
+* Evidence Vault
+* Projects
+* Timeline
+* All visual exhibit creation
+
+This is the centerpiece of the application.
+
+⸻
+
+🎓 Tutor
+
+This replaces the current Laws tab.
+
+Tutor is NOT documentation.
+
+Tutor is an AI legal tutor.
+
+It should teach users legal concepts using THEIR OWN FACTS.
+
+Instead of saying:
+
+First Amendment
+
+Tutor explains:
+
+“Based on what you’ve entered…”
+
+Then teaches:
+
+* why the issue may matter
+* what facts support it
+* what evidence strengthens it
+* what questions remain
+* what additional evidence could help
+
+Tutor should ask intelligent follow-up questions whenever more context would improve understanding.
+
+The experience should feel like speaking with an experienced legal educator—not reading a textbook.
+
+Tutor should never present legal conclusions as certainty. It should explain legal concepts and connect them to the facts the user has entered.
+
+⸻
+
+🔍 Analyze
+
+Future AI workspace.
+
+Users upload:
+
+* bodycam
+* reports
+* videos
+* transcripts
+* photos
+* documents
+
+AI analyzes everything.
+
+Outputs include:
+
+* possible contradictions
+* admissions
+* timeline
+* policy deviations
+* missing evidence
+* speaker identification
+* transcript summaries
+* suggested exhibit types
+
+Everything flows directly into Build.
+
+⸻
+
+👤 Profile
+
+Settings
+
+Subscription
+
+Account
+
+Saved preferences
+
+Theme
+
+Export history
+
+Case backups
+
+⸻
+
+REMOVE THE CENTER “+” BUTTON
+
+The center floating plus button no longer fits the product vision.
+
+Instead:
+
+Build is always one tap away.
+
+Creating a new screen should happen naturally inside the Build workspace.
+
+⸻
+
+BOTTOM NAVIGATION DESIGN
+
+Completely redesign the navigation.
+
+Current version feels flat and rigid.
+
+I want it to become a signature interaction.
+
+Requirements:
+
+* Floating capsule
+* Rounded
+* Soft curves
+* Matte black
+* Burnt-orange outline
+* Premium appearance
+* Light elevation
+* Soft shadow
+
+When selecting a tab:
+
+* icon enlarges smoothly
+* text brightens
+* subtle orange glow appears
+* smooth spring animation
+* tiny haptic feedback (mobile)
+
+I especially like the magnifying-glass idea.
+
+Instead of a normal selection indicator, use a stylized orange magnifying-glass lens that slides underneath the selected icon. As it moves, it creates a subtle magnification effect on the selected icon and label. The animation should feel smooth, premium, and distinctive.
+
+⸻
+
+AI ARCHITECTURE
+
+I no longer want HyperLaw to rely only on static legal libraries.
+
+Integrate AI as a core part of the experience.
+
+The AI should:
+
+* ask follow-up questions
+* gather missing facts
+* explain legal principles
+* recommend possible violations
+* recommend exhibit types
+* explain reasoning
+* teach users throughout the process
+
+The AI should make building exhibits feel conversational instead of filling out forms.
+
+⸻
+
+TUTOR MODE
+
+Tutor should become one of HyperLaw’s defining features.
+
+Example:
+
+User describes an incident.
+
+Tutor responds:
+
+“I noticed several facts that may relate to constitutional or policy issues. Let me explain why.”
+
+Then Tutor teaches using the user’s own evidence.
+
+Example:
+
+You mentioned that you spoke up about an existing policy and were removed shortly afterward. Depending on the circumstances and applicable law, some courts analyze whether protected speech was followed by adverse action. Let’s examine the facts that support—or weaken—that possibility.
+
+Then Tutor asks follow-up questions to help the user understand the legal framework rather than simply labeling the issue.
+
+The goal is education, not legal conclusions.
+
+⸻
+
+FINAL GOAL
+
+HyperLaw should feel like a premium legal operating system.
+
+Not a form builder.
+
+Not a document editor.
+
+Not a generic AI chat.
+
+It should feel like the place where users:
+
+Analyze evidence.
+
+Learn.
+
+Build.
+
+Present.
+
+Every animation, interaction, and screen should reinforce that i...

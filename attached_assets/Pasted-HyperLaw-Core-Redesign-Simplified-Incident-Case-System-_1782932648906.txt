@@ -1,0 +1,207 @@
+HyperLaw Core Redesign (Simplified Incident → Case System)
+
+I want to simplify HyperLaw into a very direct workflow.
+
+The goal is NOT complex AI features.
+
+The goal is:
+
+User describes what happened → HyperLaw organizes it into an Incident → Incident becomes a Case → Case becomes structured legal material.
+
+⸻
+
+CORE FLOW (IMPORTANT)
+
+1. INCIDENT CREATION (PRIMARY ACTION)
+
+Users start by describing everything that happened in plain language.
+
+This is similar to how users currently use Claude:
+
+* they explain the situation in detail
+* optionally reference video, evidence, or context
+
+Action:
+
+* “New Incident” button is the main entry point
+
+⸻
+
+2. INCIDENT SAVE
+
+When the user finishes describing the situation:
+
+* the system saves it as an Incident
+* nothing is automatically analyzed or transformed in a complex way
+* it is simply stored as a structured record
+
+⸻
+
+3. INCIDENT → CASE CONVERSION
+
+After saving:
+
+* user can convert an Incident into a Case
+* a Case is just a collection of related incidents
+
+⸻
+
+4. CASE VIEW (SIMPLE STRUCTURE)
+
+Each Case contains:
+
+* list of incidents
+* timeline of events
+* user notes
+
+No automatic citation systems.
+No auto-generated legal labeling.
+No background AI processing.
+
+⸻
+
+NAVIGATION UPDATE
+
+Replace current structure with:
+
+🏠 Home
+
+* recent incidents
+* recent cases
+* quick access to create new incident
+
+⸻
+
+➕ NEW INCIDENT (PRIMARY ACTION / CENTER FOCUS)
+
+This replaces the broken wrench / build button.
+
+When pressed:
+
+* opens incident input screen
+* user describes everything that happened
+* optionally attaches media
+
+After submission:
+
+* saved as Incident
+* can be converted into Case
+
+⸻
+
+📁 CASES (NEW TAB)
+
+This replaces cluttered or unused sections.
+
+Shows:
+
+* all saved cases
+* each case includes:
+    * title
+    * list of incidents
+    * basic timeline view
+
+Cases should be extremely simple and readable.
+
+⸻
+
+🎓 TUTOR (SEPARATE TAB — NOT QUICK ACTIONS)
+
+Tutor stays its own dedicated section.
+
+Tutor:
+
+* reads selected incident or case
+* explains what user described
+* helps user understand what matters legally
+* teaches based on user input
+
+Tutor should NOT:
+
+* generate complaints automatically
+* create legal documents without user direction
+* over-process data in background
+
+⸻
+
+👤 PROFILE
+
+Remains unchanged:
+
+* settings
+* account
+* preferences
+
+⸻
+
+IMPORTANT REMOVALS
+
+Remove or disable:
+
+* automatic citation generation (entire system)
+* background case progress citation numbers (e.g. “11 citations”)
+* any pre-processing of legal meaning
+* any auto-generated complaint drafts
+
+⸻
+
+WHAT SHOULD BE FIXED IMMEDIATELY
+
+1. Broken build / wrench button
+
+* currently says “something went wrong”
+* replace with New Incident entry point
+
+⸻
+
+2. Citation numbers in case progress
+
+* remove completely
+* do NOT auto-generate anything in background
+
+⸻
+
+TUTOR BEHAVIOR (SIMPLIFIED)
+
+Tutor should:
+
+* read the incident text or case
+* explain it in plain language
+* help user understand what is important
+* guide thinking step-by-step
+
+Tutor should NOT:
+
+* generate legal filings automatically
+* act like a case engine
+* replace user input
+
+⸻
+
+FUTURE IDEA (NOT IMPLEMENTED YET)
+
+Later, we may add:
+
+* “Battle Document” generator (oral argument prep)
+* structured complaint builder
+* AI-assisted argument response tool
+
+But NOT now.
+
+Keep system simple first.
+
+⸻
+
+FINAL PRODUCT GOAL
+
+HyperLaw should feel like:
+
+“I tell you exactly what happened, and it organizes it into incidents and cases so I can understand it clearly and build from it later.”
+
+Not:
+
+* an AI legal automation system
+* a citation engine
+* a complex backend analysis tool
+
+Simplicity and clarity come first.

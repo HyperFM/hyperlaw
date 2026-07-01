@@ -1,2 +1,2 @@
-- [HyperLaw architecture](hyperlaw-arch.md) — TutorService interface in src/services/tutor.ts; swap engine without touching UI
-- [HyperLaw nav structure](hyperlaw-nav.md) — NavTab + BuildView state pattern; NAV_ITEMS registry drives both mobile FAB bar and desktop sidebar
+- [HyperLaw architecture](hyperlaw-arch.md) — Incident→Case data model, TutorService interface, storage key hl_v3
+- [HyperLaw navigation](hyperlaw-nav.md) — NavTab registry, FAB New Incident center button, desktop sidebar + mobile bottom bar

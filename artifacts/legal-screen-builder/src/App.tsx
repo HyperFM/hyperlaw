@@ -1,45 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { createRoot } from "react-dom/client";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  Plus, X, ChevronRight, ChevronLeft, ArrowRight, Lightbulb,
-  Trash2, Edit3, ChevronUp, ChevronDown, FileSearch,
-  Video, FileText, Mic, Image, File, BookOpen, Scale, Clock, XCircle,
-  Quote, Check, Layers, Download, Share2, Search, LayoutGrid,
-  Home, Wrench, GraduationCap, User, Brain, Zap, AlertTriangle,
-  HelpCircle, TrendingUp, Shield, ChevronDown as ChevronDownIcon,
-  Key, Settings, Star, Archive, Sliders, History, RefreshCw,
-  FlipHorizontal, Copy,
+  Home, Folder, Plus, GraduationCap, User, ChevronRight, ChevronLeft,
+  X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
+  Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
+  FileText, MessageSquare,
 } from "lucide-react";
+import { Incident, HLCase, AppData } from "./types";
 import {
-  Block, BlockType, DataMap, Evidence, EvidenceType,
-  Project, Screen, ScreenType, BLOCK_FIELDS, LegalItem,
-} from "./types";
-import {
-  loadProject, saveProject,
-  addScreen, updateScreen, deleteScreen,
-  updateBlock, addBlock, removeBlock, moveBlock,
-  addEvidence, deleteEvidence, addCitation, deleteCitation,
+  loadData, saveData, addIncident, updateIncident, deleteIncident,
+  addCase, updateCase, deleteCase, addIncidentToCase,
 } from "./store";
-import { TREES, detectSuggestion, buildScreen, newBlock } from "./engine";
-import { LEGAL_LIBRARY, searchLaws, recommendLaws } from "./laws";
-import { BlockCanvas } from "./BlockCanvas";
-import { staticTutorService, TutorInsight, LearningCard } from "./services/tutor";
+import { staticTutorService, TutorAnalysis } from "./services/tutor";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
 const ORANGE = "#d9711f";
-const BG = "#0c0c0c";
+const BG = "#0a0a0a";
 
-// ─── Conversation state ───────────────────────────────────────────────────────
-interface ConvState {
-  nodeId: string;
-  data: DataMap;
-  history: { nodeId: string; nodeKey: string; question: string; answer: string }[];
-  input: string;
-}
-const FRESH_CONV: ConvState = { nodeId: "start", data: {}, history: [], input: "" };
-
-// ─── Hooks ────────────────────────────────────────────────────────────────────
+// ─── Utility ──────────────────────────────────────────────────────────────────
 function useWindowWidth() {
-  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1280));
+  const [w, setW] = useState(window.innerWidth);
   useEffect(() => {
     const fn = () => setW(window.innerWidth);
     window.addEventListener("resize", fn);
@@ -48,812 +27,140 @@ function useWindowWidth() {
   return w;
 }
 
+function formatDate(ts: number) {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function truncate(s: string, n: number) {
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+// ─── UI Primitives ────────────────────────────────────────────────────────────
+interface TapBtnProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  variant?: "orange" | "ghost" | "dim";
+  style?: React.CSSProperties;
+  disabled?: boolean;
+}
+function TapBtn({ children, onClick, variant = "ghost", style, disabled }: TapBtnProps) {
+  const base: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 10,
+    padding: "11px 16px", fontWeight: 700, fontSize: 14,
+    cursor: disabled ? "not-allowed" : "pointer", border: "none",
+    transition: "opacity 0.15s", WebkitTapHighlightColor: "transparent",
+    touchAction: "manipulation", opacity: disabled ? 0.4 : 1,
+  };
+  const v = {
+    orange: { background: ORANGE, color: "#000" },
+    ghost: { background: "#1a1a1a", color: "#ccc", border: "1px solid #2a2a2a" } as React.CSSProperties,
+    dim: { background: "transparent", color: "#555", border: "1px solid #222" } as React.CSSProperties,
+  };
+  return <button onClick={disabled ? undefined : onClick} style={{ ...base, ...v[variant], ...style }}>{children}</button>;
+}
+
 // ─── Error Boundary ───────────────────────────────────────────────────────────
-interface EBState { error: string | null }
-class ErrorBoundary extends React.Component<{ children: React.ReactNode; onReset?: () => void }, EBState> {
-  state: EBState = { error: null };
-  static getDerivedStateFromError(err: Error): EBState { return { error: err.message }; }
-  componentDidCatch(err: Error, info: React.ErrorInfo) { console.error("[HL]", err.message, info.componentStack); }
+interface EBState { error: Error | null }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode; onReset: () => void }, EBState> {
+  constructor(props: { children: React.ReactNode; onReset: () => void }) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e: Error): EBState { return { error: e }; }
   render() {
-    if (this.state.error) {
-      return (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: ORANGE, marginBottom: 10 }}>Something went wrong</div>
-          <pre style={{ fontFamily: "monospace", fontSize: 12, color: "#777", maxWidth: 480, textAlign: "center", whiteSpace: "pre-wrap", marginBottom: 24 }}>{this.state.error}</pre>
-          <button onClick={() => { this.setState({ error: null }); this.props.onReset?.(); }}
-            style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "12px 24px", color: "#000", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
-            Go Back
-          </button>
-        </div>
-      );
-    }
+    if (this.state.error) return (
+      <div style={{ padding: 40, textAlign: "center" }}>
+        <AlertCircle size={40} color={ORANGE} style={{ marginBottom: 16 }} />
+        <div style={{ color: "#ccc", marginBottom: 20 }}>Something went wrong.</div>
+        <TapBtn variant="orange" onClick={() => { this.setState({ error: null }); this.props.onReset(); }}>Reset</TapBtn>
+      </div>
+    );
     return this.props.children;
   }
 }
 
-// ─── Screen type definitions ──────────────────────────────────────────────────
-const SCREEN_TYPES: { id: ScreenType; label: string; blurb: string; icon: React.ElementType }[] = [
-  { id: "contradiction", label: "Contradiction", blurb: "Two statements that can't both be true", icon: XCircle },
-  { id: "quote", label: "Quote Breakdown", blurb: "Why one exact quote matters", icon: Quote },
-  { id: "prior_incident", label: "Prior Incident", blurb: "This wasn't the first time", icon: Clock },
-  { id: "admission", label: "Admission", blurb: "They already knew — and said so", icon: Mic },
-  { id: "policy_violation", label: "Policy Violation", blurb: "Policy required vs. what happened", icon: Scale },
-];
+// ─── NEW INCIDENT OVERLAY ─────────────────────────────────────────────────────
+function NewIncidentOverlay({ onSave, onClose }: {
+  onSave: (title: string, description: string) => void;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [visible, setVisible] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
 
-const BLOCK_TYPES: { type: BlockType; label: string }[] = [
-  { type: "eyebrow", label: "Eyebrow (Name / Tag)" },
-  { type: "headline", label: "Headline" },
-  { type: "subheadline", label: "Subheadline" },
-  { type: "divider", label: "Divider" },
-  { type: "quote_card", label: "Quote Card" },
-  { type: "evidence_card", label: "Evidence Card" },
-  { type: "comparison", label: "Comparison (A vs B)" },
-  { type: "fact_list", label: "Fact List" },
-  { type: "icon_bullets", label: "Icon Bullets" },
-  { type: "legal_box", label: "Legal Box" },
-  { type: "callout", label: "Callout" },
-  { type: "policy_row", label: "Policy Row" },
-  { type: "spacer", label: "Spacer" },
-];
+  useEffect(() => {
+    const t1 = setTimeout(() => setVisible(true), 20);
+    const t2 = setTimeout(() => textRef.current?.focus(), 150);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
-const EVIDENCE_ICONS: Record<EvidenceType, React.ElementType> = {
-  bodycam: Video, report: FileText, statement: Mic,
-  document: File, photo: Image, other: FileSearch,
-};
-
-// ─── Export utilities ─────────────────────────────────────────────────────────
-async function captureScreen(screen: Screen, scale = 1): Promise<HTMLCanvasElement> {
-  const container = document.createElement("div");
-  container.style.cssText = `position:fixed;left:-99999px;top:0;width:1080px;height:1080px;overflow:hidden;z-index:-9;`;
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  root.render(
-    React.createElement(BlockCanvas, {
-      blocks: screen.blocks,
-      screenNumber: screen.screenNumber,
-      footerCitations: screen.footerCitations,
-    })
-  );
-  await new Promise(r => setTimeout(r, 450));
-  const h2c = (await import("html2canvas")).default;
-  const canvas = await h2c(container, {
-    scale, backgroundColor: "#0a0a0a", useCORS: true,
-    width: 1080, height: 1080, logging: false,
-  });
-  root.unmount();
-  document.body.removeChild(container);
-  return canvas;
-}
-
-function slug(screen: Screen) {
-  return (screen.title || "screen").replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 40);
-}
-
-async function doExport(screen: Screen, format: "png1080" | "png4k" | "jpeg" | "pdf" | "share" | "copy") {
-  const scale = format === "png4k" ? 4 : 1;
-  const canvas = await captureScreen(screen, scale);
-  const name = slug(screen);
-  if (format === "pdf") {
-    const { jsPDF } = await import("jspdf");
-    const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: [1080, 1080] });
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 1080, 1080);
-    pdf.save(`${name}.pdf`); return;
+  function handleSave() {
+    const t = title.trim() || description.trim().split("\n")[0].slice(0, 70) || "Untitled Incident";
+    onSave(t, description.trim());
   }
-  if (format === "share" || format === "copy") {
-    const blob = await new Promise<Blob>((res, rej) =>
-      canvas.toBlob(b => (b ? res(b) : rej(new Error("Failed to create blob"))), "image/png")
-    );
-    if (format === "share" && navigator.share) {
-      const file = new (window as any).File([blob], `${name}.png`, { type: "image/png" });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
-    }
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    return;
-  }
-  const link = document.createElement("a");
-  link.download = `${name}${format === "png4k" ? "_4k" : ""}${format === "jpeg" ? ".jpg" : ".png"}`;
-  link.href = canvas.toDataURL(format === "jpeg" ? "image/jpeg" : "image/png", 0.95);
-  link.click();
-}
 
-// ─── Export modal ─────────────────────────────────────────────────────────────
-function ExportModal({ screen, onClose }: { screen: Screen; onClose: () => void }) {
-  const [status, setStatus] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  async function run(format: "png1080" | "png4k" | "jpeg" | "pdf" | "share" | "copy") {
-    setStatus("Rendering…"); setErr(null);
-    try {
-      await doExport(screen, format);
-      setStatus(format === "copy" ? "Copied!" : format === "share" ? "Sharing…" : "Downloaded!");
-      setTimeout(() => setStatus(null), 2200);
-    } catch (e) { console.error(e); setErr("Export failed — try again."); setStatus(null); }
+  function handleClose() {
+    setVisible(false);
+    setTimeout(onClose, 300);
   }
-  const formats: { id: "png1080" | "png4k" | "jpeg" | "pdf"; label: string; sub: string }[] = [
-    { id: "png1080", label: "PNG", sub: "1080 × 1080" },
-    { id: "png4k", label: "PNG 4K", sub: "4320 × 4320" },
-    { id: "jpeg", label: "JPEG", sub: "Smaller size" },
-    { id: "pdf", label: "PDF", sub: "Print-ready" },
-  ];
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000b", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
-      onClick={onClose}>
-      <div style={{ background: "#1a1a1a", borderRadius: "20px 20px 0 0", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 500 }}
-        onClick={e => e.stopPropagation()}>
-        <div style={{ width: 36, height: 4, background: "#444", borderRadius: 2, margin: "0 auto 20px" }} />
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Export Screen</div>
-        <div style={{ color: "#666", fontSize: 13, marginBottom: 20 }}>{screen.title}</div>
-        {status && <div style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}55`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, color: ORANGE, fontSize: 14, fontWeight: 700 }}>{status}</div>}
-        {err && <div style={{ background: "#7a202022", borderRadius: 8, padding: "10px 14px", marginBottom: 14, color: "#e06060", fontSize: 13 }}>{err}</div>}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-          {formats.map(f => (
-            <button key={f.id} onClick={() => run(f.id)} disabled={!!status}
-              style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "16px 14px", textAlign: "left", cursor: "pointer", color: "#fff", opacity: status ? 0.6 : 1 }}>
-              <Download size={18} color={ORANGE} style={{ marginBottom: 8 }} />
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{f.label}</div>
-              <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>{f.sub}</div>
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <button onClick={() => run("share")} disabled={!!status}
-            style={{ background: ORANGE, border: "none", borderRadius: 12, padding: "16px", color: "#000", fontWeight: 800, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Share2 size={18} /> Share
-          </button>
-          <button onClick={() => run("copy")} disabled={!!status}
-            style={{ background: "#2a2a2a", border: "none", borderRadius: 12, padding: "16px", color: "#fff", fontWeight: 700, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            Copy Image
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: `rgba(0,0,0,${visible ? 0.97 : 0})`,
+      transition: "background 0.3s",
+      display: "flex", flexDirection: "column",
+    }}>
+      <div style={{
+        flex: 1, display: "flex", flexDirection: "column",
+        transform: `translateY(${visible ? 0 : 32}px)`,
+        transition: "transform 0.3s ease",
+        maxWidth: 720, width: "100%", margin: "0 auto",
+      }}>
+        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ fontWeight: 900, fontSize: 18, color: ORANGE }}>New Incident</div>
+          <button onClick={handleClose} style={{ background: "#1a1a1a", border: "none", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={18} color="#aaa" />
           </button>
         </div>
-        <button onClick={onClose}
-          style={{ width: "100%", background: "none", border: "1px solid #333", borderRadius: 12, padding: "14px", color: "#888", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
 
-// ─── Shared UI ────────────────────────────────────────────────────────────────
-function TapBtn({ children, onClick, variant = "ghost", full = false, disabled = false, style: ext }: {
-  children: React.ReactNode; onClick: () => void;
-  variant?: "orange" | "ghost" | "dark"; full?: boolean; disabled?: boolean; style?: React.CSSProperties;
-}) {
-  const base: React.CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-    borderRadius: 12, padding: "14px 20px", fontWeight: 700, fontSize: 16,
-    cursor: disabled ? "default" : "pointer", border: "none", fontFamily: "Arial, sans-serif",
-    minHeight: 52, width: full ? "100%" : undefined, opacity: disabled ? 0.5 : 1,
-    WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
-  };
-  const vars: Record<string, React.CSSProperties> = {
-    orange: { background: ORANGE, color: "#0a0a0a" },
-    ghost: { background: "transparent", border: "1px solid #3a3a3a", color: "#ddd" },
-    dark: { background: "#1d1d1d", border: "1px solid #2a2a2a", color: "#fff" },
-  };
-  return <button onClick={disabled ? undefined : onClick} style={{ ...base, ...vars[variant], ...ext }}>{children}</button>;
-}
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px" }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>TITLE <span style={{ color: "#333", fontWeight: 400 }}>(optional — auto-filled from description)</span></div>
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Brief label for this incident"
+              style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 15, fontFamily: "Arial, sans-serif", outline: "none", boxSizing: "border-box" }}
+              onFocus={e => (e.target.style.borderColor = ORANGE)}
+              onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+            />
+          </div>
 
-function SmBtn({ children, onClick, variant = "ghost", style: ext }: {
-  children: React.ReactNode; onClick: () => void;
-  variant?: "orange" | "ghost" | "danger"; style?: React.CSSProperties;
-}) {
-  const base: React.CSSProperties = { display: "flex", alignItems: "center", gap: 5, borderRadius: 8, padding: "8px 13px", fontWeight: 700, fontSize: 13, cursor: "pointer", border: "none", fontFamily: "Arial, sans-serif", WebkitTapHighlightColor: "transparent" };
-  const vars: Record<string, React.CSSProperties> = {
-    orange: { background: ORANGE, color: "#000" },
-    ghost: { background: "transparent", border: "1px solid #3a3a3a", color: "#ccc" },
-    danger: { background: "transparent", border: "1px solid #5a2020", color: "#d07070" },
-  };
-  return <button onClick={onClick} style={{ ...base, ...vars[variant], ...ext }}>{children}</button>;
-}
-
-function FieldInput({ label, value, type = "text", onChange, evidenceItems, onInsertEvidence }: {
-  label: string; value: string; type?: string; onChange: (v: string) => void;
-  evidenceItems?: Evidence[]; onInsertEvidence?: (e: Evidence) => void;
-}) {
-  const [showVault, setShowVault] = useState(false);
-  const base: React.CSSProperties = { background: "#111", border: "1px solid #333", borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 15, fontFamily: "Arial, sans-serif", outline: "none", width: "100%", boxSizing: "border-box" };
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-        <label style={{ fontSize: 12, color: "#777", fontWeight: 700, letterSpacing: 0.5 }}>{label.toUpperCase()}</label>
-        {evidenceItems && evidenceItems.length > 0 && (
-          <button onClick={() => setShowVault(v => !v)} style={{ background: "none", border: "none", color: ORANGE, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>⬆ VAULT</button>
-        )}
-      </div>
-      {type === "textarea"
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} style={{ ...base, resize: "vertical" }}
-            onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-        : <input value={value} onChange={e => onChange(e.target.value)} style={base}
-            onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-      }
-      {showVault && evidenceItems && evidenceItems.map(e => (
-        <button key={e.id} onClick={() => { onInsertEvidence?.(e); setShowVault(false); }}
-          style={{ width: "100%", background: "#111", border: "1px solid #222", borderRadius: 6, padding: "8px 10px", textAlign: "left", cursor: "pointer", marginTop: 4 }}>
-          <div style={{ color: ORANGE, fontWeight: 700, fontSize: 12 }}>{e.label}</div>
-          <div style={{ color: "#777", fontSize: 12, marginTop: 1 }}>{e.content.slice(0, 60)}…</div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Block editor panel ───────────────────────────────────────────────────────
-function BlockEditorPanel({ screen, selectedId, evidence, onUpdateBlock, onSelectBlock, onAddBlock, onRemoveBlock, onMoveBlock }: {
-  screen: Screen; selectedId: string | null; evidence: Evidence[];
-  onUpdateBlock: (b: Block) => void; onSelectBlock: (id: string | null) => void;
-  onAddBlock: (type: BlockType, afterId?: string) => void;
-  onRemoveBlock: (id: string) => void; onMoveBlock: (id: string, dir: "up" | "down") => void;
-}) {
-  const selectedBlock = screen.blocks.find(b => b.id === selectedId) || null;
-  const fields = selectedBlock ? (BLOCK_FIELDS[selectedBlock.type] ?? []) : [];
-  const [showAddMenu, setShowAddMenu] = useState(false);
-
-  function updateField(key: string, val: string) {
-    if (!selectedBlock) return;
-    onUpdateBlock({ ...selectedBlock, data: { ...selectedBlock.data, [key]: val } });
-  }
-  function evidenceFor(key: string): Evidence[] {
-    return ["quote", "content", "contentA", "contentB", "policyContent", "actualContent", "items"].includes(key) ? evidence : [];
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", overflowY: "auto", flex: 1 }}>
-      <div style={{ padding: "16px 16px 0" }}>
-        <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>BLOCKS</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
-          {screen.blocks.map((b, idx) => (
-            <div key={b.id} onClick={() => onSelectBlock(b.id === selectedId ? null : b.id)}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 8, background: b.id === selectedId ? `${ORANGE}18` : "#111", border: `1px solid ${b.id === selectedId ? ORANGE : "#222"}`, cursor: "pointer", minHeight: 44 }}>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: b.id === selectedId ? ORANGE : "#ccc" }}>
-                {BLOCK_TYPES.find(t => t.type === b.type)?.label ?? b.type}
-              </span>
-              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "up"); }} disabled={idx === 0}
-                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4, minWidth: 28 }}><ChevronUp size={14} /></button>
-              <button onClick={ev => { ev.stopPropagation(); onMoveBlock(b.id, "down"); }} disabled={idx === screen.blocks.length - 1}
-                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4, minWidth: 28 }}><ChevronDown size={14} /></button>
-              <button onClick={ev => { ev.stopPropagation(); onRemoveBlock(b.id); }}
-                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4, minWidth: 28 }}><X size={14} /></button>
+          <div>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>DESCRIBE WHAT HAPPENED</div>
+            <div style={{ fontSize: 13, color: "#444", marginBottom: 12, lineHeight: 1.6 }}>
+              Write everything you remember — who was involved, what was said, what happened, and in what order. Include dates, locations, and names if you know them. You can always edit this later.
             </div>
-          ))}
-        </div>
-        <div style={{ position: "relative", marginBottom: 14 }}>
-          <button onClick={() => setShowAddMenu(v => !v)}
-            style={{ width: "100%", background: "none", border: "1px dashed #333", borderRadius: 8, padding: "10px", color: "#666", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-            <Plus size={13} /> Add Block
-          </button>
-          {showAddMenu && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 8, zIndex: 10, maxHeight: 200, overflowY: "auto", marginTop: 4 }}>
-              {BLOCK_TYPES.map(t => (
-                <button key={t.type} onClick={() => { onAddBlock(t.type, selectedId || undefined); setShowAddMenu(false); }}
-                  style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #1a1a1a", padding: "10px 12px", textAlign: "left", color: "#ccc", fontSize: 13, cursor: "pointer" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = ORANGE)}
-                  onMouseLeave={e => (e.currentTarget.style.color = "#ccc")}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      {selectedBlock && (
-        <div style={{ padding: "0 16px 16px", borderTop: "1px solid #222" }}>
-          <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5, margin: "14px 0 10px" }}>
-            EDIT · {BLOCK_TYPES.find(t => t.type === selectedBlock.type)?.label?.toUpperCase()}
-          </div>
-          {fields.length === 0 && <div style={{ color: "#555", fontSize: 13 }}>No editable fields.</div>}
-          {fields.map(f => (
-            <FieldInput key={f.key} label={f.label} value={selectedBlock.data[f.key] ?? ""}
-              type={f.type === "textarea" ? "textarea" : "text"}
-              onChange={v => updateField(f.key, v)}
-              evidenceItems={evidenceFor(f.key)}
-              onInsertEvidence={e => updateField(f.key, e.content + (e.timestamp ? ` [${e.timestamp}]` : ""))} />
-          ))}
-        </div>
-      )}
-      {!selectedBlock && (
-        <div style={{ padding: "14px 16px", color: "#555", fontSize: 13 }}>Tap a block to select and edit it.</div>
-      )}
-    </div>
-  );
-}
-
-// ─── Evidence Vault panel ─────────────────────────────────────────────────────
-function EvidenceVaultPanel({ evidence, onAdd, onDelete }: {
-  evidence: Evidence[]; onAdd: (e: Evidence) => void; onDelete: (id: string) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<Partial<Evidence>>({ type: "bodycam" });
-  const EV_TYPES: { value: EvidenceType; label: string }[] = [
-    { value: "bodycam", label: "Bodycam" }, { value: "report", label: "Report" },
-    { value: "statement", label: "Statement" }, { value: "document", label: "Document" },
-    { value: "photo", label: "Photo" }, { value: "other", label: "Other" },
-  ];
-
-  function submit() {
-    if (!form.label?.trim() || !form.content?.trim()) return;
-    onAdd({ id: crypto.randomUUID(), type: form.type ?? "other", label: form.label, source: form.source ?? "", content: form.content, timestamp: form.timestamp });
-    setForm({ type: "bodycam" }); setAdding(false);
-  }
-
-  return (
-    <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>Evidence Vault</div>
-          <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>Import once · use anywhere</div>
-        </div>
-        <SmBtn onClick={() => setAdding(v => !v)} variant="orange"><Plus size={14} /> Add</SmBtn>
-      </div>
-      {adding && (
-        <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 14, marginBottom: 14 }}>
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontSize: 11, color: "#777", fontWeight: 700, display: "block", marginBottom: 5 }}>TYPE</label>
-            <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as EvidenceType }))}
-              style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 14, width: "100%" }}>
-              {EV_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-          <FieldInput label="Label" value={form.label ?? ""} onChange={v => setForm(f => ({ ...f, label: v }))} />
-          <FieldInput label="Source" value={form.source ?? ""} onChange={v => setForm(f => ({ ...f, source: v }))} />
-          {form.type === "bodycam" && <FieldInput label="Timestamp" value={form.timestamp ?? ""} onChange={v => setForm(f => ({ ...f, timestamp: v }))} />}
-          <FieldInput label="Content" value={form.content ?? ""} type="textarea" onChange={v => setForm(f => ({ ...f, content: v }))} />
-          <div style={{ display: "flex", gap: 8 }}>
-            <TapBtn onClick={submit} variant="orange" style={{ flex: 1, minHeight: 44, fontSize: 14 }}>Save</TapBtn>
-            <TapBtn onClick={() => setAdding(false)} style={{ minHeight: 44, fontSize: 14 }}>Cancel</TapBtn>
-          </div>
-        </div>
-      )}
-      {evidence.length === 0 && !adding && (
-        <div style={{ textAlign: "center", paddingTop: 32, color: "#444" }}>
-          <FileSearch size={36} color="#222" style={{ marginBottom: 12 }} />
-          <div style={{ fontSize: 13 }}>No evidence yet. Add bodycam, reports, and statements here.</div>
-        </div>
-      )}
-      {evidence.map(e => {
-        const Icon = EVIDENCE_ICONS[e.type] ?? File;
-        return (
-          <div key={e.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <Icon size={16} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{e.label}</div>
-                {e.source && <div style={{ color: "#555", fontSize: 12, marginBottom: 4 }}>{e.source}</div>}
-                {e.timestamp && <div style={{ color: ORANGE, fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{e.timestamp}</div>}
-                <div style={{ color: "#888", fontSize: 13, lineHeight: 1.4 }}>{e.content.slice(0, 120)}{e.content.length > 120 ? "…" : ""}</div>
-              </div>
-              <button onClick={() => onDelete(e.id)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 4, minWidth: 32, minHeight: 32 }}><Trash2 size={14} /></button>
+            <textarea
+              ref={textRef}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder={"On [date], I was at [location] when [person] did [action]...\n\nBe as specific as possible. Include what was said, what order things happened, who else was there."}
+              rows={12}
+              style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "14px", color: "#fff", fontSize: 15, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.75 }}
+              onFocus={e => (e.target.style.borderColor = ORANGE)}
+              onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+            />
+            <div style={{ textAlign: "right", color: "#333", fontSize: 12, marginTop: 4 }}>
+              {description.trim().split(/\s+/).filter(Boolean).length} words
             </div>
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Legal Library panel ──────────────────────────────────────────────────────
-function LegalLibraryPanel({ citations, onAddCitation }: { citations: string[]; onAddCitation: (label: string) => void }) {
-  const [q, setQ] = useState("");
-  const results = q.length >= 2 ? searchLaws(q) : LEGAL_LIBRARY.slice(0, 20);
-  return (
-    <div style={{ padding: 16 }}>
-      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Legal Library</div>
-      <div style={{ color: "#666", fontSize: 12, marginBottom: 12 }}>Search precedents and standards</div>
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search cases, statutes, standards…"
-        style={{ background: "#111", border: "1px solid #333", borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 14, width: "100%", boxSizing: "border-box", marginBottom: 12, outline: "none" }} />
-      {results.map((item: LegalItem) => (
-        <div key={item.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <Scale size={14} color={ORANGE} style={{ flexShrink: 0, marginTop: 3 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{item.citation}</div>
-              {item.court && <div style={{ color: "#555", fontSize: 11, marginTop: 1 }}>{item.court}</div>}
-              <div style={{ color: "#888", fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{item.summary}</div>
-            </div>
-            <button onClick={() => onAddCitation(item.citation)} disabled={citations.includes(item.citation)}
-              style={{ background: citations.includes(item.citation) ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 6, padding: "6px 10px", color: citations.includes(item.citation) ? "#555" : "#000", fontSize: 11, fontWeight: 700, cursor: citations.includes(item.citation) ? "default" : "pointer", flexShrink: 0 }}>
-              {citations.includes(item.citation) ? "Added" : "Add"}
-            </button>
-          </div>
         </div>
-      ))}
-    </div>
-  );
-}
 
-// ─── Citation Library panel ───────────────────────────────────────────────────
-function CitationLibraryPanel({ citations, onAdd, onDelete }: { citations: string[]; onAdd: (label: string) => void; onDelete: (id: string) => void }) {
-  const [q, setQ] = useState("");
-  const [custom, setCustom] = useState("");
-  const filtered = q ? citations.filter(c => c.toLowerCase().includes(q.toLowerCase())) : citations;
-  return (
-    <div style={{ padding: 16 }}>
-      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12 }}>My Citations</div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Add custom citation…"
-          style={{ flex: 1, background: "#111", border: "1px solid #333", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none" }} />
-        <button onClick={() => { if (custom.trim()) { onAdd(custom.trim()); setCustom(""); } }}
-          style={{ background: ORANGE, border: "none", borderRadius: 8, padding: "8px 12px", color: "#000", fontWeight: 700, cursor: "pointer" }}><Plus size={16} /></button>
-      </div>
-      {citations.length > 4 && <input value={q} onChange={e => setQ(e.target.value)} placeholder="Filter…"
-        style={{ background: "#111", border: "1px solid #222", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", marginBottom: 10 }} />}
-      {filtered.length === 0 && <div style={{ color: "#444", fontSize: 13 }}>No citations added yet. Use the Legal Library to find and add cases.</div>}
-      {filtered.map((c, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
-          <Scale size={13} color={ORANGE} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{c}</span>
-          <button onClick={() => onDelete(c)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 4 }}><X size={13} /></button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Conversation (Tutor build flow) view ─────────────────────────────────────
-function ConversationView({ screenType, evidence, conv, onConvChange, onComplete, onBack, isMobile }: {
-  screenType: ScreenType; evidence: Evidence[];
-  conv: ConvState; onConvChange: (c: ConvState) => void;
-  onComplete: (data: DataMap) => void; onBack: () => void; isMobile: boolean;
-}) {
-  const tree = TREES[screenType];
-  const node = tree[conv.nodeId];
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
-
-  useEffect(() => { setTimeout(() => (inputRef.current as HTMLElement | null)?.focus(), 100); }, [conv.nodeId]);
-
-  const suggestion = detectSuggestion(conv.data, screenType);
-
-  function submit(answer: string) {
-    if (!answer.trim() || !node) return;
-    const nextId = typeof node.next === "function" ? node.next(answer) : node.next;
-    const newData = { ...conv.data, [node.key]: answer };
-    const newHistory = [...conv.history, { nodeId: node.id, nodeKey: node.key, question: node.question, answer }];
-    if (nextId === null) { onComplete(newData); return; }
-    onConvChange({ nodeId: nextId, data: newData, history: newHistory, input: "" });
-  }
-
-  function goBack() {
-    if (conv.history.length === 0) { onBack(); return; }
-    const last = conv.history[conv.history.length - 1];
-    onConvChange({ nodeId: last.nodeId, data: conv.data, history: conv.history.slice(0, -1), input: last.answer });
-  }
-
-  if (!node) return null;
-
-  const vaultItems = node.evidenceTypes
-    ? evidence.filter(e => node.evidenceTypes!.includes(e.type as EvidenceType))
-    : [];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {/* Progress */}
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: 4 }}>
-          {conv.history.map((_, i) => <div key={i} style={{ flex: 1, height: 3, background: ORANGE, borderRadius: 2 }} />)}
-          <div style={{ flex: 1, height: 3, background: "#1e1e1e", borderRadius: 2 }} />
-        </div>
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
-        {/* History */}
-        {conv.history.length > 0 && (
-          <div style={{ padding: "12px 16px 0" }}>
-            {conv.history.slice(-3).map((h, i) => (
-              <div key={i} style={{ marginBottom: 12, opacity: 0.5 }}>
-                <div style={{ fontSize: 11, color: "#555", fontWeight: 700, marginBottom: 3 }}>{h.question}</div>
-                <div style={{ fontSize: 14, color: "#888", background: "#0e0e0e", borderRadius: 8, padding: "8px 10px" }}>{h.answer.slice(0, 80)}{h.answer.length > 80 ? "…" : ""}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Suggestion nudge */}
-        {suggestion && (
-          <div style={{ margin: "0 16px 12px", background: `${ORANGE}14`, border: `1px solid ${ORANGE}33`, borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <Lightbulb size={14} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-              <div style={{ fontSize: 13, color: "#ccc" }}>
-                <span style={{ color: ORANGE, fontWeight: 700 }}>Noticed: </span>
-                You might also build a {SCREEN_TYPES.find(t => t.id === suggestion)?.label} screen from this.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Current question */}
-        <div style={{ padding: "16px 16px 24px" }}>
-          <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 900, lineHeight: 1.3, marginBottom: 6, letterSpacing: -0.3 }}>{node.question}</div>
-          {node.subtext && <div style={{ color: "#666", fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>{node.subtext}</div>}
-
-          {node.type === "choice" && node.choices && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {node.choices.map(ch => (
-                <button key={ch.value} onClick={() => submit(ch.value)}
-                  style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "16px 18px", textAlign: "left", cursor: "pointer", color: "#fff", fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = ORANGE; (e.currentTarget as HTMLButtonElement).style.color = ORANGE; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#2a2a2a"; (e.currentTarget as HTMLButtonElement).style.color = "#fff"; }}>
-                  <ChevronRight size={16} color={ORANGE} /> {ch.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {node.type !== "choice" && (
-            <div>
-              {vaultItems.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: "#555", fontWeight: 700, marginBottom: 6 }}>FROM VAULT</div>
-                  {vaultItems.map(e => (
-                    <button key={e.id} onClick={() => onConvChange({ ...conv, input: e.content + (e.timestamp ? ` [${e.timestamp}]` : "") })}
-                      style={{ width: "100%", background: "#0e0e0e", border: `1px solid ${ORANGE}33`, borderRadius: 8, padding: "8px 10px", textAlign: "left", cursor: "pointer", marginBottom: 4 }}>
-                      <div style={{ color: ORANGE, fontWeight: 700, fontSize: 12 }}>{e.label}</div>
-                      <div style={{ color: "#777", fontSize: 12, marginTop: 1 }}>{e.content.slice(0, 60)}…</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {node.type === "textarea"
-                ? <textarea ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                    value={conv.input} onChange={e => onConvChange({ ...conv, input: e.target.value })}
-                    onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(conv.input); }}
-                    rows={isMobile ? 4 : 5} placeholder="Type here…"
-                    style={{ background: "#111", border: "1px solid #333", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 15, fontFamily: "Arial, sans-serif", outline: "none", width: "100%", boxSizing: "border-box", resize: "vertical", lineHeight: 1.5 }}
-                    onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-                : <input ref={inputRef as React.RefObject<HTMLInputElement>}
-                    value={conv.input} onChange={e => onConvChange({ ...conv, input: e.target.value })}
-                    onKeyDown={e => { if (e.key === "Enter") submit(conv.input); }}
-                    placeholder="Type here…"
-                    style={{ background: "#111", border: "1px solid #333", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 15, fontFamily: "Arial, sans-serif", outline: "none", width: "100%", boxSizing: "border-box" }}
-                    onFocus={e => (e.target.style.borderColor = ORANGE)} onBlur={e => (e.target.style.borderColor = "#333")} />
-              }
-              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <TapBtn onClick={() => submit(conv.input)} variant="orange" style={{ flex: 1, minHeight: 50 }} disabled={!conv.input.trim()}>
-                  {node.next === null ? "Build Screen" : "Next"} <ArrowRight size={16} />
-                </TapBtn>
-              </div>
-              {node.type === "textarea" && <div style={{ color: "#444", fontSize: 12, marginTop: 6, textAlign: "right" }}>⌘ + Enter to continue</div>}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div style={{ padding: "10px 16px calc(10px + env(safe-area-inset-bottom))", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-        <SmBtn onClick={goBack}><ChevronLeft size={13} /> {conv.history.length === 0 ? "Change Type" : "Back"}</SmBtn>
-      </div>
-    </div>
-  );
-}
-
-// ─── Edit view (screen editor) ────────────────────────────────────────────────
-function EditView({ screen, project, onUpdate, onBack, onUpdateProject, isMobile }: {
-  screen: Screen; project: Project; onUpdate: (s: Screen) => void;
-  onBack: () => void; onUpdateProject: (p: Project) => void; isMobile: boolean;
-}) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editorTab, setEditorTab] = useState<"blocks" | "vault" | "laws">("blocks");
-  const [showExport, setShowExport] = useState(false);
-  const [showMobileEdit, setShowMobileEdit] = useState(false);
-
-  function handleUpdateBlock(b: Block) { onUpdate(updateBlock(screen, b)); }
-  function handleAddBlock(type: BlockType, afterId?: string) { onUpdate(addBlock(screen, newBlock(type), afterId)); }
-  function handleRemoveBlock(id: string) { onUpdate(removeBlock(screen, id)); setSelectedId(null); }
-  function handleMoveBlock(id: string, dir: "up" | "down") { onUpdate(moveBlock(screen, id, dir)); }
-  const recomm = recommendLaws(screen).slice(0, 4);
-
-  if (isMobile) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid #1e1e1e", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <input value={screen.title} onChange={e => onUpdate({ ...screen, title: e.target.value })}
-            style={{ flex: 1, background: "none", border: "none", color: "#fff", fontSize: 16, fontWeight: 800, outline: "none" }} />
-          <input value={screen.screenNumber} onChange={e => onUpdate({ ...screen, screenNumber: e.target.value })}
-            style={{ width: 56, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 15, fontWeight: 800, outline: "none", textAlign: "center" }} />
-          <button onClick={() => setShowExport(true)}
-            style={{ background: ORANGE, border: "none", borderRadius: 8, padding: "8px 14px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            <Download size={14} /> Export
-          </button>
-        </div>
-        <div style={{ flex: 1, background: "#080808", overflow: "hidden", position: "relative" }}
-          onClick={() => setShowMobileEdit(true)}>
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.33)", transformOrigin: "center" }}>
-            <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber}
-              footerCitations={screen.footerCitations}
-              selectedBlockId={selectedId ?? undefined} onBlockClick={setSelectedId} />
-          </div>
-          <div style={{ position: "absolute", bottom: 12, right: 12, background: ORANGE, borderRadius: 8, padding: "6px 12px", color: "#000", fontWeight: 700, fontSize: 12 }}>
-            Tap to edit blocks
-          </div>
-        </div>
-        {showMobileEdit && (
-          <div style={{ position: "fixed", inset: 0, background: "#0c0c0c", zIndex: 100, display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>Edit Blocks</div>
-              <button onClick={() => setShowMobileEdit(false)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer" }}><X size={20} /></button>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              <BlockEditorPanel screen={screen} selectedId={selectedId} evidence={project.evidence}
-                onUpdateBlock={handleUpdateBlock} onSelectBlock={setSelectedId}
-                onAddBlock={handleAddBlock} onRemoveBlock={handleRemoveBlock} onMoveBlock={handleMoveBlock} />
-            </div>
-          </div>
-        )}
-        {showExport && <ExportModal screen={screen} onClose={() => setShowExport(false)} />}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #1e1e1e", display: "flex", flexDirection: "column", overflowY: "auto" }}>
-        <div style={{ display: "flex", borderBottom: "1px solid #1e1e1e", flexShrink: 0 }}>
-          {(["blocks", "vault", "laws"] as const).map(tab => (
-            <button key={tab} onClick={() => setEditorTab(tab)}
-              style={{ flex: 1, background: "none", border: "none", borderBottom: `2px solid ${editorTab === tab ? ORANGE : "transparent"}`, padding: "11px 0", color: editorTab === tab ? "#fff" : "#555", fontWeight: 700, fontSize: 11, letterSpacing: 0.5, cursor: "pointer", textTransform: "uppercase" }}>
-              {tab}
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {editorTab === "blocks" && (
-            <BlockEditorPanel screen={screen} selectedId={selectedId} evidence={project.evidence}
-              onUpdateBlock={handleUpdateBlock} onSelectBlock={setSelectedId}
-              onAddBlock={handleAddBlock} onRemoveBlock={handleRemoveBlock} onMoveBlock={handleMoveBlock} />
-          )}
-          {editorTab === "vault" && (
-            <EvidenceVaultPanel evidence={project.evidence}
-              onAdd={e => onUpdateProject(addEvidence(project, e))}
-              onDelete={id => onUpdateProject(deleteEvidence(project, id))} />
-          )}
-          {editorTab === "laws" && (
-            <LegalLibraryPanel citations={project.citations}
-              onAddCitation={label => onUpdateProject(addCitation(project, label))} />
-          )}
-        </div>
-      </div>
-
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "10px 16px", borderBottom: "1px solid #1e1e1e", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <input value={screen.title} onChange={e => onUpdate({ ...screen, title: e.target.value })}
-            style={{ flex: 1, background: "none", border: "none", color: "#fff", fontSize: 16, fontWeight: 800, outline: "none" }} />
-          <input value={screen.screenNumber} onChange={e => onUpdate({ ...screen, screenNumber: e.target.value })}
-            style={{ width: 56, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 15, fontWeight: 800, outline: "none", textAlign: "center" }} />
-          <div style={{ flex: 1 }} />
-          <button onClick={() => setShowExport(true)}
-            style={{ background: ORANGE, border: "none", borderRadius: 8, padding: "8px 14px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            <Download size={14} /> Export
-          </button>
-          <SmBtn onClick={onBack}><ChevronLeft size={13} /> Screens</SmBtn>
-        </div>
-        <div style={{ flex: 1, minWidth: 0, background: "#080808", overflow: "hidden", position: "relative" }}>
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.54)", transformOrigin: "center" }}>
-            <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber}
-              footerCitations={screen.footerCitations}
-              selectedBlockId={selectedId ?? undefined} onBlockClick={setSelectedId} />
-          </div>
-        </div>
-        {showExport && <ExportModal screen={screen} onClose={() => setShowExport(false)} />}
-      </div>
-    </div>
-  );
-}
-
-// ─── Project / screens list ───────────────────────────────────────────────────
-type ProjectSubTab = "screens" | "vault" | "laws" | "citations";
-
-function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpdateProject, isMobile, activeTab, onTabChange }: {
-  project: Project; onNewScreen: () => void; onEditScreen: (s: Screen) => void;
-  onDeleteScreen: (id: string) => void; onUpdateProject: (p: Project) => void;
-  isMobile: boolean; activeTab: ProjectSubTab; onTabChange: (t: ProjectSubTab) => void;
-}) {
-  if (isMobile) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-        <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
-          {activeTab === "screens" && (
-            <div style={{ padding: "20px 16px" }}>
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 20, fontWeight: 900 }}>Screens</div>
-                <div style={{ color: "#555", fontSize: 13 }}>{project.screens.length} screen{project.screens.length !== 1 ? "s" : ""}</div>
-              </div>
-              {project.screens.length === 0 && (
-                <div style={{ textAlign: "center", paddingTop: 60 }}>
-                  <Layers size={52} color="#222" style={{ marginBottom: 16 }} />
-                  <div style={{ color: "#555", marginBottom: 24 }}>No screens yet.</div>
-                  <TapBtn onClick={onNewScreen} variant="orange"><Plus size={17} /> Build First Screen</TapBtn>
-                </div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {project.screens.map(screen => (
-                  <div key={screen.id} onClick={() => onEditScreen(screen)}
-                    style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, overflow: "hidden", cursor: "pointer" }}>
-                    <div style={{ height: 120, background: "#080808", overflow: "hidden", position: "relative" }}>
-                      <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.11)", transformOrigin: "center", pointerEvents: "none" }}>
-                        <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber} footerCitations={screen.footerCitations} />
-                      </div>
-                    </div>
-                    <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ flex: 1, overflow: "hidden" }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{screen.title}</div>
-                        <div style={{ color: "#555", fontSize: 11 }}>#{screen.screenNumber}</div>
-                      </div>
-                      <button onClick={e => { e.stopPropagation(); onDeleteScreen(screen.id); }}
-                        style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 6, minWidth: 36, minHeight: 36 }}><Trash2 size={14} /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {activeTab === "vault" && (
-            <EvidenceVaultPanel evidence={project.evidence}
-              onAdd={e => onUpdateProject(addEvidence(project, e))}
-              onDelete={id => onUpdateProject(deleteEvidence(project, id))} />
-          )}
-          {activeTab === "laws" && (
-            <LegalLibraryPanel citations={project.citations}
-              onAddCitation={label => onUpdateProject(addCitation(project, label))} />
-          )}
-          {activeTab === "citations" && (
-            <CitationLibraryPanel citations={project.citations}
-              onAdd={label => onUpdateProject(addCitation(project, label))}
-              onDelete={id => onUpdateProject(deleteCitation(project, id))} />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const [sidebar, setSidebar] = useState<"vault" | "laws" | "citations">("vault");
-  return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div style={{ width: 320, flexShrink: 0, borderRight: "1px solid #1e1e1e", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", borderBottom: "1px solid #1e1e1e", flexShrink: 0 }}>
-          {(["vault", "laws", "citations"] as const).map(tab => (
-            <button key={tab} onClick={() => setSidebar(tab)}
-              style={{ flex: 1, background: "none", border: "none", borderBottom: `2px solid ${sidebar === tab ? ORANGE : "transparent"}`, padding: "12px 0", color: sidebar === tab ? "#fff" : "#555", fontWeight: 700, fontSize: 11, letterSpacing: 0.5, cursor: "pointer", textTransform: "uppercase" }}>
-              {tab === "vault" ? "Evidence" : tab}
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {sidebar === "vault" && <EvidenceVaultPanel evidence={project.evidence} onAdd={e => onUpdateProject(addEvidence(project, e))} onDelete={id => onUpdateProject(deleteEvidence(project, id))} />}
-          {sidebar === "laws" && <LegalLibraryPanel citations={project.citations} onAddCitation={label => onUpdateProject(addCitation(project, label))} />}
-          {sidebar === "citations" && <CitationLibraryPanel citations={project.citations} onAdd={label => onUpdateProject(addCitation(project, label))} onDelete={id => onUpdateProject(deleteCitation(project, id))} />}
-        </div>
-      </div>
-      <div style={{ flex: 1, minWidth: 0, padding: "32px 36px", overflowY: "auto" }}>
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 22, fontWeight: 900 }}>Screens</div>
-          <div style={{ color: "#555", fontSize: 13, marginTop: 2 }}>{project.screens.length} screen{project.screens.length !== 1 ? "s" : ""}</div>
-        </div>
-        {project.screens.length === 0 && (
-          <div style={{ textAlign: "center", paddingTop: 60 }}>
-            <Layers size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
-            <div style={{ color: "#555", marginBottom: 24, fontSize: 15 }}>No screens yet.</div>
-            <SmBtn onClick={onNewScreen} variant="orange"><Plus size={14} /> Build First Screen</SmBtn>
-          </div>
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
-          {project.screens.map(screen => (
-            <div key={screen.id} onClick={() => onEditScreen(screen)}
-              style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, overflow: "hidden", cursor: "pointer" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-              <div style={{ height: 140, background: "#080808", overflow: "hidden", position: "relative" }}>
-                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.13)", transformOrigin: "center", pointerEvents: "none" }}>
-                  <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber} footerCitations={screen.footerCitations} />
-                </div>
-              </div>
-              <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ flex: 1, overflow: "hidden" }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{screen.title}</div>
-                  <div style={{ color: "#555", fontSize: 11 }}>#{screen.screenNumber} · {screen.blocks.length} blocks</div>
-                </div>
-                <button onClick={e => { e.stopPropagation(); onDeleteScreen(screen.id); }}
-                  style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 4 }}><Trash2 size={13} /></button>
-              </div>
-            </div>
-          ))}
+        <div style={{ padding: "16px 20px", borderTop: "1px solid #1a1a1a", display: "flex", gap: 10, flexShrink: 0, paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}>
+          <TapBtn variant="dim" onClick={handleClose}>Cancel</TapBtn>
+          <TapBtn variant="orange" onClick={handleSave} disabled={!description.trim()} style={{ flex: 1, justifyContent: "center" }}>
+            Save Incident <ArrowRight size={16} />
+          </TapBtn>
         </div>
       </div>
     </div>
@@ -861,287 +168,612 @@ function ProjectView({ project, onNewScreen, onEditScreen, onDeleteScreen, onUpd
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ project, onGoToBuild, onEditScreen, onGoToTutor }: {
-  project: Project;
-  onGoToBuild: () => void;
-  onEditScreen: (s: Screen) => void;
-  onGoToTutor: () => void;
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident }: {
+  data: AppData;
+  onOpenIncident: (i: Incident) => void;
+  onOpenCase: (c: HLCase) => void;
+  onNewIncident: () => void;
 }) {
-  const recent = project.screens.slice(-4).reverse();
-  const insights = staticTutorService.getInsights(project);
-  const topInsight = insights.find(i => i.type === "suggestion" || i.type === "question") ?? insights[0];
+  const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
+  const recentCases = [...data.cases].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
+  const hasContent = data.incidents.length > 0 || data.cases.length > 0;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 100px" }}>
-      {/* Welcome */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5 }}>HyperLaw</div>
-        <div style={{ color: "#555", fontSize: 14, marginTop: 2 }}>{project.caseName}</div>
-      </div>
-
-      {/* Case Progress */}
-      <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "18px 20px", marginBottom: 20 }}>
-        <div style={{ fontSize: 12, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>CASE PROGRESS</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          {[
-            { label: "Screens", value: project.screens.length },
-            { label: "Evidence", value: project.evidence.length },
-            { label: "Citations", value: project.citations.length },
-          ].map(stat => (
-            <div key={stat.label} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: ORANGE }}>{stat.value}</div>
-              <div style={{ fontSize: 11, color: "#555", fontWeight: 700 }}>{stat.label.toUpperCase()}</div>
-            </div>
-          ))}
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px" }}>
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <img src="/hyperlaw-logo.png" alt="HL" style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5 }}>HyperLaw</div>
         </div>
+        <div style={{ color: "#444", fontSize: 14, lineHeight: 1.5 }}>Describe what happened. Organize it clearly. Build from it later.</div>
       </div>
 
-      {/* AI Suggestion strip */}
-      {topInsight && (
-        <button onClick={onGoToTutor} style={{ width: "100%", background: `${ORANGE}12`, border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "14px 16px", textAlign: "left", cursor: "pointer", marginBottom: 20, display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <Lightbulb size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <div style={{ fontSize: 12, color: ORANGE, fontWeight: 700, marginBottom: 4 }}>TUTOR INSIGHT</div>
-            <div style={{ fontSize: 14, color: "#ddd", fontWeight: 600, lineHeight: 1.4 }}>{topInsight.title}</div>
-            <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>Open Tutor →</div>
+      {!hasContent ? (
+        <div style={{ textAlign: "center", paddingTop: 48 }}>
+          <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>
+          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, letterSpacing: -0.3 }}>Start by describing what happened</div>
+          <div style={{ color: "#555", fontSize: 15, marginBottom: 36, lineHeight: 1.65, maxWidth: 340, margin: "0 auto 36px" }}>
+            Create your first incident — write everything out in plain language. HyperLaw will help you organize it from there.
           </div>
-        </button>
-      )}
-
-      {/* Quick actions */}
-      <div style={{ fontSize: 12, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUICK ACTIONS</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24 }}>
-        <button onClick={onGoToBuild}
-          style={{ background: ORANGE, border: "none", borderRadius: 14, padding: "18px 16px", textAlign: "left", cursor: "pointer", color: "#000" }}>
-          <Wrench size={20} style={{ marginBottom: 8, display: "block" }} />
-          <div style={{ fontWeight: 800, fontSize: 15 }}>Build Screen</div>
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>Start a new one</div>
-        </button>
-        <button onClick={onGoToTutor}
-          style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "18px 16px", textAlign: "left", cursor: "pointer", color: "#fff" }}>
-          <GraduationCap size={20} color={ORANGE} style={{ marginBottom: 8, display: "block" }} />
-          <div style={{ fontWeight: 800, fontSize: 15 }}>Open Tutor</div>
-          <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Learn from your case</div>
-        </button>
-      </div>
-
-      {/* Recent screens */}
-      {recent.length > 0 && (
+          <TapBtn variant="orange" onClick={onNewIncident} style={{ fontSize: 16, padding: "14px 28px" }}>
+            <Plus size={18} /> New Incident
+          </TapBtn>
+        </div>
+      ) : (
         <>
-          <div style={{ fontSize: 12, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>RECENT SCREENS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {recent.map(screen => (
-              <button key={screen.id} onClick={() => onEditScreen(screen)}
-                style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 48, height: 48, background: "#080808", borderRadius: 8, overflow: "hidden", position: "relative", flexShrink: 0 }}>
-                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) scale(0.044)", transformOrigin: "center", pointerEvents: "none" }}>
-                    <BlockCanvas blocks={screen.blocks} screenNumber={screen.screenNumber} footerCitations={screen.footerCitations} />
-                  </div>
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{screen.title}</div>
-                  <div style={{ color: "#555", fontSize: 12 }}>Screen #{screen.screenNumber} · {SCREEN_TYPES.find(t => t.id === screen.screenType)?.label}</div>
-                </div>
-                <ChevronRight size={16} color="#333" />
-              </button>
-            ))}
-          </div>
+          {recentIncidents.length > 0 && (
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>RECENT INCIDENTS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {recentIncidents.map(incident => (
+                  <button key={incident.id} onClick={() => onOpenIncident(incident)}
+                    style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "flex-start", gap: 12 }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "66")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+                    <FileText size={16} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{incident.title}</div>
+                      <div style={{ color: "#555", fontSize: 13, lineHeight: 1.4 }}>{truncate(incident.description, 90)}</div>
+                      <div style={{ color: "#333", fontSize: 11, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                        <Clock size={10} color="#333" /> {formatDate(incident.createdAt)}
+                        {incident.caseId && data.cases.find(c => c.id === incident.caseId) && (
+                          <><span style={{ color: "#2a2a2a" }}>·</span> <span style={{ color: ORANGE + "88" }}>{data.cases.find(c => c.id === incident.caseId)!.title}</span></>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight size={14} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {recentCases.length > 0 && (
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>CASES</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {recentCases.map(c => (
+                  <button key={c.id} onClick={() => onOpenCase(c)}
+                    style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 12 }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "66")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+                    <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{c.title}</div>
+                      <div style={{ color: "#555", fontSize: 13 }}>{c.incidentIds.length} incident{c.incidentIds.length !== 1 ? "s" : ""}</div>
+                    </div>
+                    <ChevronRight size={14} color="#333" style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <TapBtn variant="orange" onClick={onNewIncident} style={{ width: "100%", justifyContent: "center" }}>
+            <Plus size={16} /> New Incident
+          </TapBtn>
         </>
       )}
+    </div>
+  );
+}
 
-      {project.screens.length === 0 && (
-        <div style={{ textAlign: "center", paddingTop: 20 }}>
-          <Layers size={48} color="#1e1e1e" style={{ marginBottom: 12 }} />
-          <div style={{ color: "#444", fontSize: 14, marginBottom: 20 }}>No screens yet — tap Build to start your first one.</div>
+// ─── INCIDENT DETAIL VIEW ─────────────────────────────────────────────────────
+function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCase, onAddToCase, onOpenInTutor, onBack }: {
+  incident: Incident; cases: HLCase[];
+  onUpdate: (i: Incident) => void; onDelete: (id: string) => void;
+  onConvertToCase: (i: Incident) => void; onAddToCase: (incidentId: string, caseId: string) => void;
+  onOpenInTutor: (i: Incident) => void; onBack: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(incident.title);
+  const [editDesc, setEditDesc] = useState(incident.description);
+  const [showCasePicker, setShowCasePicker] = useState(false);
+  const linkedCase = cases.find(c => c.id === incident.caseId);
+  const availableCases = cases.filter(c => c.id !== incident.caseId);
+
+  function saveEdit() {
+    onUpdate({ ...incident, title: editTitle.trim() || incident.title, description: editDesc });
+    setEditing(false);
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4, padding: "4px 0" }}>
+          <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Back</span>
+        </button>
+        <div style={{ flex: 1 }} />
+        {!editing ? (
+          <>
+            <button onClick={() => { setEditTitle(incident.title); setEditDesc(incident.description); setEditing(true); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Edit3 size={16} /></button>
+            <button onClick={() => { if (window.confirm("Delete this incident?")) onDelete(incident.id); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
+          </>
+        ) : (
+          <>
+            <TapBtn variant="dim" onClick={() => setEditing(false)} style={{ padding: "8px 12px", fontSize: 12 }}>Cancel</TapBtn>
+            <TapBtn variant="orange" onClick={saveEdit} style={{ padding: "8px 12px", fontSize: 12 }}>Save</TapBtn>
+          </>
+        )}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
+        {editing ? (
+          <>
+            <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+              style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 18, fontWeight: 800, outline: "none", boxSizing: "border-box", marginBottom: 16 }} />
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={16}
+              style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "14px", color: "#fff", fontSize: 15, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.75 }} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 6, letterSpacing: -0.3, lineHeight: 1.2 }}>{incident.title}</div>
+            <div style={{ color: "#444", fontSize: 13, marginBottom: 28, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Clock size={11} color="#444" /> {formatDate(incident.createdAt)}
+              {linkedCase && <><span style={{ color: "#2a2a2a" }}>·</span><span style={{ color: ORANGE }}>In: {linkedCase.title}</span></>}
+            </div>
+            <div style={{ fontSize: 16, lineHeight: 1.85, color: "#ccc", fontFamily: "Georgia, serif", whiteSpace: "pre-wrap" }}>{incident.description}</div>
+
+            <div style={{ marginTop: 40, borderTop: "1px solid #1a1a1a", paddingTop: 24 }}>
+              <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>ACTIONS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <TapBtn variant="orange" onClick={() => onOpenInTutor(incident)} style={{ justifyContent: "center" }}>
+                  <GraduationCap size={16} /> Open in Tutor
+                </TapBtn>
+                {!incident.caseId && (
+                  <TapBtn variant="ghost" onClick={() => onConvertToCase(incident)} style={{ justifyContent: "center" }}>
+                    <Folder size={16} /> Convert to New Case
+                  </TapBtn>
+                )}
+                {availableCases.length > 0 && (
+                  <TapBtn variant="ghost" onClick={() => setShowCasePicker(true)} style={{ justifyContent: "center" }}>
+                    <Plus size={16} /> Add to Existing Case
+                  </TapBtn>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {showCasePicker && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 150, display: "flex", alignItems: "flex-end" }}>
+          <div style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 16 }}>Add to Case</div>
+            {availableCases.map(c => (
+              <button key={c.id} onClick={() => { onAddToCase(incident.id, c.id); setShowCasePicker(false); }}
+                style={{ width: "100%", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px", color: "#fff", fontSize: 15, fontWeight: 700, textAlign: "left", cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                <Folder size={16} color={ORANGE} /> {c.title}
+              </button>
+            ))}
+            <button onClick={() => setShowCasePicker(false)}
+              style={{ width: "100%", background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: "12px 0" }}>Cancel</button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── CASES VIEW ───────────────────────────────────────────────────────────────
+function CasesView({ data, onOpenCase, onOpenIncident }: {
+  data: AppData;
+  onOpenCase: (c: HLCase) => void;
+  onOpenIncident: (i: Incident) => void;
+}) {
+  const sorted = [...data.cases].sort((a, b) => b.createdAt - a.createdAt);
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+        <Folder size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>No cases yet</div>
+        <div style={{ color: "#555", fontSize: 14, lineHeight: 1.6, maxWidth: 300 }}>
+          Cases are created from incidents. Open an incident and tap "Convert to New Case" to get started.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
+      <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 16 }}>ALL CASES</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {sorted.map(c => {
+          const incidents = data.incidents.filter(i => c.incidentIds.includes(i.id));
+          return (
+            <button key={c.id} onClick={() => onOpenCase(c)}
+              style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "18px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", gap: 14 }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "66")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+              <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>{c.title}</div>
+                <div style={{ color: "#555", fontSize: 13, marginBottom: 8 }}>{incidents.length} incident{incidents.length !== 1 ? "s" : ""} · {formatDate(c.createdAt)}</div>
+                {incidents.slice(0, 3).map(i => (
+                  <div key={i.id} style={{ color: "#444", fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                    <FileText size={10} color="#333" /> {truncate(i.title, 50)}
+                  </div>
+                ))}
+                {incidents.length > 3 && <div style={{ color: "#333", fontSize: 12, marginTop: 2 }}>+{incidents.length - 3} more</div>}
+              </div>
+              <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onBack }: {
+  hlCase: HLCase; data: AppData;
+  onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void;
+  onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
+  onBack: () => void;
+}) {
+  const [editTitle, setEditTitle] = useState(hlCase.title);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [notes, setNotes] = useState(hlCase.notes);
+  const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id))
+    .sort((a, b) => a.createdAt - b.createdAt);
+
+  function saveTitle() {
+    onUpdateCase({ ...hlCase, title: editTitle.trim() || hlCase.title });
+    setEditingTitle(false);
+  }
+
+  function saveNotes() {
+    onUpdateCase({ ...hlCase, notes });
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4, padding: "4px 0" }}>
+          <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
+        </button>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => { if (window.confirm("Delete this case?")) onDeleteCase(hlCase.id); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
+        {editingTitle ? (
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+            <input value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTitle(false); }}
+              style={{ flex: 1, background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 20, fontWeight: 800, outline: "none", boxSizing: "border-box" }} />
+            <TapBtn variant="orange" onClick={saveTitle} style={{ padding: "0 16px" }}><Check size={16} /></TapBtn>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 22, fontWeight: 900, flex: 1, lineHeight: 1.2 }}>{hlCase.title}</div>
+            <button onClick={() => { setEditTitle(hlCase.title); setEditingTitle(true); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 6, marginTop: 2 }}><Edit3 size={15} /></button>
+          </div>
+        )}
+        <div style={{ color: "#444", fontSize: 13, marginBottom: 32, display: "flex", alignItems: "center", gap: 4 }}>
+          <Clock size={11} color="#444" /> {formatDate(hlCase.createdAt)} · {incidents.length} incident{incidents.length !== 1 ? "s" : ""}
+        </div>
+
+        <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ width: "100%", justifyContent: "center", marginBottom: 32 }}>
+          <GraduationCap size={16} /> Analyze in Tutor
+        </TapBtn>
+
+        {/* Incidents */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>INCIDENTS IN THIS CASE</div>
+          {incidents.length === 0 ? (
+            <div style={{ color: "#444", fontSize: 14, fontStyle: "italic" }}>No incidents linked yet. Open an incident and add it to this case.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {incidents.map(i => (
+                <button key={i.id} onClick={() => onOpenIncident(i)}
+                  style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", gap: 10 }}>
+                  <FileText size={15} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.title}</div>
+                    <div style={{ color: "#444", fontSize: 12, marginTop: 2 }}>{formatDate(i.createdAt)}</div>
+                  </div>
+                  <ChevronRight size={14} color="#333" style={{ flexShrink: 0, marginTop: 2 }} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Timeline */}
+        {incidents.length > 1 && (
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>TIMELINE</div>
+            <div style={{ position: "relative", paddingLeft: 24 }}>
+              <div style={{ position: "absolute", left: 7, top: 0, bottom: 0, width: 2, background: "#1a1a1a" }} />
+              {incidents.map((i, idx) => (
+                <div key={i.id} style={{ position: "relative", marginBottom: 20 }}>
+                  <div style={{ position: "absolute", left: -20, top: 4, width: 10, height: 10, borderRadius: 5, background: idx === 0 ? ORANGE : "#2a2a2a", border: `2px solid ${idx === 0 ? ORANGE : "#333"}` }} />
+                  <div style={{ fontSize: 11, color: "#444", marginBottom: 2 }}>{formatDate(i.createdAt)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#ccc" }}>{i.title}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
+        <div>
+          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>NOTES</div>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={6}
+            placeholder="Add any notes about this case — context, questions, next steps..."
+            style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#ccc", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.65 }}
+            onFocus={e => (e.target.style.borderColor = ORANGE)}
+            onBlur={e => { e.target.style.borderColor = "#2a2a2a"; saveNotes(); }}
+          />
+          <div style={{ textAlign: "right", marginTop: 6 }}>
+            <TapBtn variant="dim" onClick={saveNotes} style={{ fontSize: 12, padding: "6px 12px" }}>Save Notes</TapBtn>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ─── TUTOR VIEW ───────────────────────────────────────────────────────────────
-const INSIGHT_ICONS: Record<string, React.ElementType> = {
-  strength: TrendingUp, weakness: AlertTriangle, question: HelpCircle,
-  suggestion: Lightbulb, concept: Brain,
-};
-const INSIGHT_COLORS: Record<string, string> = {
-  strength: "#4caf7d", weakness: "#e06060", question: "#7cb9e8",
-  suggestion: ORANGE, concept: "#b39ddb",
-};
-const CARD_LABELS: Record<string, string> = {
-  fact: "FACT", concept: "CONCEPT", evidence: "EVIDENCE",
-  question: "QUESTION", why: "WHY IT MATTERS", strengthen: "STRENGTHEN",
-};
-const CARD_COLORS: Record<string, string> = {
-  fact: "#7cb9e8", concept: "#b39ddb", evidence: ORANGE,
-  question: "#4caf7d", why: "#e06060", strengthen: "#ffd54f",
-};
+function TutorView({ data, initialIncident, initialCase, onOpenIncident, onOpenCase }: {
+  data: AppData;
+  initialIncident?: Incident | null;
+  initialCase?: HLCase | null;
+  onOpenIncident: (i: Incident) => void;
+  onOpenCase: (c: HLCase) => void;
+}) {
+  type TutorTarget = { kind: "incident"; item: Incident } | { kind: "case"; item: HLCase } | null;
+  const [target, setTarget] = useState<TutorTarget>(() => {
+    if (initialIncident) return { kind: "incident", item: initialIncident };
+    if (initialCase) return { kind: "case", item: initialCase };
+    return null;
+  });
+  const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
-function TutorView({ project }: { project: Project }) {
-  const [mode, setMode] = useState<"insights" | "learn">("insights");
-  const insights = staticTutorService.getInsights(project);
-  const cards = staticTutorService.getLearningCards(project);
-  const [cardIdx, setCardIdx] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!target) { setAnalysis(null); return; }
+    if (target.kind === "incident") {
+      setAnalysis(staticTutorService.analyzeIncident(target.item));
+    } else {
+      const incidents = data.incidents.filter(i => target.item.incidentIds.includes(i.id));
+      setAnalysis(staticTutorService.analyzeCase(target.item, incidents));
+    }
+  }, [target]);
 
-  const card = cards[cardIdx] ?? null;
+  const insightColors: Record<string, string> = {
+    summary: "#2a3a2a",
+    key_point: "#1a2a3a",
+    question: "#2a2a1a",
+    notice: "#2a1a1a",
+  };
+  const insightBorders: Record<string, string> = {
+    summary: "#3a6a3a",
+    key_point: "#3a5a7a",
+    question: "#6a5a3a",
+    notice: "#7a3a3a",
+  };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {/* Mode toggle */}
-      <div style={{ display: "flex", padding: "12px 16px", borderBottom: "1px solid #1a1a1a", gap: 8, flexShrink: 0 }}>
-        <button onClick={() => setMode("insights")}
-          style={{ flex: 1, background: mode === "insights" ? ORANGE : "#111", border: `1px solid ${mode === "insights" ? ORANGE : "#2a2a2a"}`, borderRadius: 10, padding: "10px 0", color: mode === "insights" ? "#000" : "#777", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-          <GraduationCap size={15} style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
-          Insights
-        </button>
-        <button onClick={() => { setMode("learn"); setFlipped(false); }}
-          style={{ flex: 1, background: mode === "learn" ? ORANGE : "#111", border: `1px solid ${mode === "learn" ? ORANGE : "#2a2a2a"}`, borderRadius: 10, padding: "10px 0", color: mode === "learn" ? "#000" : "#777", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-          <Brain size={15} style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
-          Learning Mode
+      {/* Selector bar */}
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+        <button onClick={() => setShowPicker(true)}
+          style={{ width: "100%", background: "#111", border: `1px solid ${target ? ORANGE + "55" : "#2a2a2a"}`, borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", textAlign: "left" }}>
+          {target ? (
+            target.kind === "incident" ? <FileText size={16} color={ORANGE} /> : <Folder size={16} color={ORANGE} />
+          ) : <BookOpen size={16} color="#555" />}
+          <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: target ? "#fff" : "#555" }}>
+            {target ? (target.kind === "incident" ? target.item.title : target.item.title) : "Select an incident or case…"}
+          </span>
+          <ChevronRight size={14} color="#555" />
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 100px" }}>
-        {mode === "insights" && (
-          <div>
-            <div style={{ color: "#555", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-              Tutor reads your case automatically — no setup needed. These insights are based on what you've built so far.
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 80px" }}>
+        {!target ? (
+          <div style={{ textAlign: "center", paddingTop: 60 }}>
+            <GraduationCap size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Tutor</div>
+            <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
+              Select an incident or case above. The Tutor will read what you described and help you think through it.
             </div>
-            {insights.length === 0 && (
-              <div style={{ textAlign: "center", paddingTop: 40, color: "#444" }}>
-                <GraduationCap size={40} color="#222" style={{ marginBottom: 12 }} />
-                <div>Add screens in the Build tab — Tutor will start reading them immediately.</div>
-              </div>
-            )}
-            {insights.map(ins => {
-              const Icon = INSIGHT_ICONS[ins.type] ?? Lightbulb;
-              const color = INSIGHT_COLORS[ins.type] ?? ORANGE;
-              const isOpen = expandedId === ins.id;
-              return (
-                <div key={ins.id}
-                  style={{ background: "#111", border: `1px solid ${isOpen ? color + "66" : "#1e1e1e"}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", cursor: "pointer" }}
-                  onClick={() => setExpandedId(isOpen ? null : ins.id)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 8, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Icon size={16} color={color} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: color, fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>
-                        {ins.type.toUpperCase()}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{ins.title}</div>
-                    </div>
-                    <ChevronDown size={16} color="#444" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
-                  </div>
-                  {isOpen && (
-                    <div style={{ padding: "0 16px 16px", color: "#999", fontSize: 14, lineHeight: 1.6, borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-                      {ins.body}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
-        )}
-
-        {mode === "learn" && (
-          <div>
-            <div style={{ color: "#555", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-              Study your own case with learning cards. Each card is built from your actual facts.
-            </div>
-            {cards.length === 0 ? (
-              <div style={{ textAlign: "center", paddingTop: 40, color: "#444" }}>
-                <Brain size={40} color="#222" style={{ marginBottom: 12 }} />
-                <div>Add screens and evidence — cards will be generated from your case.</div>
+        ) : analysis ? (
+          <>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>OVERVIEW</div>
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "16px 18px", fontSize: 15, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>
+                {analysis.overview}
               </div>
-            ) : (
-              <>
-                {/* Card counter */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div style={{ color: "#555", fontSize: 13 }}>Card {cardIdx + 1} of {cards.length}</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => { setCardIdx(i => Math.max(0, i - 1)); setFlipped(false); }}
-                      disabled={cardIdx === 0}
-                      style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, padding: "6px 10px", color: cardIdx === 0 ? "#333" : "#ccc", cursor: cardIdx === 0 ? "default" : "pointer" }}>
-                      <ChevronLeft size={16} />
-                    </button>
-                    <button onClick={() => { setCardIdx(i => Math.min(cards.length - 1, i + 1)); setFlipped(false); }}
-                      disabled={cardIdx === cards.length - 1}
-                      style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, padding: "6px 10px", color: cardIdx === cards.length - 1 ? "#333" : "#ccc", cursor: cardIdx === cards.length - 1 ? "default" : "pointer" }}>
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
+            </div>
 
-                {/* Flashcard */}
-                {card && (
-                  <div onClick={() => setFlipped(f => !f)}
-                    style={{ background: flipped ? "#151515" : "#111", border: `2px solid ${CARD_COLORS[card.cardType] ?? ORANGE}44`, borderRadius: 20, padding: "28px 24px", minHeight: 220, cursor: "pointer", transition: "background 0.2s", display: "flex", flexDirection: "column", justifyContent: "space-between", marginBottom: 14, position: "relative" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: CARD_COLORS[card.cardType] ?? ORANGE, letterSpacing: 0.5, marginBottom: 12 }}>
-                      {flipped ? "ANSWER" : CARD_LABELS[card.cardType] ?? "CARD"}
+            {analysis.insights.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>WHAT THE TUTOR SEES</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {analysis.insights.map((insight, i) => (
+                    <div key={i} style={{ background: insightColors[insight.type] || "#111", border: `1px solid ${insightBorders[insight.type] || "#2a2a2a"}`, borderRadius: 12, padding: "14px 16px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: "#777", marginBottom: 6, textTransform: "uppercase" }}>{insight.type.replace("_", " ")}</div>
+                      <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.6 }}>{insight.text}</div>
                     </div>
-                    <div style={{ fontSize: 17, fontWeight: flipped ? 500 : 700, lineHeight: 1.5, color: flipped ? "#bbb" : "#fff", flex: 1 }}>
-                      {flipped ? card.back : card.front}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 20 }}>
-                      <FlipHorizontal size={14} color="#444" />
-                      <span style={{ fontSize: 12, color: "#444" }}>Tap to {flipped ? "see question" : "reveal answer"}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Card navigation dots */}
-                <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                  {cards.map((_, i) => (
-                    <button key={i} onClick={() => { setCardIdx(i); setFlipped(false); }}
-                      style={{ width: i === cardIdx ? 20 : 8, height: 8, borderRadius: 4, background: i === cardIdx ? ORANGE : "#2a2a2a", border: "none", cursor: "pointer", transition: "width 0.2s, background 0.2s" }} />
                   ))}
                 </div>
-              </>
+              </div>
             )}
+
+            {analysis.guidingQuestions.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {analysis.guidingQuestions.map((q, i) => (
+                    <div key={i} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12 }}>
+                      <div style={{ color: ORANGE, fontWeight: 900, fontSize: 15, flexShrink: 0, lineHeight: 1.6 }}>{i + 1}</div>
+                      <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.65 }}>{q}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {/* Picker modal */}
+      {showPicker && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 150, display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#0d0d0d", flex: 1, display: "flex", flexDirection: "column", maxWidth: 600, width: "100%", margin: "0 auto" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>Select to analyze</div>
+              <button onClick={() => setShowPicker(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#555" }}><X size={20} /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+              {data.incidents.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>INCIDENTS</div>
+                  {data.incidents.map(i => (
+                    <button key={i.id} onClick={() => { setTarget({ kind: "incident", item: i }); setShowPicker(false); }}
+                      style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 6, display: "flex", gap: 10 }}>
+                      <FileText size={15} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{i.title}</div>
+                        <div style={{ color: "#555", fontSize: 12 }}>{formatDate(i.createdAt)}</div>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+              {data.cases.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>CASES</div>
+                  {data.cases.map(c => (
+                    <button key={c.id} onClick={() => { setTarget({ kind: "case", item: c }); setShowPicker(false); }}
+                      style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 6, display: "flex", gap: 10 }}>
+                      <Folder size={15} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{c.title}</div>
+                        <div style={{ color: "#555", fontSize: 12 }}>{c.incidentIds.length} incident{c.incidentIds.length !== 1 ? "s" : ""}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {data.incidents.length === 0 && data.cases.length === 0 && (
+                <div style={{ color: "#555", fontSize: 14, textAlign: "center", paddingTop: 40 }}>No incidents or cases yet. Create one first.</div>
+              )}
+            </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
+function ProfileView({ onEasterEgg }: { onEasterEgg: () => void }) {
+  const sections = [
+    { label: "Account", icon: User, items: ["Email", "Display Name", "Plan"] },
+    { label: "Subscription", icon: Star, items: ["Current Plan", "Upgrade", "Billing History"] },
+    { label: "AI Preferences", icon: Brain, items: ["Tutor Style", "AI Engine (Coming)"] },
+    { label: "Theme", icon: Sliders, items: ["Dark Mode", "Accent Color", "Font Size"] },
+    { label: "Export History", icon: History, items: ["Recent Exports", "Saved Formats"] },
+    { label: "Data & Backups", icon: Archive, items: ["Export Backup", "Restore from Backup", "Privacy"] },
+    { label: "Settings", icon: Settings, items: ["Notifications"] },
+  ];
+
+  const [eggPressCount, setEggPressCount] = useState(0);
+  const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleEggPress() {
+    setEggPressCount(c => {
+      const next = c + 1;
+      if (next >= 5) { onEasterEgg(); return 0; }
+      if (eggTimer.current) clearTimeout(eggTimer.current);
+      eggTimer.current = setTimeout(() => setEggPressCount(0), 3000);
+      return next;
+    });
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
+        <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <User size={28} color="#000" />
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Your Profile</div>
+          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw</div>
+        </div>
+      </div>
+
+      <div style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px 18px", marginBottom: 24 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <Key size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Connect Claude API for AI Expansion</div>
+            <div style={{ color: "#666", fontSize: 13, lineHeight: 1.5 }}>
+              Adding your Anthropic API key will upgrade the Tutor from keyword analysis to live AI reasoning. Same interface — smarter engine.
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ background: "#1e1e1e", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#555", display: "inline-block" }}>Add Key (Coming Soon)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {sections.map(section => {
+        const Icon = section.icon;
+        return (
+          <div key={section.label} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Icon size={13} color={ORANGE} />
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>{section.label.toUpperCase()}</div>
+            </div>
+            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+              {section.items.map((item, i) => (
+                <div key={item} style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: i < section.items.length - 1 ? "1px solid #1a1a1a" : "none" }}>
+                  <span style={{ fontSize: 14, color: "#ccc" }}>{item}</span>
+                  <ChevronRight size={14} color="#333" />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 48, gap: 6 }}>
+        <div style={{ color: "#1e1e1e", fontSize: 11, fontWeight: 700 }}>HYPERLAW</div>
+        <button onClick={handleEggPress} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, opacity: 0.15, WebkitTapHighlightColor: "transparent" }}>
+          <img src="/hyperlaw-logo.png" alt="" style={{ width: 36, height: 36, borderRadius: 8, filter: "grayscale(100%)" }} />
+        </button>
+        {eggPressCount > 0 && eggPressCount < 5 && (
+          <div style={{ color: "#2a2a2a", fontSize: 10 }}>{5 - eggPressCount} more…</div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── EASTER EGG SCREEN ────────────────────────────────────────────────────────
+// ─── EASTER EGG ───────────────────────────────────────────────────────────────
 const EASTER_ITEMS = [
   {
-    id: "tagline",
-    label: "TAGLINE",
-    content: `HyperLaw started as: "I need a faster way to make these orange screens."
-
-Now it's evolving into: "I want one place where someone can understand their evidence, organize it, build exhibits, learn legal concepts, and eventually analyze it with AI."`,
+    id: "tagline", label: "TAGLINE",
+    content: `HyperLaw started as: "I need a faster way to make these orange screens."\n\nNow it's evolving into: "I want one place where someone can understand their evidence, organize it, build exhibits, learn legal concepts, and eventually analyze it with AI."`,
   },
   {
-    id: "description",
-    label: "FULL DESCRIPTION",
-    content: `HyperLaw
-
-Built by Hyper Quency Modula — the same person behind ShortHop, EDGE, and a stack of federal civil rights cases filed pro se from an office in Lexington, Kentucky.
-
-HyperLaw didn't come from a legal background. It came from necessity. From building orange screens at 2 AM trying to make an argument that actually lands.
-
-It's a tool for people who don't have a legal team — but have evidence, patience, and the ability to think clearly about what happened to them.
-
-The goal is simple: give self-represented litigants the same visual clarity, organizational power, and eventually AI reasoning that law firms spend thousands getting from outside vendors.`,
+    id: "description", label: "FULL DESCRIPTION",
+    content: `HyperLaw\n\nBuilt by Hyper Quency Modula — the same person behind ShortHop, EDGE, and a stack of federal civil rights cases filed pro se from an office in Lexington, Kentucky.\n\nHyperLaw didn't come from a legal background. It came from necessity. From building orange screens at 2 AM trying to make an argument that actually lands.\n\nIt's a tool for people who don't have a legal team — but have evidence, patience, and the ability to think clearly about what happened to them.\n\nThe goal is simple: give self-represented litigants the same visual clarity, organizational power, and eventually AI reasoning that law firms spend thousands getting from outside vendors.`,
   },
   {
-    id: "vision",
-    label: "WHERE THIS IS GOING",
-    content: `The screens were phase one.
-
-Phase two is organization — evidence vaults, timelines, exhibit builders.
-
-Phase three is understanding — the Tutor, learning mode, AI-assisted reasoning.
-
-Phase four is analysis — Claude reads your transcript, finds contradictions, flags admissions, suggests legal issues.
-
-Same interface. Different engine.`,
+    id: "vision", label: "WHERE THIS IS GOING",
+    content: `The screens were phase one.\n\nPhase two is organization — incidents, cases, evidence vaults, timelines.\n\nPhase three is understanding — the Tutor, learning mode, AI-assisted reasoning.\n\nPhase four is analysis — Claude reads your transcript, finds contradictions, flags admissions, suggests legal issues.\n\nSame interface. Different engine.`,
   },
 ];
 
@@ -1149,46 +781,25 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 50);
-    return () => clearTimeout(t);
-  }, []);
+  useEffect(() => { const t = setTimeout(() => setVisible(true), 50); return () => clearTimeout(t); }, []);
 
   function copy(id: string, text: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    });
+    navigator.clipboard.writeText(text).then(() => { setCopied(id); setTimeout(() => setCopied(null), 2000); });
   }
 
-  function handleClose() {
-    setVisible(false);
-    setTimeout(onClose, 400);
-  }
+  function handleClose() { setVisible(false); setTimeout(onClose, 400); }
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 300,
-      background: `rgba(255,255,255,${visible ? 1 : 0})`,
-      transition: "background 0.4s ease",
-      overflowY: "auto",
-      display: "flex", flexDirection: "column",
-    }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: `rgba(255,255,255,${visible ? 1 : 0})`, transition: "background 0.4s ease", overflowY: "auto", display: "flex", flexDirection: "column" }}>
       <div style={{ opacity: visible ? 1 : 0, transition: "opacity 0.6s ease 0.2s", flex: 1 }}>
-        {/* Close */}
         <div style={{ padding: "20px 24px", display: "flex", justifyContent: "flex-end" }}>
-          <button onClick={handleClose}
-            style={{ background: "#f0f0f0", border: "none", borderRadius: 50, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <button onClick={handleClose} style={{ background: "#f0f0f0", border: "none", borderRadius: 50, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X size={18} color="#333" />
           </button>
         </div>
-
-        {/* Logo */}
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 32 }}>
-          <img src="/hyperlaw-logo.png" alt="HyperLaw"
-            style={{ width: 100, height: 100, borderRadius: 24, filter: "grayscale(100%) contrast(1.2)" }} />
+          <img src="/hyperlaw-logo.png" alt="HyperLaw" style={{ width: 100, height: 100, borderRadius: 24, filter: "grayscale(100%) contrast(1.2)" }} />
         </div>
-
         <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 24px 60px" }}>
           {EASTER_ITEMS.map(item => (
             <div key={item.id} style={{ marginBottom: 32 }}>
@@ -1210,147 +821,29 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ project, onUpdateProject, onEasterEgg }: {
-  project: Project;
-  onUpdateProject: (p: Project) => void;
-  onEasterEgg: () => void;
-}) {
-  const sections = [
-    { label: "Account", icon: User, items: ["Email", "Display Name", "Plan"] },
-    { label: "Subscription", icon: Star, items: ["Current Plan", "Upgrade", "Billing History"] },
-    { label: "AI Preferences", icon: Brain, items: ["Tutor Style", "Card Frequency", "AI Engine (Coming)"] },
-    { label: "Theme", icon: Sliders, items: ["Dark Mode", "Accent Color", "Font Size"] },
-    { label: "Export History", icon: History, items: ["Recent Exports", "Saved Formats"] },
-    { label: "Case Backups", icon: Archive, items: ["Export Backup", "Restore from Backup"] },
-    { label: "Settings", icon: Settings, items: ["Data & Privacy", "Notifications"] },
-  ];
+// ─── NAVIGATION ───────────────────────────────────────────────────────────────
+type NavTab = "home" | "cases" | "tutor" | "profile";
 
-  const [eggPressCount, setEggPressCount] = useState(0);
-  const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleEggPress() {
-    setEggPressCount(c => {
-      const next = c + 1;
-      if (next >= 5) { onEasterEgg(); return 0; }
-      if (eggTimer.current) clearTimeout(eggTimer.current);
-      eggTimer.current = setTimeout(() => setEggPressCount(0), 3000);
-      return next;
-    });
-  }
-
-  return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
-      {/* Avatar area */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
-        <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <User size={28} color="#000" />
-        </div>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Your Profile</div>
-          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {project.caseName}</div>
-        </div>
-      </div>
-
-      {/* Claude API Key reminder */}
-      <div style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px 18px", marginBottom: 24 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <Key size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Connect Claude API for AI Expansion</div>
-            <div style={{ color: "#666", fontSize: 13, lineHeight: 1.5 }}>When you're ready, adding your Anthropic API key will upgrade the Tutor from question trees to live AI reasoning. Same interface — smarter engine.</div>
-            <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-              <div style={{ background: "#1e1e1e", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#555" }}>Add Key (Coming Soon)</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Sections */}
-      {sections.map(section => {
-        const Icon = section.icon;
-        return (
-          <div key={section.label} style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <Icon size={14} color={ORANGE} />
-              <div style={{ fontSize: 12, color: "#555", fontWeight: 700, letterSpacing: 0.5 }}>{section.label.toUpperCase()}</div>
-            </div>
-            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
-              {section.items.map((item, i) => (
-                <div key={item} style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: i < section.items.length - 1 ? "1px solid #1a1a1a" : "none" }}>
-                  <span style={{ fontSize: 14, color: "#ccc" }}>{item}</span>
-                  <ChevronRight size={14} color="#333" />
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Hidden easter egg — subtle H logo at bottom */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 48, gap: 6 }}>
-        <div style={{ color: "#222", fontSize: 11, fontWeight: 700 }}>HYPERLAW</div>
-        <button onClick={handleEggPress}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 8, opacity: 0.15, WebkitTapHighlightColor: "transparent" }}>
-          <img src="/hyperlaw-logo.png" alt="" style={{ width: 36, height: 36, borderRadius: 8, filter: "grayscale(100%)" }} />
-        </button>
-        {eggPressCount > 0 && eggPressCount < 5 && (
-          <div style={{ color: "#2a2a2a", fontSize: 10 }}>{5 - eggPressCount} more…</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── API KEY BANNER ───────────────────────────────────────────────────────────
-function ApiKeyBanner({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div style={{ background: "#111", borderBottom: "1px solid #1e1e1e", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-      <Key size={13} color={ORANGE} style={{ flexShrink: 0 }} />
-      <span style={{ fontSize: 12, color: "#888", flex: 1, lineHeight: 1.4 }}>
-        <span style={{ color: ORANGE, fontWeight: 700 }}>Connect your Claude API key</span> to unlock full AI expansion for HyperLaw.
-      </span>
-      <button onClick={onDismiss}
-        style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-        <X size={14} />
-      </button>
-    </div>
-  );
-}
-
-// ─── MAIN NAV BAR (bottom mobile, left sidebar desktop) ───────────────────────
-type NavTab = "home" | "build" | "tutor" | "profile";
-
-// Extensible nav registry — add new tabs here without touching the nav render
-interface NavItem {
-  id: NavTab;
-  icon: React.ElementType;
-  label: string;
-  center?: boolean; // render as FAB
-}
+interface NavItem { id: NavTab; icon: React.ElementType; label: string; center?: boolean }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Home" },
-  { id: "build", icon: Wrench, label: "Build", center: true },
-  { id: "tutor", icon: GraduationCap, label: "Tutor" },
+  { id: "cases", icon: Folder, label: "Cases" },
+  { id: "tutor", icon: GraduationCap, label: "Tutor", center: false },
   { id: "profile", icon: User, label: "Profile" },
-  // Future tabs: add here — nav layout adapts automatically
 ];
 
-function BottomNavBar({ active, onChange }: { active: NavTab; onChange: (t: NavTab) => void }) {
-  const left = NAV_ITEMS.filter(n => !n.center && NAV_ITEMS.indexOf(n) < NAV_ITEMS.findIndex(n => n.center));
-  const right = NAV_ITEMS.filter(n => !n.center && NAV_ITEMS.indexOf(n) > NAV_ITEMS.findIndex(n => n.center));
-  const fab = NAV_ITEMS.find(n => n.center);
+function BottomNavBar({ active, onChange, onFab }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void }) {
+  const left = [NAV_ITEMS[0], NAV_ITEMS[1]];
+  const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
 
   return (
     <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
-      {fab && (
-        <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -24, zIndex: 10 }}>
-          <button onClick={() => onChange(fab.id)}
-            style={{ width: 52, height: 52, borderRadius: 26, background: active === fab.id ? "#fff" : ORANGE, border: `3px solid #0a0a0a`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px #d9711f55", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", transition: "background 0.2s" }}>
-            <Wrench size={22} color={active === fab.id ? ORANGE : "#000"} />
-          </button>
-        </div>
-      )}
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -26, zIndex: 10 }}>
+        <button onClick={onFab}
+          style={{ width: 54, height: 54, borderRadius: 27, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+          <Plus size={26} color="#000" />
+        </button>
+      </div>
       <div style={{ display: "flex" }}>
         {left.map(item => {
           const Icon = item.icon;
@@ -1362,7 +855,6 @@ function BottomNavBar({ active, onChange }: { active: NavTab; onChange: (t: NavT
             </button>
           );
         })}
-        {/* Center gap for FAB */}
         <div style={{ flex: 1 }} />
         {right.map(item => {
           const Icon = item.icon;
@@ -1379,14 +871,19 @@ function BottomNavBar({ active, onChange }: { active: NavTab; onChange: (t: NavT
   );
 }
 
-function DesktopSideNav({ active, onChange }: { active: NavTab; onChange: (t: NavTab) => void }) {
+function DesktopSideNav({ active, onChange, onFab }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void }) {
   return (
     <div style={{ width: 200, flexShrink: 0, background: "#0a0a0a", borderRight: "1px solid #1e1e1e", display: "flex", flexDirection: "column", padding: "20px 12px", gap: 4 }}>
-      {/* Logo */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 16 }}>
         <img src="/hyperlaw-logo.png" alt="HyperLaw" style={{ width: 30, height: 30, borderRadius: 8 }} />
         <span style={{ fontWeight: 900, fontSize: 15, letterSpacing: 0.3 }}>HyperLaw</span>
       </div>
+
+      <button onClick={onFab}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: ORANGE, border: "none", color: "#000", cursor: "pointer", fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
+        <Plus size={18} /> New Incident
+      </button>
+
       {NAV_ITEMS.map(item => {
         const Icon = item.icon;
         const isActive = active === item.id;
@@ -1395,9 +892,7 @@ function DesktopSideNav({ active, onChange }: { active: NavTab; onChange: (t: Na
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, background: isActive ? `${ORANGE}18` : "transparent", border: `1px solid ${isActive ? ORANGE + "44" : "transparent"}`, color: isActive ? ORANGE : "#666", cursor: "pointer", fontWeight: 700, fontSize: 14, textAlign: "left", transition: "all 0.15s" }}
             onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
             onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>
-            <Icon size={18} />
-            {item.label}
-            {item.center && <div style={{ marginLeft: "auto", width: 6, height: 6, background: ORANGE, borderRadius: 3 }} />}
+            <Icon size={18} /> {item.label}
           </button>
         );
       })}
@@ -1405,268 +900,167 @@ function DesktopSideNav({ active, onChange }: { active: NavTab; onChange: (t: Na
   );
 }
 
-// ─── BUILD SUB-VIEWS ──────────────────────────────────────────────────────────
-type BuildView = "screens" | "pick_type" | "build_flow" | "edit";
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+type AppView =
+  | { type: "home" }
+  | { type: "incident_detail"; incident: Incident }
+  | { type: "case_detail"; hlCase: HLCase }
+  | { type: "tutor"; incident?: Incident; hlCase?: HLCase };
 
-// ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const w = useWindowWidth();
   const isMobile = w < 768;
 
-  const [project, setProjectRaw] = useState<Project>(() => loadProject());
+  const [data, setDataRaw] = useState<AppData>(() => loadData());
   const [navTab, setNavTab] = useState<NavTab>("home");
-  const [buildView, setBuildView] = useState<BuildView>("screens");
-  const [buildType, setBuildType] = useState<ScreenType | null>(null);
-  const [editScreen, setEditScreenState] = useState<Screen | null>(null);
-  const [editingCaseName, setEditingCaseName] = useState(false);
-  const [caseInput, setCaseInput] = useState(project.caseName);
-  const [conv, setConv] = useState<ConvState>(FRESH_CONV);
-  const [projectSubTab, setProjectSubTab] = useState<ProjectSubTab>("screens");
-  const [showBanner, setShowBanner] = useState(true);
+  const [view, setView] = useState<AppView>({ type: "home" });
+  const [showNewIncident, setShowNewIncident] = useState(false);
   const [showEasterEgg, setShowEasterEgg] = useState(false);
 
-  function setProject(p: Project) { setProjectRaw(p); saveProject(p); }
+  function setData(d: AppData) { setDataRaw(d); saveData(d); }
 
-  function startBuild(type: ScreenType) {
-    setBuildType(type);
-    setConv(FRESH_CONV);
-    setBuildView("build_flow");
+  function handleSaveIncident(title: string, description: string) {
+    const incident: Incident = {
+      id: crypto.randomUUID(),
+      title,
+      description,
+      createdAt: Date.now(),
+      caseId: null,
+    };
+    setData(addIncident(data, incident));
+    setShowNewIncident(false);
+    setNavTab("home");
+    setView({ type: "incident_detail", incident });
   }
 
-  function handleConversationComplete(data: DataMap) {
-    if (!buildType) return;
-    try {
-      const screen = buildScreen(buildType, data);
-      const updated = addScreen(project, screen);
-      setProject(updated);
-      setEditScreenState(screen);
-      setConv(FRESH_CONV);
-      setBuildView("edit");
-    } catch (err) {
-      console.error("[HL] buildScreen failed:", err);
-    }
+  function handleConvertToCase(incident: Incident) {
+    const title = `${incident.title} — Case`;
+    const hlCase: HLCase = {
+      id: crypto.randomUUID(),
+      title,
+      incidentIds: [incident.id],
+      notes: "",
+      createdAt: Date.now(),
+    };
+    const d1 = addCase(data, hlCase);
+    const d2 = addIncidentToCase(d1, incident.id, hlCase.id);
+    setData(d2);
+    setNavTab("cases");
+    setView({ type: "case_detail", hlCase });
   }
 
-  function handleUpdateScreen(s: Screen) { setEditScreenState(s); setProject(updateScreen(project, s)); }
-  function handleDeleteScreen(id: string) {
-    setProject(deleteScreen(project, id));
-    if (editScreen?.id === id) { setEditScreenState(null); setBuildView("screens"); }
+  function handleOpenIncident(incident: Incident) {
+    // Always use fresh data reference
+    const fresh = data.incidents.find(i => i.id === incident.id) ?? incident;
+    setView({ type: "incident_detail", incident: fresh });
+    if (navTab !== "tutor") setNavTab("home");
   }
 
-  function switchNav(tab: NavTab) {
+  function handleOpenCase(hlCase: HLCase) {
+    const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
+    setView({ type: "case_detail", hlCase: fresh });
+    setNavTab("cases");
+  }
+
+  function handleNavChange(tab: NavTab) {
     setNavTab(tab);
-    if (tab === "build" && buildView === "edit" && !editScreen) setBuildView("screens");
+    if (tab === "home") setView({ type: "home" });
+    if (tab === "cases") setView({ type: "home" });
+    if (tab === "tutor") setView({ type: "tutor" });
   }
 
-  function goToBuildFromHome() {
-    setNavTab("build");
-    setBuildView("pick_type");
-  }
-
-  function editScreenFromHome(s: Screen) {
-    setEditScreenState(s);
-    setNavTab("build");
-    setBuildView("edit");
-  }
-
-  const screenTypeDef = buildType ? SCREEN_TYPES.find(t => t.id === buildType) : null;
-
-  // Header title for current context
-  function headerTitle() {
-    if (navTab === "home") return null;
-    if (navTab === "tutor") return "Tutor";
-    if (navTab === "profile") return "Profile";
-    if (navTab === "build") {
-      if (buildView === "pick_type") return "What are you building?";
-      if (buildView === "build_flow") return screenTypeDef?.label ?? "Building…";
-      if (buildView === "edit") return editScreen?.title ?? "Edit Screen";
-      return "Build";
+  function currentContent() {
+    if (view.type === "incident_detail") {
+      const incident = data.incidents.find(i => i.id === view.incident.id) ?? view.incident;
+      return (
+        <IncidentDetailView
+          incident={incident}
+          cases={data.cases}
+          onUpdate={i => setData(updateIncident(data, i))}
+          onDelete={id => { setData(deleteIncident(data, id)); setNavTab("home"); setView({ type: "home" }); }}
+          onConvertToCase={handleConvertToCase}
+          onAddToCase={(incidentId, caseId) => setData(addIncidentToCase(data, incidentId, caseId))}
+          onOpenInTutor={i => { setNavTab("tutor"); setView({ type: "tutor", incident: i }); }}
+          onBack={() => { setView({ type: "home" }); setNavTab("home"); }}
+        />
+      );
     }
-    return null;
+
+    if (navTab === "cases" && view.type === "case_detail") {
+      const hlCase = data.cases.find(c => c.id === view.hlCase.id) ?? view.hlCase;
+      return (
+        <CaseDetailView
+          hlCase={hlCase}
+          data={data}
+          onUpdateCase={c => setData(updateCase(data, c))}
+          onDeleteCase={id => { setData(deleteCase(data, id)); setView({ type: "home" }); }}
+          onOpenIncident={handleOpenIncident}
+          onOpenInTutor={c => { setNavTab("tutor"); setView({ type: "tutor", hlCase: c }); }}
+          onBack={() => setView({ type: "home" })}
+        />
+      );
+    }
+
+    if (navTab === "tutor") {
+      return (
+        <TutorView
+          data={data}
+          initialIncident={view.type === "tutor" ? view.incident : null}
+          initialCase={view.type === "tutor" ? view.hlCase : null}
+          onOpenIncident={handleOpenIncident}
+          onOpenCase={handleOpenCase}
+        />
+      );
+    }
+
+    if (navTab === "profile") {
+      return <ProfileView onEasterEgg={() => setShowEasterEgg(true)} />;
+    }
+
+    if (navTab === "cases") {
+      return (
+        <CasesView
+          data={data}
+          onOpenCase={handleOpenCase}
+          onOpenIncident={handleOpenIncident}
+        />
+      );
+    }
+
+    return (
+      <HomeView
+        data={data}
+        onOpenIncident={handleOpenIncident}
+        onOpenCase={handleOpenCase}
+        onNewIncident={() => setShowNewIncident(true)}
+      />
+    );
   }
 
   return (
     <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-
-      {/* Header */}
-      <div style={{ borderBottom: "1px solid #1e1e1e", padding: isMobile ? "12px 16px" : "11px 24px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: "#0a0a0a" }}>
-        {isMobile && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="/hyperlaw-logo.png" alt="HL" style={{ width: 26, height: 26, borderRadius: 6 }} />
-            <span style={{ fontWeight: 900, fontSize: 14, letterSpacing: 0.5, color: ORANGE }}>HYPERLAW</span>
-          </div>
-        )}
-
-        {/* Case name (mobile) */}
-        {isMobile && editingCaseName ? (
-          <div style={{ display: "flex", gap: 6, flex: 1 }}>
-            <input value={caseInput} onChange={e => setCaseInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { setProject({ ...project, caseName: caseInput }); setEditingCaseName(false); } if (e.key === "Escape") setEditingCaseName(false); }}
-              autoFocus style={{ background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 8, padding: "6px 12px", color: "#fff", fontSize: 14, fontWeight: 700, outline: "none", flex: 1 }} />
-            <button onClick={() => { setProject({ ...project, caseName: caseInput }); setEditingCaseName(false); }}
-              style={{ background: ORANGE, border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer" }}><Check size={14} color="#000" /></button>
-          </div>
-        ) : isMobile ? (
-          <button onClick={() => { setEditingCaseName(true); setCaseInput(project.caseName); }}
-            style={{ background: "none", border: "none", color: "#777", fontWeight: 600, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, flex: 1, textAlign: "left", overflow: "hidden" }}>
-            <BookOpen size={11} color="#444" />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.caseName}</span>
-            <Edit3 size={10} color="#333" style={{ flexShrink: 0 }} />
-          </button>
-        ) : (
-          // Desktop header — just show context label, nav is in sidebar
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-            {headerTitle() && <span style={{ fontWeight: 700, fontSize: 15, color: "#ccc" }}>{headerTitle()}</span>}
-          </div>
-        )}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Desktop quick actions */}
-        {!isMobile && navTab === "build" && buildView === "screens" && (
-          <SmBtn onClick={() => setBuildView("pick_type")} variant="orange"><Plus size={14} /> New Screen</SmBtn>
-        )}
-        {!isMobile && navTab === "build" && buildView !== "screens" && buildView !== "pick_type" && (
-          <SmBtn onClick={() => setBuildView("screens")}><ChevronLeft size={13} /> Screens</SmBtn>
-        )}
-      </div>
-
-      {/* API Key banner */}
-      {showBanner && <ApiKeyBanner onDismiss={() => setShowBanner(false)} />}
-
-      {/* Main content */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-        {/* Desktop sidebar nav */}
         {!isMobile && (
-          <DesktopSideNav active={navTab} onChange={switchNav} />
+          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={() => setShowNewIncident(true)} />
         )}
-
-        {/* Content area */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <ErrorBoundary onReset={() => { setNavTab("home"); setBuildView("screens"); }}>
-
-            {/* HOME */}
-            {navTab === "home" && (
-              <HomeView
-                project={project}
-                onGoToBuild={goToBuildFromHome}
-                onEditScreen={editScreenFromHome}
-                onGoToTutor={() => setNavTab("tutor")}
-              />
-            )}
-
-            {/* BUILD */}
-            {navTab === "build" && buildView === "screens" && (
-              <>
-                <ProjectView
-                  project={project}
-                  onNewScreen={() => setBuildView("pick_type")}
-                  onEditScreen={s => { setEditScreenState(s); setBuildView("edit"); }}
-                  onDeleteScreen={handleDeleteScreen}
-                  onUpdateProject={setProject}
-                  isMobile={isMobile}
-                  activeTab={projectSubTab}
-                  onTabChange={setProjectSubTab}
-                />
-                {isMobile && (
-                  <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", display: "flex", flexShrink: 0 }}>
-                    {(["screens", "vault", "laws", "citations"] as const).map((tab, i) => {
-                      const icons = [LayoutGrid, FileSearch, BookOpen, FileText];
-                      const Icon = icons[i];
-                      const labels = ["Screens", "Vault", "Laws", "Citations"];
-                      return (
-                        <button key={tab} onClick={() => setProjectSubTab(tab)}
-                          style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "10px 4px", color: projectSubTab === tab ? ORANGE : "#555", cursor: "pointer" }}>
-                          <Icon size={18} />
-                          <span style={{ fontSize: 10, fontWeight: 700 }}>{labels[i]}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-
-            {navTab === "build" && buildView === "pick_type" && (
-              <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
-                <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "36px 20px 120px" : "56px 28px" }}>
-                  <h1 style={{ fontSize: isMobile ? 28 : 32, fontWeight: 900, marginBottom: 6 }}>What are you building?</h1>
-                  <p style={{ color: "#777", marginBottom: 28, fontSize: 15, lineHeight: 1.55 }}>
-                    Choose a layout — HyperLaw walks you through the evidence as the screen assembles.
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 28 }}>
-                    {SCREEN_TYPES.map(t => {
-                      const Icon = t.icon;
-                      return (
-                        <button key={t.id} onClick={() => startBuild(t.id)}
-                          style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: isMobile ? "20px 18px" : "20px", textAlign: "left", cursor: "pointer", color: "#fff", display: "flex", gap: isMobile ? 16 : 0, alignItems: isMobile ? "center" : "flex-start", flexDirection: isMobile ? "row" : "column", minHeight: isMobile ? 72 : undefined, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}
-                          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-                          onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-                          <Icon size={isMobile ? 24 : 22} color={ORANGE} style={{ marginBottom: isMobile ? 0 : 10, flexShrink: 0 }} />
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: isMobile ? 16 : 15, marginBottom: 3 }}>{t.label}</div>
-                            <div style={{ color: "#777", fontSize: 13 }}>{t.blurb}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div style={{ padding: 14, border: "1px dashed #1e1e1e", borderRadius: 8, color: "#444", fontSize: 13 }}>
-                    More layouts coming — Timeline, Investigation Failure, Pattern of Conduct, Witness Impeachment, and more.
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <SmBtn onClick={() => setBuildView("screens")}><ChevronLeft size={13} /> Back to Screens</SmBtn>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {navTab === "build" && buildView === "build_flow" && buildType && (
-              <ConversationView
-                key={buildType}
-                screenType={buildType}
-                evidence={project.evidence}
-                conv={conv}
-                onConvChange={setConv}
-                onComplete={handleConversationComplete}
-                onBack={() => setBuildView("pick_type")}
-                isMobile={isMobile}
-              />
-            )}
-
-            {navTab === "build" && buildView === "edit" && editScreen && (
-              <EditView
-                screen={editScreen}
-                project={project}
-                onUpdate={handleUpdateScreen}
-                onBack={() => setBuildView("screens")}
-                onUpdateProject={setProject}
-                isMobile={isMobile}
-              />
-            )}
-
-            {/* TUTOR */}
-            {navTab === "tutor" && <TutorView project={project} />}
-
-            {/* PROFILE */}
-            {navTab === "profile" && (
-              <ProfileView
-                project={project}
-                onUpdateProject={setProject}
-                onEasterEgg={() => setShowEasterEgg(true)}
-              />
-            )}
-
+          <ErrorBoundary onReset={() => { setNavTab("home"); setView({ type: "home" }); }}>
+            {currentContent()}
           </ErrorBoundary>
         </div>
       </div>
 
-      {/* Mobile bottom nav */}
       {isMobile && (
-        <BottomNavBar active={navTab} onChange={switchNav} />
+        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={() => setShowNewIncident(true)} />
       )}
 
-      {/* Easter egg overlay */}
+      {showNewIncident && (
+        <NewIncidentOverlay
+          onSave={handleSaveIncident}
+          onClose={() => setShowNewIncident(false)}
+        />
+      )}
+
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
     </div>
   );

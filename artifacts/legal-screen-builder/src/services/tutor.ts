@@ -1,189 +1,114 @@
-import { Project, Screen } from "../types";
+import { Incident, HLCase } from "../types";
 
-// ─── Domain types (UI-stable — engine can be swapped) ─────────────────────────
-
-export type InsightType = "strength" | "weakness" | "question" | "suggestion" | "concept";
-export type CardType = "fact" | "concept" | "evidence" | "question" | "why" | "strengthen";
+// ─── Domain types (UI-stable — swap implementation without changing call sites) ─
 
 export interface TutorInsight {
-  id: string;
-  type: InsightType;
-  title: string;
-  body: string;
+  type: "summary" | "key_point" | "question" | "notice";
+  text: string;
 }
 
-export interface LearningCard {
-  id: string;
-  cardType: CardType;
-  front: string;
-  back: string;
+export interface TutorAnalysis {
+  overview: string;
+  insights: TutorInsight[];
+  guidingQuestions: string[];
 }
 
 // ─── Service interface ────────────────────────────────────────────────────────
-// Replace the implementation below with an AI-backed version without changing
-// any call sites in the UI.
 
 export interface TutorService {
-  getInsights(project: Project): TutorInsight[];
-  getLearningCards(project: Project): LearningCard[];
+  analyzeIncident(incident: Incident): TutorAnalysis;
+  analyzeCase(hlCase: HLCase, incidents: Incident[]): TutorAnalysis;
 }
 
-// ─── Static implementation (Question-tree / keyword engine) ──────────────────
+// ─── Static implementation (keyword-based, swappable for Claude) ──────────────
 
-function textFromScreens(screens: Screen[]): string {
-  return screens
-    .flatMap(s => s.blocks.flatMap(b => Object.values(b.data)))
-    .join(" ")
-    .toLowerCase();
-}
+const PATTERNS: { re: RegExp; notice: string }[] = [
+  { re: /\b(officer|police|cop|deputy|sheriff|agent)\b/i, notice: "This incident involves a law enforcement officer. The Fourth and Fourteenth Amendments may be relevant to what happened." },
+  { re: /\b(fired|terminated|laid off|dismissed)\b/i, notice: "If this involves employment termination, there may be notice and due process considerations worth examining." },
+  { re: /\b(search|searched|seized|seizure)\b/i, notice: "A search or seizure may implicate Fourth Amendment protections requiring a warrant or established exception." },
+  { re: /\b(video|bodycam|camera|recording|footage)\b/i, notice: "You mentioned video or recording. Preserve this evidence immediately — request it in writing to create a paper trail." },
+  { re: /\b(denied|refused|blocked|prevented)\b/i, notice: "If you were denied access to something you were entitled to, that may raise due process or equal protection issues." },
+  { re: /\b(threatened|threat|intimidat)\b/i, notice: "Threats or intimidation may be relevant to establishing the nature of the conduct and its effect on you." },
+  { re: /\b(witness|witnesses|bystander|saw me|saw him|saw her)\b/i, notice: "You mentioned witnesses. Their contact information and statements are critical — reach out to preserve their account now." },
+  { re: /\b(report|complaint|filed|written|document)\b/i, notice: "You mentioned a written document or report. Obtain a copy immediately and preserve it as evidence." },
+  { re: /\b(prior|before|history|pattern|again|previous)\b/i, notice: "Prior incidents or patterns can be important — they show this was not an isolated mistake but part of ongoing conduct." },
+];
 
-function uid() {
-  return Math.random().toString(36).slice(2, 10);
-}
+const ALL_QUESTIONS: string[] = [
+  "Who specifically did this to you — their full name, title, or badge number if you know it?",
+  "Exactly when did this happen — the date, time, and location?",
+  "Were there any witnesses present? Do you have their names or contact information?",
+  "Was anything recorded — video, audio, photos, or written documentation at the time?",
+  "Had anything like this happened before, either to you or to others you know of?",
+  "Did you report this to anyone at the time? If so, who and when?",
+  "Is there any paperwork — reports, forms, emails — that exists from this incident?",
+  "What outcome were you seeking at the time, and did you receive it?",
+  "Were there any other incidents connected to this one you have not yet described?",
+  "What is the clearest thing this person did that you believe was wrong?",
+];
 
-function insight(type: InsightType, title: string, body: string): TutorInsight {
-  return { id: uid(), type, title, body };
-}
-
-function card(cardType: CardType, front: string, back: string): LearningCard {
-  return { id: uid(), cardType, front, back };
+function pickQuestions(description: string): string[] {
+  const lower = description.toLowerCase();
+  return ALL_QUESTIONS.filter(q => {
+    if (/witness|bystander/.test(lower) && /witness/.test(q.toLowerCase())) return false;
+    if (/video|bodycam|camera|recording/.test(lower) && /recorded/.test(q.toLowerCase())) return false;
+    if (/report|complaint|filed|written/.test(lower) && /paperwork/.test(q.toLowerCase())) return false;
+    return true;
+  }).slice(0, 5);
 }
 
 export const staticTutorService: TutorService = {
-  getInsights(project: Project): TutorInsight[] {
-    const results: TutorInsight[] = [];
-    const screens = project.screens;
-    const evidence = project.evidence;
-    const allText = textFromScreens(screens);
-    const typeCount = new Map<string, number>();
+  analyzeIncident(incident: Incident): TutorAnalysis {
+    const desc = incident.description;
+    const wordCount = desc.trim().split(/\s+/).filter(Boolean).length;
 
-    for (const s of screens) {
-      typeCount.set(s.screenType, (typeCount.get(s.screenType) ?? 0) + 1);
-    }
+    const notices: TutorInsight[] = PATTERNS
+      .filter(p => p.re.test(desc))
+      .slice(0, 3)
+      .map(p => ({ type: "notice" as const, text: p.notice }));
 
-    if (screens.length === 0) {
-      results.push(
-        insight("suggestion", "Start building your case", "Add your first screen in the Build tab. The Tutor will immediately start reading your facts and teaching from them.")
-      );
-      return results;
-    }
-
-    // Strength signals
-    if (typeCount.has("contradiction")) {
-      results.push(
-        insight("strength", "You have a contradiction on record", "Contradiction screens are among the most powerful tools in a civil rights case. Courts and juries respond strongly when statements provably conflict.")
-      );
-    }
-    if (typeCount.has("admission")) {
-      results.push(
-        insight("strength", "You captured an admission", "An admission establishes prior knowledge or awareness. This can be decisive — it removes the defense that they 'didn't know.'")
-      );
-    }
-    if (evidence.length >= 3) {
-      results.push(
-        insight("strength", `${evidence.length} pieces of evidence in your vault`, "Strong cases corroborate the same facts through multiple independent sources. You're building that foundation.")
-      );
+    const keyPoints: TutorInsight[] = [];
+    if (wordCount < 80) {
+      keyPoints.push({ type: "question", text: "Your description is brief. Try to add more detail — even small details like exact words said, exact sequence of events, or who else was present can matter significantly." });
+    } else if (wordCount < 200) {
+      keyPoints.push({ type: "key_point", text: "Good start. Consider whether there are additional details — exact quotes, the order things happened, who made what decision — that you could add." });
+    } else {
+      keyPoints.push({ type: "summary", text: "You have a detailed description. The more specific your account, the easier it is to understand what happened and identify what's important." });
     }
 
-    // Weakness / gap signals
-    if (typeCount.has("contradiction") && evidence.filter(e => e.type === "bodycam").length === 0) {
-      results.push(
-        insight("weakness", "No bodycam evidence linked yet", "Your contradiction screen is powerful — but bodycam footage with a timestamp locks the argument shut. If footage exists, add it to the Evidence Vault.")
-      );
-    }
-    if (!typeCount.has("policy_violation") && /policy|protocol|procedure|required/.test(allText)) {
-      results.push(
-        insight("suggestion", "Your facts suggest a policy violation", "Your screens mention policy or procedure language. Consider building a Policy Violation screen — courts respond well to documented policy departures.")
-      );
-    }
-    if (!typeCount.has("admission") && /knew|aware|notice|told/.test(allText)) {
-      results.push(
-        insight("suggestion", "Watch for admission language", "Your screens contain phrases like 'knew' or 'aware.' If any officer or official acknowledged a fact, that may be an admission worth its own screen.")
-      );
-    }
-    if (!typeCount.has("prior_incident") && /before|prior|previous|again|history/.test(allText)) {
-      results.push(
-        insight("suggestion", "Consider a Prior Incident screen", "Your facts reference something happening before or again. Prior incidents strengthen a pattern-of-conduct argument significantly.")
-      );
-    }
-    if (project.citations.length === 0) {
-      results.push(
-        insight("suggestion", "Add legal citations", "Open the Legal Library in the Build tab and attach citations to your screens. Named cases — like Graham v. Connor — tell the court you know the standard.")
-      );
-    }
-
-    // Concept education
-    results.push(
-      insight("concept", "Why facts matter more than labels", "Courts don't rule on 'bad behavior' — they rule on whether specific facts meet legal standards. Every screen should answer: what exactly happened, and what does that prove?")
-    );
-    if (typeCount.has("policy_violation")) {
-      results.push(
-        insight("concept", "Policy violations and § 1983", "Under 42 U.S.C. § 1983, a policy violation alone isn't always enough — you must show the policy caused a constitutional deprivation. Your policy screen sets the foundation; the other screens complete it.")
-      );
-    }
-
-    // Questions to push thinking
-    results.push(
-      insight("question", "What evidence have you not secured yet?", "Bodycam, dispatch logs, agency records, and reports can be destroyed or lost. If you haven't filed a litigation hold letter or preservation demand, consider doing so immediately.")
-    );
-    if (screens.length >= 3) {
-      results.push(
-        insight("question", "Do your screens tell a complete story?", `You have ${screens.length} screens. Imagine presenting them in order — does a viewer understand what happened, who is responsible, and why it matters? If not, a narrative screen or timeline may help.`)
-      );
-    }
-
-    return results;
+    return {
+      overview: `You've described an incident: "${incident.title}". The Tutor will help you think through what's important, what questions remain, and what to do next.`,
+      insights: [...keyPoints, ...notices],
+      guidingQuestions: pickQuestions(desc),
+    };
   },
 
-  getLearningCards(project: Project): LearningCard[] {
-    const cards: LearningCard[] = [];
-    const screens = project.screens;
-    const evidence = project.evidence;
+  analyzeCase(hlCase: HLCase, incidents: Incident[]): TutorAnalysis {
+    const count = incidents.length;
+    const totalWords = incidents.reduce((n, i) => n + i.description.trim().split(/\s+/).filter(Boolean).length, 0);
 
-    // Concept cards always relevant
-    cards.push(
-      card("concept", "What is a § 1983 claim?", "42 U.S.C. § 1983 allows individuals to sue state actors who violated their constitutional rights under color of law. It requires: (1) a constitutional right was violated, (2) by someone acting under color of state law."),
-      card("concept", "What does 'under color of law' mean?", "It means the person was acting in their official capacity — as a police officer, government employee, or official — even if they were abusing that authority."),
-      card("why", "Why do contradictions matter?", "If someone says A at one point and B at another — and both can't be true — one statement is false. The question then becomes: which one? And why would they lie? That's the moment jurors start paying attention.")
-    );
-
-    // Cards based on screen types
-    for (const screen of screens.slice(0, 5)) {
-      if (screen.screenType === "contradiction") {
-        cards.push(
-          card("fact", `Contradiction: ${screen.title}`, "A contradiction exists when two statements or pieces of evidence cannot both be true. Document the source, the exact language, and what makes them conflict."),
-          card("question", "Who benefits from this contradiction being ignored?", "When analyzing a contradiction, ask who gains if the conflict is never examined. That often points to motive — and motive strengthens your argument.")
-        );
-      }
-      if (screen.screenType === "admission") {
-        cards.push(
-          card("fact", `Admission: ${screen.title}`, "An admission is when a party acknowledges a fact that damages their own position — knowledge, awareness, or prior notice. Document the exact words and the context."),
-          card("why", "Why does prior knowledge matter legally?", "If they knew about a risk or condition and failed to act, it defeats the 'we didn't know' defense. In civil rights cases, deliberate indifference often hinges on what they knew and when.")
-        );
-      }
-      if (screen.screenType === "policy_violation") {
-        cards.push(
-          card("fact", `Policy Violation: ${screen.title}`, "A policy violation screen shows the gap between what was required and what actually happened. Always name the specific policy and section if possible."),
-          card("strengthen", "What would strengthen a policy violation?", "Show: (1) the written policy, (2) training records proving they knew the policy, (3) bodycam or reports showing the deviation, (4) the consequence of that deviation.")
-        );
+    const seenNotices = new Set<string>();
+    const notices: TutorInsight[] = [];
+    for (const inc of incidents) {
+      for (const p of PATTERNS) {
+        if (p.re.test(inc.description) && !seenNotices.has(p.notice)) {
+          seenNotices.add(p.notice);
+          notices.push({ type: "notice", text: p.notice });
+        }
       }
     }
 
-    // Evidence-based cards
-    if (evidence.length > 0) {
-      cards.push(
-        card("evidence", `Your vault has ${evidence.length} item(s)`, "Evidence is most powerful when it's corroborated — the same fact shown through multiple independent sources. Bodycam + report + witness = hard to deny."),
-        card("strengthen", "How do you make evidence harder to challenge?", "Chain of custody, timestamps, original file formats, and request confirmations all make evidence harder to dismiss. If you got something digitally, screenshot the metadata.")
-      );
-    }
+    const combined = incidents.map(i => i.description).join(" ");
 
-    // Universal reasoning cards
-    cards.push(
-      card("concept", "What is deliberate indifference?", "A legal standard meaning someone knew of and consciously disregarded a serious risk. Used in § 1983 cases involving failure to protect, medical care denial, and supervisor liability."),
-      card("question", "What additional evidence could exist that you haven't found yet?", "Think about: dispatch CAD records, radio communications, digital access logs, security footage, officer personnel files, and prior complaint records (FOIA-able)."),
-      card("why", "Why does legal significance matter on every screen?", "Facts without legal meaning don't move courts. Every screen should answer: so what? What rule or standard does this violate, and what remedy does that justify?")
-    );
-
-    return cards;
+    return {
+      overview: `Case: "${hlCase.title}" — ${count} incident${count !== 1 ? "s" : ""}, approximately ${totalWords} words of description total. The Tutor reads across all incidents to help you find patterns.`,
+      insights: [
+        count > 1
+          ? { type: "summary", text: "Multiple incidents can establish a pattern of behavior — this is often more persuasive than a single event. Make sure each incident is described in enough detail to stand on its own." }
+          : { type: "question", text: "Only one incident in this case so far. Consider whether there are related events worth documenting as separate incidents." },
+        ...notices.slice(0, 3),
+      ],
+      guidingQuestions: pickQuestions(combined),
+    };
   },
 };

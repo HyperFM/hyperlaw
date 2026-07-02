@@ -23,8 +23,280 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <style>
+      /* ── SPLASH SCREEN ── rendered before React boots ── */
+      :root {
+        --bg-0: #07070a;
+        --ink-orange: #ff8a1f;
+        --ink-amber: #ffb347;
+        --ink-ember: #ff4d1c;
+        --line-dim: rgba(255,138,31,0.16);
+        --line-mid: rgba(255,138,31,0.38);
+      }
+
+      #hl-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(ellipse 90% 60% at 50% 38%, rgba(255,120,30,0.10), transparent 65%),
+          radial-gradient(ellipse 140% 100% at 50% 100%, rgba(255,60,10,0.06), transparent 60%),
+          var(--bg-0);
+        isolation: isolate;
+        transition: opacity 1.1s cubic-bezier(.4,0,.6,1);
+      }
+      #hl-splash.fade-out { opacity: 0; pointer-events: none; }
+
+      /* ambient grid */
+      #hl-splash .grid {
+        position: absolute; inset: 0; z-index: 0;
+        background-image:
+          linear-gradient(var(--line-dim) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line-dim) 1px, transparent 1px);
+        background-size: 42px 42px;
+        -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, black 10%, transparent 72%);
+                mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, black 10%, transparent 72%);
+        opacity: 0.55;
+        animation: gridDrift 18s linear infinite;
+      }
+      @keyframes gridDrift {
+        0%   { background-position: 0 0, 0 0; }
+        100% { background-position: 42px 84px, 84px 42px; }
+      }
+
+      #hl-splash .noise {
+        position: absolute; inset: 0; z-index: 0;
+        opacity: 0.05;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+        mix-blend-mode: overlay;
+        pointer-events: none;
+      }
+
+      /* corner readouts */
+      #hl-splash .readout {
+        position: absolute; z-index: 1;
+        display: flex; flex-direction: column; gap: 8px;
+        opacity: 0.5;
+      }
+      #hl-splash .readout span {
+        display: block; height: 2px; border-radius: 2px;
+        background: linear-gradient(90deg, var(--ink-orange), transparent);
+        animation: scan 2.6s ease-in-out infinite;
+      }
+      #hl-splash .readout.tl { top: 9%; left: 8%; }
+      #hl-splash .readout.tl span:nth-child(1) { width: 64px; animation-delay: 0s; }
+      #hl-splash .readout.tl span:nth-child(2) { width: 38px; animation-delay: .2s; }
+      #hl-splash .readout.tl span:nth-child(3) { width: 50px; animation-delay: .4s; }
+      #hl-splash .readout.tl span:nth-child(4) { width: 26px; animation-delay: .6s; }
+      #hl-splash .readout.br { bottom: 11%; right: 8%; align-items: flex-end; }
+      #hl-splash .readout.br span { background: linear-gradient(270deg, var(--ink-orange), transparent); }
+      #hl-splash .readout.br span:nth-child(1) { width: 56px; animation-delay: .3s; }
+      #hl-splash .readout.br span:nth-child(2) { width: 80px; animation-delay: .5s; }
+      #hl-splash .readout.br span:nth-child(3) { width: 34px; animation-delay: .7s; }
+      @keyframes scan {
+        0%,100% { opacity: .25; transform: scaleX(0.85); }
+        50%      { opacity: 1;   transform: scaleX(1); }
+      }
+
+      /* wire traces */
+      #hl-splash .wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+      #hl-splash .wires path {
+        fill: none; stroke: var(--ink-orange); stroke-width: 1.6; stroke-linecap: round;
+        filter: drop-shadow(0 0 5px rgba(255,138,31,0.65));
+        stroke-dasharray: 340; stroke-dashoffset: 340; opacity: 0;
+      }
+      #hl-splash .wires path.w1 { animation: traceIn 1.5s cubic-bezier(.3,.7,.2,1) forwards 0.3s; }
+      #hl-splash .wires path.w2 { animation: traceIn 1.5s cubic-bezier(.3,.7,.2,1) forwards 1.9s; }
+      #hl-splash .wires path.w3 { animation: traceIn 1.5s cubic-bezier(.3,.7,.2,1) forwards 3.5s; }
+      #hl-splash .wires path.w4 { animation: traceIn 1.5s cubic-bezier(.3,.7,.2,1) forwards 5.1s; }
+      @keyframes traceIn {
+        0%  { stroke-dashoffset: 340; opacity: 0; }
+        10% { opacity: 1; }
+        85% { stroke-dashoffset: 0; opacity: 1; }
+        100%{ stroke-dashoffset: 0; opacity: .65; }
+      }
+      #hl-splash .wires circle {
+        fill: var(--ink-amber); r: 0; opacity: 0;
+        filter: drop-shadow(0 0 7px rgba(255,179,71,0.95));
+      }
+      #hl-splash .wires circle.n1 { animation: nodeIn .5s ease forwards 1.7s; }
+      #hl-splash .wires circle.n2 { animation: nodeIn .5s ease forwards 3.3s; }
+      #hl-splash .wires circle.n3 { animation: nodeIn .5s ease forwards 4.9s; }
+      #hl-splash .wires circle.n4 { animation: nodeIn .5s ease forwards 6.5s; }
+      @keyframes nodeIn {
+        0%   { opacity: 0; r: 0; }
+        60%  { opacity: 1; r: 4.5; }
+        100% { opacity: .95; r: 3.2; }
+      }
+
+      /* orbit rings */
+      #hl-splash .mark-wrap {
+        position: relative; z-index: 2;
+        display: flex; align-items: center; justify-content: center;
+      }
+      #hl-splash .ring {
+        position: absolute; top: 50%; left: 50%;
+        width: 240px; height: 240px;
+        transform: translate(-50%,-50%) scale(0.85);
+        border-radius: 50%;
+        border: 1px solid var(--line-mid);
+        opacity: 0;
+        transition: opacity .7s ease, transform .7s ease;
+      }
+      #hl-splash .ring.r2 {
+        width: 296px; height: 296px;
+        border-color: rgba(255,138,31,0.18);
+      }
+      #hl-splash .ring::before {
+        content: "";
+        position: absolute;
+        top: -1px; left: calc(50% - 3px);
+        width: 6px; height: 6px;
+        background: var(--ink-amber);
+        border-radius: 50%;
+        box-shadow: 0 0 8px 2px rgba(255,179,71,.8);
+      }
+      #hl-splash.complete .ring {
+        opacity: 1;
+        transform: translate(-50%,-50%) scale(1);
+        animation: ringSpin 18s linear infinite;
+      }
+      #hl-splash.complete .ring.r2 { animation: ringSpin 26s linear infinite reverse; }
+      @keyframes ringSpin {
+        0%   { transform: translate(-50%,-50%) rotate(0deg); }
+        100% { transform: translate(-50%,-50%) rotate(360deg); }
+      }
+
+      /* glow disc */
+      #hl-splash .glow-disc {
+        position: absolute; top: 50%; left: 50%;
+        width: 220px; height: 220px;
+        transform: translate(-50%,-50%) scale(0.7);
+        background: radial-gradient(circle, rgba(255,138,31,0.32), rgba(255,138,31,0) 70%);
+        filter: blur(7px);
+        opacity: .25;
+        transition: opacity .8s ease, transform .8s ease;
+      }
+      #hl-splash.complete .glow-disc {
+        opacity: 1;
+        transform: translate(-50%,-50%) scale(1);
+        animation: breathe 3.2s ease-in-out infinite .8s;
+      }
+      @keyframes breathe {
+        0%,100% { opacity: .65; transform: translate(-50%,-50%) scale(0.96); }
+        50%      { opacity: 1;   transform: translate(-50%,-50%) scale(1.06); }
+      }
+
+      /* app icon */
+      #hl-splash .icon {
+        position: relative;
+        width: 150px; height: 150px;
+        border-radius: 32px;
+        opacity: 0.12;
+        transform: scale(0.5);
+        filter: drop-shadow(0 0 6px rgba(255,138,31,0.25));
+        transition: filter .35s ease;
+        animation: zoomIn 6.6s cubic-bezier(.16,.6,.24,1) forwards 0.3s;
+      }
+      @keyframes zoomIn {
+        0%   { opacity: 0.12; transform: scale(0.5); }
+        100% { opacity: 1;    transform: scale(1); }
+      }
+      #hl-splash .icon.charge {
+        opacity: 0.65;
+        filter: drop-shadow(0 0 16px rgba(255,178,80,0.7));
+      }
+      #hl-splash.complete .icon {
+        opacity: 1;
+        transform: scale(1);
+        filter: drop-shadow(0 0 20px rgba(255,138,31,0.6)) drop-shadow(0 0 46px rgba(255,80,20,0.32));
+        animation: float 5s ease-in-out infinite;
+      }
+      @keyframes float {
+        0%,100% { transform: translateY(0px) scale(1); }
+        50%      { transform: translateY(-9px) scale(1); }
+      }
+      /* extra pulse per wire charge */
+      @keyframes iconPulse {
+        0%   { filter: drop-shadow(0 0 6px rgba(255,138,31,0.3)) brightness(1);    transform: scale(1); }
+        40%  { filter: drop-shadow(0 0 32px rgba(255,178,80,1)) brightness(1.25);  transform: scale(1.06); }
+        100% { filter: drop-shadow(0 0 12px rgba(255,138,31,0.5)) brightness(1);   transform: scale(1); }
+      }
+      #hl-splash .icon.pulse { animation: iconPulse 0.45s ease-out forwards !important; }
+    </style>
   </head>
   <body>
+
+    <!-- Splash renders immediately, before React boots -->
+    <div id="hl-splash">
+      <div class="grid"></div>
+      <div class="noise"></div>
+
+      <div class="readout tl"><span></span><span></span><span></span><span></span></div>
+      <div class="readout br"><span></span><span></span><span></span></div>
+
+      <svg class="wires" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
+        <path class="w1" d="M 20 60 L 120 60 L 170 120 L 170 165"></path>
+        <path class="w2" d="M 380 90 L 300 90 L 250 150 L 230 165"></path>
+        <path class="w3" d="M 30 340 L 110 340 L 160 280 L 175 240"></path>
+        <path class="w4" d="M 375 320 L 290 320 L 245 260 L 228 235"></path>
+        <circle class="n1" cx="170" cy="165" r="0"></circle>
+        <circle class="n2" cx="230" cy="165" r="0"></circle>
+        <circle class="n3" cx="175" cy="240" r="0"></circle>
+        <circle class="n4" cx="228" cy="235" r="0"></circle>
+      </svg>
+
+      <div class="mark-wrap">
+        <div class="ring r1"></div>
+        <div class="ring r2"></div>
+        <div class="glow-disc"></div>
+        <img class="icon" id="splashIcon" src="/hyperlaw-icon.png" alt="" />
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var splash = document.getElementById('hl-splash');
+        var icon   = document.getElementById('splashIcon');
+        var wires  = ['w1','w2','w3','w4'].map(function(c) {
+          return splash.querySelector('.' + c);
+        });
+
+        function pulseIcon() {
+          icon.classList.remove('pulse');
+          void icon.offsetWidth;
+          icon.classList.add('pulse');
+        }
+
+        wires.forEach(function(wire, i) {
+          wire.addEventListener('animationend', function(e) {
+            if (e.animationName !== 'traceIn') return;
+
+            icon.classList.add('charge');
+            pulseIcon();
+            setTimeout(function() { icon.classList.remove('charge'); }, 400);
+
+            if (i === wires.length - 1) {
+              splash.classList.add('complete');
+              document.dispatchEvent(new CustomEvent('splashLoadingComplete'));
+
+              // Fade out 1.8 s after the final wire lands
+              setTimeout(function() {
+                splash.classList.add('fade-out');
+                splash.addEventListener('transitionend', function() {
+                  splash.style.display = 'none';
+                }, { once: true });
+              }, 1800);
+            }
+          });
+        });
+      })();
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

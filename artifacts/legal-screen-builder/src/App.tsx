@@ -1027,7 +1027,13 @@ function TutorView({ data, initialIncident, initialCase }: {
 // ─── PLANS OVERLAY ────────────────────────────────────────────────────────────
 function PlansOverlay({ onClose }: { onClose: () => void }) {
   const [visible, setVisible] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(1);
+  const startXRef = useRef(0);
+  const currentXRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
 
+  const ORANGE = "#F45D01";
   const ORANGE_HOT = "#FF7A1A";
   const PAPER = "#F4EFE8";
   const DIM = "#9C948A";
@@ -1035,98 +1041,204 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
   const PANEL2 = "#1b1815";
   const LINE = "#2a2521";
 
-  const plans = [
-    { id: "firstfiling", name: "First Filing", price: "Free", tagline: "No card required", badge: null as string | null, features: ["One new case per day", "Guided Tutor included", "Glossary & checklist"] },
-    { id: "prosay", name: "Pro-Say", price: "$25/mo", tagline: "Unlimited access", badge: null as string | null, features: ["Unlimited cases", "Priority tutor", "Document analysis", "Readiness engine"] },
-    { id: "apex", name: "Apex Litigant", price: "$100/mo", tagline: "THE MANEATER PACKAGE — NO CAP", badge: "Full Docket" as string | null, features: ["Sink your teeth into the docket — unlimited cases, zero throttle", "Built for attorneys, power litigants & anyone going for the jugular", "Full AI reasoning engine, no guardrails", "Priority everything — support, tutor, document analysis", "Freedom to run your entire practice or fight every battle at once"] },
+  const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  const PLAN_ICONS = [
+    `${basePath}/plan-icon-0.png`,
+    `${basePath}/plan-icon-1.png`,
+    `${basePath}/plan-icon-2.png`,
   ];
 
-  const [activeIdx, setActiveIdx] = useState(1);
+  const plans = [
+    {
+      id: "firstfiling", name: "First Filing", tagline: "You don't have to be fearless. Doing it afraid is just as brave.",
+      price: "Free", cycle: null as string | null, priceNote: "No card required · usage limits apply",
+      badge: null as string | null,
+      quote: '"You\'ll make mistakes. That\'s not disqualifying — quitting is. Stay determined and the scale tips your way eventually, even when it doesn\'t look like it yet."',
+      features: [
+        { text: "<b>Build one case, start to finish</b> — one new case per day, so it grows with you instead of overwhelming you", tbd: false },
+        { text: "Guided case tutor included, with its own usage limits so it's there whenever you need it", tbd: false },
+        { text: "A document & evidence checklist: keep the camera rolling, save every receipt", tbd: false },
+        { text: "Plain-English glossary for the terms nobody explains to you", tbd: false },
+      ],
+      ctaLabel: "Start First Filing", ctaStyle: "secondary" as const,
+    },
+    {
+      id: "prosay", name: "Pro-Say Selection", tagline: "Say it right, every filing",
+      price: "$25", cycle: "/ month" as string | null, priceNote: "Billed monthly · cancel anytime",
+      badge: null as string | null,
+      quote: '"The law rewards those who show up prepared. Pro-Say gives you every tool to make sure that person is you."',
+      features: [
+        { text: "<b>Unlimited cases</b> — build and track as many cases as your docket demands", tbd: false },
+        { text: "<b>Priority tutor access</b> — no usage caps, full reasoning depth", tbd: false },
+        { text: "<b>Document analysis</b> — upload evidence, get structured breakdowns", tbd: false },
+        { text: "<b>Readiness engine</b> — know your case strength before you file", tbd: false },
+        { text: "<b>Advanced reminders</b> — deadline tracking across all your cases", tbd: false },
+      ],
+      ctaLabel: "Select Pro-Say", ctaStyle: "primary" as const,
+    },
+    {
+      id: "apex", name: "Apex Litigant", tagline: "THE MANEATER PACKAGE — NO CAP",
+      price: "$100", cycle: "/ month" as string | null, priceNote: "Billed monthly · cancel anytime",
+      badge: "Full Docket" as string | null,
+      quote: '"For attorneys, power litigants, and anyone who refuses to leave anything on the table. Sink your teeth into the docket and don\'t let go."',
+      features: [
+        { text: "<b>Sink your teeth into the docket</b> — unlimited cases, zero throttle, zero apologies", tbd: false },
+        { text: "<b>Built for attorneys & power litigants</b> — anyone going for the jugular", tbd: false },
+        { text: "<b>Full AI reasoning engine</b> — no guardrails, no cap on depth", tbd: false },
+        { text: "<b>Priority everything</b> — support, tutor, document analysis, front of the line", tbd: false },
+        { text: "<b>Run your entire practice</b> — fight every battle at once, on your terms", tbd: false },
+      ],
+      ctaLabel: "Select Apex Litigant", ctaStyle: "primary" as const,
+    },
+  ];
+
+  const goTo = useCallback((idx: number) => {
+    setActiveIndex(Math.max(0, Math.min(plans.length - 1, idx)));
+  }, [plans.length]);
 
   useEffect(() => { const t = setTimeout(() => setVisible(true), 20); return () => clearTimeout(t); }, []);
 
   function handleClose() { setVisible(false); setTimeout(onClose, 280); }
 
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    isDraggingRef.current = true; setIsDragging(true);
+    startXRef.current = e.clientX; currentXRef.current = e.clientX;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+  }
+  function onPointerMove(e: React.PointerEvent) {
+    if (!isDraggingRef.current) return; currentXRef.current = e.clientX;
+  }
+  function onPointerUp() {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false; setIsDragging(false);
+    const diff = currentXRef.current - startXRef.current;
+    if (Math.abs(diff) > 50) goTo(activeIndex + (diff < 0 ? 1 : -1));
+  }
+
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 350, display: "flex", flexDirection: "column",
-      background: `rgba(0,0,0,${visible ? 0.95 : 0})`, transition: "background 0.28s ease",
-      overflowY: "auto",
+      position: "fixed", inset: 0, zIndex: 350, overflowY: "auto",
+      background: `rgba(8,7,6,${visible ? 0.97 : 0})`, transition: "background 0.28s ease",
     }}>
-      <div onClick={handleClose} style={{ position: "absolute", inset: 0 }} />
+      <style>{`@keyframes glowPulse{0%,100%{box-shadow:0 0 0 1px rgba(255,122,26,.28),0 0 30px -8px rgba(244,93,1,.4),0 20px 60px -18px rgba(244,93,1,.3);}50%{box-shadow:0 0 0 1px rgba(255,122,26,.55),0 0 54px -6px rgba(244,93,1,.75),0 20px 60px -18px rgba(244,93,1,.5);}}`}</style>
+      <div onClick={handleClose} style={{ position: "fixed", inset: 0 }} />
       <div style={{
-        position: "relative", zIndex: 1, width: "100%", maxWidth: 520, margin: "0 auto",
-        padding: "0 20px 60px",
+        position: "relative", zIndex: 1, maxWidth: 520, margin: "0 auto",
+        padding: "20px 20px 60px",
         transform: `translateY(${visible ? 0 : 32}px)`,
         transition: "transform 0.32s cubic-bezier(.22,.9,.32,1)",
       }}>
-        <div style={{ padding: "20px 0 16px", display: "flex", justifyContent: "flex-end" }}>
+        {/* Close */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
           <button onClick={handleClose} style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X size={16} color="#aaa" />
           </button>
         </div>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.28em", color: ORANGE_HOT, textTransform: "uppercase", marginBottom: 10 }}>HyperLaw · Membership</div>
-          <h2 style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: "clamp(26px, 7vw, 44px)", color: PAPER, margin: 0 }}>
-            Choose Your <span style={{ color: ORANGE_HOT }}>Standing</span>
-          </h2>
-          <p style={{ color: DIM, fontSize: 13, marginTop: 10 }}>Three tiers — upgrade or downgrade any time.</p>
+
+        {/* Eyebrow */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "center", textTransform: "uppercase", letterSpacing: "0.28em", fontSize: 11, color: ORANGE_HOT, fontWeight: 600, marginBottom: 14 }}>
+          <span style={{ height: 1, width: 36, background: `linear-gradient(90deg,transparent,${ORANGE})`, opacity: 0.7, display: "block" }} />
+          HyperLaw · Membership
+          <span style={{ height: 1, width: 36, background: `linear-gradient(90deg,${ORANGE},transparent)`, opacity: 0.7, display: "block" }} />
+        </div>
+        <h2 style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", textAlign: "center", fontSize: "clamp(28px, 8vw, 44px)", color: PAPER, margin: "0 0 10px" }}>
+          Choose Your <span style={{ color: ORANGE_HOT }}>Standing</span>
+        </h2>
+        <p style={{ textAlign: "center", color: DIM, fontSize: 13, lineHeight: 1.6, marginBottom: 28 }}>
+          Three ways to work the case — upgrade any time.
+        </p>
+
+        {/* Swoosh */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+          <svg viewBox="0 0 420 26" style={{ width: "100%", maxWidth: 420, height: 26, filter: "drop-shadow(0 0 6px rgba(244,93,1,.55))" }} preserveAspectRatio="none">
+            <path d="M0,20 L360,20 L420,4" stroke={ORANGE} strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          </svg>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {plans.map((p, i) => (
-            <button key={p.id} onClick={() => setActiveIdx(i)} style={{
-              flex: 1, padding: "8px 4px", borderRadius: 8, border: `1px solid ${i === activeIdx ? ORANGE_HOT + "55" : LINE}`,
-              background: i === activeIdx ? `${ORANGE_HOT}15` : "transparent", cursor: "pointer",
-              fontSize: 11, fontWeight: 700, color: i === activeIdx ? ORANGE_HOT : DIM,
-            }}>{p.name}</button>
-          ))}
+        {/* Swipe hint */}
+        <div style={{ textAlign: "center", color: DIM, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.16em", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><path d="M9 18l6-6-6-6" /></svg>
+          Swipe to browse plans
         </div>
 
-        {plans.map((plan, i) => i !== activeIdx ? null : (
-          <div key={plan.id} style={{
-            position: "relative",
-            background: `linear-gradient(180deg, ${PANEL} 0%, ${PANEL2} 100%)`,
-            border: `1px solid ${LINE}`, borderRadius: 22,
-            padding: plan.badge ? "40px 24px 30px" : "30px 24px",
-            boxShadow: "0 0 40px -10px rgba(244,93,1,0.4)",
-            marginTop: plan.badge ? 14 : 0,
-          }}>
-            {plan.badge && (
-              <div style={{
-                position: "absolute", top: -14, left: 24,
-                background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})`,
-                color: "#0a0908", fontWeight: 800, fontSize: 11,
-                textTransform: "uppercase", letterSpacing: "0.14em",
-                padding: "6px 16px", borderRadius: 999,
-                whiteSpace: "nowrap",
-              }}>
-                {plan.badge}
-              </div>
-            )}
-            <div style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: 28, color: PAPER, marginBottom: 4 }}>{plan.name}</div>
-            <div style={{ color: ORANGE_HOT, fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 16 }}>{plan.tagline}</div>
-            <div style={{ fontSize: 42, fontWeight: 700, color: PAPER, marginBottom: 20 }}>{plan.price}</div>
-            <div style={{ height: 1, background: LINE, marginBottom: 20 }} />
-            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {plan.features.map((f, fi) => (
-                <li key={fi} style={{ display: "flex", gap: 10, fontSize: 14, color: "#DAD3C9" }}>
-                  <span style={{ color: ORANGE_HOT }}>✓</span>{f}
-                </li>
-              ))}
-            </ul>
-            <button style={{
-              width: "100%", padding: "14px", borderRadius: 12,
-              background: i === 1 ? `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})` : "transparent",
-              border: i === 1 ? "none" : `1px solid ${LINE}`,
-              color: i === 1 ? "#0a0908" : PAPER,
-              fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.06em",
-              textTransform: "uppercase",
-            }}>
-              {i === 0 ? "Current Plan" : i === 1 ? "Upgrade to Pro-Say" : "Get Notified"}
+        {/* Carousel */}
+        <div style={{ position: "relative", maxWidth: 460, margin: "0 auto" }}>
+          <div style={{ overflow: "hidden", borderRadius: 22 }}>
+            <div
+              onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+              style={{
+                display: "flex",
+                transform: `translateX(-${activeIndex * 100}%)`,
+                transition: isDragging ? "none" : "transform 0.38s cubic-bezier(.22,.9,.32,1)",
+                cursor: isDragging ? "grabbing" : "grab", userSelect: "none",
+              }}
+            >
+              {plans.map((plan, i) => {
+                const isActive = i === activeIndex;
+                const glowStyle: React.CSSProperties = isActive
+                  ? { borderColor: "rgba(255,122,26,.75)", animation: "glowPulse 2.4s ease-in-out infinite" }
+                  : {};
+                return (
+                  <div key={plan.id} style={{ flex: "0 0 100%", maxWidth: "100%", padding: 6, display: "flex" }}>
+                    <div style={{ position: "relative", width: "100%", background: `linear-gradient(180deg,${PANEL} 0%,${PANEL2} 100%)`, border: `1px solid ${plan.id === "apex" ? "rgba(244,93,1,.35)" : LINE}`, borderRadius: 22, padding: "34px 26px 30px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", transition: "border-color .25s ease,box-shadow .35s ease", ...glowStyle }}>
+                      {plan.badge && (
+                        <div style={{ position: "absolute", top: -13, left: "50%", transform: "translateX(-50%)", background: `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})`, color: "#0a0908", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.14em", padding: "6px 16px", borderRadius: 999, boxShadow: "0 6px 18px -6px rgba(244,93,1,.7)", whiteSpace: "nowrap" }}>
+                          {plan.badge}
+                        </div>
+                      )}
+                      <div style={{ width: 128, height: 128, margin: "10px 0 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <img src={PLAN_ICONS[i]} alt={plan.name} style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(0 0 20px rgba(244,93,1,.4))", userSelect: "none" }} draggable={false} />
+                      </div>
+                      <div style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: 24, letterSpacing: "0.01em", color: PAPER }}>{plan.name}</div>
+                      <div style={{ color: ORANGE_HOT, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 600, marginTop: 6, minHeight: 16 }}>{plan.tagline}</div>
+                      <div style={{ margin: "22px 0 4px", display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 40 }}>{plan.price}</span>
+                        {plan.cycle && <span style={{ color: DIM, fontSize: 14 }}>{plan.cycle}</span>}
+                      </div>
+                      <div style={{ color: DIM, fontSize: 12, marginBottom: 20 }}>{plan.priceNote}</div>
+                      <p style={{ fontStyle: "italic", fontSize: 12.5, color: "#DAD3C9", lineHeight: 1.55, padding: "12px 6px 16px", borderTop: `1px solid ${LINE}`, marginTop: 2, marginBottom: 6, width: "100%" }}>{plan.quote}</p>
+                      <div style={{ width: "100%", height: 1, background: LINE, margin: "4px 0 20px" }} />
+                      <ul style={{ listStyle: "none", width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 11, marginBottom: 26, flex: 1, padding: 0 }}>
+                        {plan.features.map((f, fi) => (
+                          <li key={fi} style={{ display: "flex", gap: 9, fontSize: 13.5, lineHeight: 1.42, color: "#DAD3C9" }}>
+                            <span style={{ flexShrink: 0, color: ORANGE_HOT }}>✓</span>
+                            <span dangerouslySetInnerHTML={{ __html: f.text.replace(/<b>/g, `<strong style="color:${PAPER};font-weight:600">`).replace(/<\/b>/g, "</strong>") }} />
+                          </li>
+                        ))}
+                      </ul>
+                      <button style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none" }}>
+                        {plan.ctaLabel}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Dots */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 20 }}>
+            {plans.map((p, i) => (
+              <button key={p.id} onClick={() => goTo(i)} style={{ width: 9, height: 9, borderRadius: "50%", border: "none", cursor: "pointer", padding: 0, background: i === activeIndex ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : LINE, transform: i === activeIndex ? "scale(1.3)" : "scale(1)", boxShadow: i === activeIndex ? "0 0 10px rgba(244,93,1,.7)" : "none", transition: "all 0.25s ease" }} />
+            ))}
+          </div>
+
+          {/* Arrows */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 14 }}>
+            <button onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} style={{ width: 38, height: 38, borderRadius: "50%", border: `1px solid ${LINE}`, background: PANEL, color: PAPER, cursor: activeIndex === 0 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: activeIndex === 0 ? 0.3 : 1, transition: "all 0.2s ease" }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <button onClick={() => goTo(activeIndex + 1)} disabled={activeIndex === plans.length - 1} style={{ width: 38, height: 38, borderRadius: "50%", border: `1px solid ${LINE}`, background: PANEL, color: PAPER, cursor: activeIndex === plans.length - 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: activeIndex === plans.length - 1 ? 0.3 : 1, transition: "all 0.2s ease" }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M9 18l6-6-6-6" /></svg>
             </button>
           </div>
-        ))}
+        </div>
+
+        <p style={{ textAlign: "center", color: "#4a4542", fontSize: 11, marginTop: 32, lineHeight: 1.6 }}>
+          No auto-renewals without notice · Cancel anytime · Usage limits apply on free tier
+        </p>
       </div>
     </div>
   );

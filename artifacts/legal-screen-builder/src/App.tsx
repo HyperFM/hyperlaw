@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useClerk, useUser } from "@clerk/react";
 import {
   Home, Folder, Plus, GraduationCap, User, ChevronRight, ChevronLeft,

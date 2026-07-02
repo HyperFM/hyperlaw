@@ -1,20 +1,54 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
+import { pgTable, uuid, text, boolean, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
 
-export {}
+export const notificationsTable = pgTable("notifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  type: text("type").notNull().default("system"),
+  read: boolean("read").notNull().default(false),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const chatSessionsTable = pgTable("chat_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull().unique(),
+  userEmail: text("user_email"),
+  userName: text("user_name"),
+  status: text("status").notNull().default("temporary"),
+  retentionDays: integer("retention_days"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const messagesTable = pgTable("messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: uuid("session_id").notNull().references(() => chatSessionsTable.id, { onDelete: "cascade" }),
+  fromAdmin: boolean("from_admin").notNull().default(false),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const feedbackTable = pgTable("feedback", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id"),
+  userEmail: text("user_email"),
+  userName: text("user_name"),
+  message: text("message").notNull(),
+  type: text("type").notNull().default("general"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });
+export const insertFeedbackSchema = createInsertSchema(feedbackTable).omit({ id: true, createdAt: true });
+export const insertMessageSchema = createInsertSchema(messagesTable).omit({ id: true, createdAt: true });
+
+export type Notification = typeof notificationsTable.$inferSelect;
+export type ChatSession = typeof chatSessionsTable.$inferSelect;
+export type Message = typeof messagesTable.$inferSelect;
+export type Feedback = typeof feedbackTable.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;

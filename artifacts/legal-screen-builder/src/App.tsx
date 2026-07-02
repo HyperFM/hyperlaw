@@ -5,6 +5,7 @@ import {
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
+  Download, MessageSquare, Shield,
 } from "lucide-react";
 import { Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus } from "./types";
 import {
@@ -13,6 +14,13 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
+import NotificationBell from "./components/NotificationBell";
+import AdminPanel from "./components/AdminPanel";
+import SupportModal from "./components/SupportModal";
+import UserChatDrawer from "./components/UserChatDrawer";
+import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
+
+const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ORANGE = "#d9711f";
@@ -454,6 +462,8 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
         <div style={{ flex: 1 }} />
         {!editing ? (
           <>
+            <button onClick={() => exportIncidentPDF(incident).catch(() => {})} title="Export PDF"
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
             <button onClick={() => { setEditTitle(incident.title); setEditDesc(incident.description); setEditDate(incident.dateOfEvent); setEditLocation(incident.location); setEditCategory(incident.category); setEditing(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Edit3 size={16} /></button>
             <button onClick={() => { if (window.confirm("Delete this incident?")) onDelete(incident.id); }}
@@ -730,6 +740,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
         </button>
         <div style={{ flex: 1 }} />
+        <button onClick={() => exportCasePDF(hlCase, data.incidents).catch(() => {})} title="Export PDF"
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
         <button onClick={() => { if (window.confirm("Delete this case?")) onDeleteCase(hlCase.id); }}
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
       </div>
@@ -1012,6 +1024,104 @@ function TutorView({ data, initialIncident, initialCase }: {
   );
 }
 
+// ─── PLANS OVERLAY ────────────────────────────────────────────────────────────
+function PlansOverlay({ onClose }: { onClose: () => void }) {
+  const [visible, setVisible] = useState(false);
+
+  const ORANGE_HOT = "#FF7A1A";
+  const PAPER = "#F4EFE8";
+  const DIM = "#9C948A";
+  const PANEL = "#141210";
+  const PANEL2 = "#1b1815";
+  const LINE = "#2a2521";
+
+  const plans = [
+    { id: "firstfiling", name: "First Filing", price: "Free", tagline: "No card required", badge: null as string | null, features: ["One new case per day", "Guided Tutor included", "Glossary & checklist"] },
+    { id: "prosay", name: "Pro-Say", price: "$19/mo", tagline: "Unlimited access", badge: null as string | null, features: ["Unlimited cases", "Priority tutor", "Document analysis", "Readiness engine"] },
+    { id: "apex", name: "Apex", price: "TBD", tagline: "Full docket", badge: "Coming Soon" as string | null, features: ["Everything in Pro-Say", "Advanced AI analysis", "Full discovery tools"] },
+  ];
+
+  const [activeIdx, setActiveIdx] = useState(1);
+
+  useEffect(() => { const t = setTimeout(() => setVisible(true), 20); return () => clearTimeout(t); }, []);
+
+  function handleClose() { setVisible(false); setTimeout(onClose, 280); }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 350, display: "flex", flexDirection: "column",
+      background: `rgba(0,0,0,${visible ? 0.95 : 0})`, transition: "background 0.28s ease",
+      overflowY: "auto",
+    }}>
+      <div onClick={handleClose} style={{ position: "absolute", inset: 0 }} />
+      <div style={{
+        position: "relative", zIndex: 1, width: "100%", maxWidth: 520, margin: "0 auto",
+        padding: "0 20px 60px",
+        transform: `translateY(${visible ? 0 : 32}px)`,
+        transition: "transform 0.32s cubic-bezier(.22,.9,.32,1)",
+      }}>
+        <div style={{ padding: "20px 0 16px", display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={handleClose} style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={16} color="#aaa" />
+          </button>
+        </div>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.28em", color: ORANGE_HOT, textTransform: "uppercase", marginBottom: 10 }}>HyperLaw · Membership</div>
+          <h2 style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: "clamp(26px, 7vw, 44px)", color: PAPER, margin: 0 }}>
+            Choose Your <span style={{ color: ORANGE_HOT }}>Standing</span>
+          </h2>
+          <p style={{ color: DIM, fontSize: 13, marginTop: 10 }}>Three tiers — upgrade or downgrade any time.</p>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {plans.map((p, i) => (
+            <button key={p.id} onClick={() => setActiveIdx(i)} style={{
+              flex: 1, padding: "8px 4px", borderRadius: 8, border: `1px solid ${i === activeIdx ? ORANGE_HOT + "55" : LINE}`,
+              background: i === activeIdx ? `${ORANGE_HOT}15` : "transparent", cursor: "pointer",
+              fontSize: 11, fontWeight: 700, color: i === activeIdx ? ORANGE_HOT : DIM,
+            }}>{p.name}</button>
+          ))}
+        </div>
+
+        {plans.map((plan, i) => i !== activeIdx ? null : (
+          <div key={plan.id} style={{
+            background: `linear-gradient(180deg, ${PANEL} 0%, ${PANEL2} 100%)`,
+            border: `1px solid ${LINE}`, borderRadius: 22, padding: "30px 24px",
+            boxShadow: "0 0 40px -10px rgba(244,93,1,0.4)",
+          }}>
+            {plan.badge && (
+              <div style={{ display: "inline-block", background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})`, color: "#0a0908", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.12em", padding: "5px 14px", borderRadius: 999, marginBottom: 12 }}>
+                {plan.badge}
+              </div>
+            )}
+            <div style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: 28, color: PAPER, marginBottom: 4 }}>{plan.name}</div>
+            <div style={{ color: ORANGE_HOT, fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 16 }}>{plan.tagline}</div>
+            <div style={{ fontSize: 42, fontWeight: 700, color: PAPER, marginBottom: 20 }}>{plan.price}</div>
+            <div style={{ height: 1, background: LINE, marginBottom: 20 }} />
+            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {plan.features.map((f, fi) => (
+                <li key={fi} style={{ display: "flex", gap: 10, fontSize: 14, color: "#DAD3C9" }}>
+                  <span style={{ color: ORANGE_HOT }}>✓</span>{f}
+                </li>
+              ))}
+            </ul>
+            <button style={{
+              width: "100%", padding: "14px", borderRadius: 12,
+              background: i === 1 ? `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})` : "transparent",
+              border: i === 1 ? "none" : `1px solid ${LINE}`,
+              color: i === 1 ? "#0a0908" : PAPER,
+              fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}>
+              {i === 0 ? "Current Plan" : i === 1 ? "Upgrade to Pro-Say" : "Get Notified"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
 function ProfileView({ data, onOpenCase, onEasterEgg }: {
   data: AppData;
@@ -1022,16 +1132,10 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
   const { user } = useUser();
   const displayName = user?.fullName || user?.firstName || user?.emailAddresses?.[0]?.emailAddress || "Your Profile";
   const email = user?.emailAddresses?.[0]?.emailAddress || "";
+  const isAdmin = email === ADMIN_EMAIL;
 
-  const sections = [
-    { label: "Account", icon: User, items: ["Email", "Display Name", "Plan"] },
-    { label: "Subscription", icon: Star, items: ["Current Plan", "Upgrade", "Billing History"] },
-    { label: "AI Preferences", icon: Brain, items: ["Tutor Style", "AI Engine (Coming)"] },
-    { label: "Theme", icon: Sliders, items: ["Dark Mode", "Accent Color", "Font Size"] },
-    { label: "Export History", icon: History, items: ["Recent Exports", "Saved Formats"] },
-    { label: "Data & Backups", icon: Archive, items: ["Export Backup", "Restore from Backup", "Privacy"] },
-    { label: "Settings", icon: Settings, items: ["Notifications"] },
-  ];
+  const [showPlans, setShowPlans] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
 
   const [eggPressCount, setEggPressCount] = useState(0);
   const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1050,9 +1154,27 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
   const upcoming = allReminders.filter(r => daysUntil(r.dueDate) >= -1);
   const past = allReminders.filter(r => daysUntil(r.dueDate) < -1);
 
+  const settingRows = [
+    { label: "AI Preferences", icon: Brain, items: ["Tutor Style", "AI Engine (Coming)"] },
+    { label: "Data & Backups", icon: Archive, items: ["Export Backup", "Restore from Backup"] },
+    { label: "Settings", icon: Settings, items: ["Notifications"] },
+  ];
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
+      {/* Admin panel */}
+      {isAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <Shield size={11} color={ORANGE} />
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</div>
+          </div>
+          <AdminPanel onClose={() => {}} />
+        </div>
+      )}
+
+      {/* User info */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
         <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <User size={28} color="#000" />
         </div>
@@ -1063,14 +1185,33 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         </div>
       </div>
 
+      {/* Membership card */}
+      <button
+        onClick={() => setShowPlans(true)}
+        style={{
+          width: "100%", background: "#141414", border: "1px solid #2a2a2a",
+          borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+        }}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+      >
+        <Star size={18} color={ORANGE} style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Membership</div>
+          <div style={{ color: "#555", fontSize: 12 }}>First Filing (Free) · View plans & upgrade</div>
+        </div>
+        <ChevronRight size={15} color="#333" />
+      </button>
+
       {/* Claude API key card */}
-      <div style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px 18px", marginBottom: 24 }}>
+      <div style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
           <Key size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Connect Claude API for AI Expansion</div>
             <div style={{ color: "#666", fontSize: 13, lineHeight: 1.5 }}>
-              Adding your Anthropic API key will upgrade the Tutor from keyword analysis to live AI reasoning. Same interface — smarter engine.
+              Adding your Anthropic API key upgrades the Tutor to live AI reasoning.
             </div>
             <div style={{ marginTop: 10 }}>
               <div style={{ background: "#1e1e1e", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#555", display: "inline-block" }}>Add Key (Coming Soon)</div>
@@ -1116,7 +1257,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         </div>
       )}
 
-      {sections.map(section => {
+      {settingRows.map(section => {
         const Icon = section.icon;
         return (
           <div key={section.label} style={{ marginBottom: 16 }}>
@@ -1136,24 +1277,36 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         );
       })}
 
+      {/* Support / Feedback */}
+      <div style={{ marginTop: 24 }}>
+        <button
+          onClick={() => setShowSupport(true)}
+          style={{
+            width: "100%", padding: "14px 16px", background: "#111",
+            border: "1px solid #1e1e1e", borderRadius: 12, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
+        >
+          <MessageSquare size={16} color={ORANGE} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Support & Feedback</div>
+            <div style={{ fontSize: 12, color: "#555" }}>Improvement ideas, bugs, or need assistance?</div>
+          </div>
+          <ChevronRight size={14} color="#333" />
+        </button>
+      </div>
+
       {/* Sign out */}
-      <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <div style={{ marginTop: 12, marginBottom: 8 }}>
         <button
           onClick={() => signOut({ redirectUrl: "/" })}
           style={{
-            width: "100%",
-            padding: "13px 16px",
-            background: "transparent",
-            border: "1px solid #2a2a2a",
-            borderRadius: 12,
-            color: "#666",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
+            width: "100%", padding: "13px 16px", background: "transparent",
+            border: "1px solid #2a2a2a", borderRadius: 12, color: "#666",
+            fontSize: 14, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}
         >
           Sign Out
@@ -1169,6 +1322,9 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
           <div style={{ color: "#2a2a2a", fontSize: 10 }}>{5 - eggPressCount} more…</div>
         )}
       </div>
+
+      {showPlans && <PlansOverlay onClose={() => setShowPlans(false)} />}
+      {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
     </div>
   );
 }
@@ -1323,6 +1479,7 @@ export default function App() {
   const [showNewIncident, setShowNewIncident] = useState(false);
   const [preLinkedCaseId, setPreLinkedCaseId] = useState<string | null>(null);
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
 
   function setData(d: AppData) { setDataRaw(d); saveData(d); }
 
@@ -1459,6 +1616,11 @@ export default function App() {
 
   return (
     <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Notification bell — fixed top-right */}
+      <div style={{ position: "fixed", top: 8, right: 8, zIndex: 300 }}>
+        <NotificationBell onOpenChat={sid => setChatSessionId(sid)} />
+      </div>
+
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
           <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={() => openNewIncident()} />
@@ -1483,6 +1645,10 @@ export default function App() {
       )}
 
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
+
+      {chatSessionId && (
+        <UserChatDrawer sessionId={chatSessionId} onClose={() => setChatSessionId(null)} />
+      )}
     </div>
   );
 }

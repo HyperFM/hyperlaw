@@ -1038,7 +1038,7 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
   const plans = [
     { id: "firstfiling", name: "First Filing", price: "Free", tagline: "No card required", badge: null as string | null, features: ["One new case per day", "Guided Tutor included", "Glossary & checklist"] },
     { id: "prosay", name: "Pro-Say", price: "$25/mo", tagline: "Unlimited access", badge: null as string | null, features: ["Unlimited cases", "Priority tutor", "Document analysis", "Readiness engine"] },
-    { id: "apex", name: "Apex Litigant", price: "$100/mo", tagline: "THE MANEATER PACKAGE — NO CAP", badge: "Full Docket" as string | null, features: ["Everything in Pro-Say", "Advanced AI analysis", "Full discovery tools"] },
+    { id: "apex", name: "Apex Litigant", price: "$100/mo", tagline: "THE MANEATER PACKAGE — NO CAP", badge: "Full Docket" as string | null, features: ["Sink your teeth into the docket — unlimited cases, zero throttle", "Built for attorneys, power litigants & anyone going for the jugular", "Full AI reasoning engine, no guardrails", "Priority everything — support, tutor, document analysis", "Freedom to run your entire practice or fight every battle at once"] },
   ];
 
   const [activeIdx, setActiveIdx] = useState(1);

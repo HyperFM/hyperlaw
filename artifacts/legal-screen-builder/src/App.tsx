@@ -175,12 +175,18 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
   const [location, setLocation] = useState("");
   const [category, setCategory] = useState<IncidentCategory>("other");
   const [visible, setVisible] = useState(false);
-  const textRef = useRef<HTMLTextAreaElement>(null);
+  const [tab, setTab] = useState<"write" | "upload">("write");
+  const [uploadFileName, setUploadFileName] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef(0);
+  const dragCurrentY = useRef(0);
+  const isDraggingSheet = useRef(false);
+  const [sheetDragY, setSheetDragY] = useState(0);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setVisible(true), 20);
-    const t2 = setTimeout(() => textRef.current?.focus(), 200);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t = setTimeout(() => setVisible(true), 20);
+    return () => clearTimeout(t);
   }, []);
 
   function handleSave() {
@@ -190,7 +196,48 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 
   function handleClose() {
     setVisible(false);
-    setTimeout(onClose, 300);
+    setTimeout(onClose, 320);
+  }
+
+  function onHandlePointerDown(e: React.PointerEvent) {
+    isDraggingSheet.current = true;
+    dragStartY.current = e.clientY;
+    dragCurrentY.current = e.clientY;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+  }
+  function onHandlePointerMove(e: React.PointerEvent) {
+    if (!isDraggingSheet.current) return;
+    dragCurrentY.current = e.clientY;
+    const dy = Math.max(0, e.clientY - dragStartY.current);
+    setSheetDragY(dy);
+  }
+  function onHandlePointerUp() {
+    if (!isDraggingSheet.current) return;
+    isDraggingSheet.current = false;
+    const dy = dragCurrentY.current - dragStartY.current;
+    if (dy > 120) { handleClose(); } else { setSheetDragY(0); }
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    if (!file.name.match(/\.(txt|md|rtf)$/i)) {
+      setUploadError("Please upload a .txt file. PDF support coming soon.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = (ev.target?.result as string) ?? "";
+      setDescription(text);
+      setUploadFileName(file.name);
+      if (!title.trim()) {
+        const firstLine = text.split("\n").find(l => l.trim().length > 4)?.trim().slice(0, 70) ?? "";
+        if (firstLine) setTitle(firstLine);
+      }
+      setTab("write");
+    };
+    reader.readAsText(file);
   }
 
   const inputStyle: React.CSSProperties = {
@@ -199,106 +246,155 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
     outline: "none", boxSizing: "border-box",
   };
 
+  const sheetTranslate = visible ? sheetDragY : 600;
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 200,
-      background: `rgba(0,0,0,${visible ? 0.97 : 0})`,
-      transition: "background 0.3s",
-      display: "flex", flexDirection: "column",
-    }}>
-      <div style={{
-        flex: 1, display: "flex", flexDirection: "column",
-        transform: `translateY(${visible ? 0 : 32}px)`,
-        transition: "transform 0.3s ease",
-        maxWidth: 720, width: "100%", margin: "0 auto",
-      }}>
-        {/* Header */}
-        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 18, color: ORANGE }}>New Incident</div>
-            {preLinkedCaseName && (
-              <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Adding to: {preLinkedCaseName}</div>
-            )}
-          </div>
-          <button onClick={handleClose} style={{ background: "#1a1a1a", border: "none", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-            <X size={18} color="#aaa" />
-          </button>
-        </div>
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px" }}>
-          {/* Category */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-              <Tag size={11} color="#444" /> TYPE OF SITUATION
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {(["employment", "police", "court", "other"] as IncidentCategory[]).map(cat => (
-                <button key={cat} onClick={() => setCategory(cat)}
-                  style={{ background: category === cat ? `${CATEGORY_COLORS[cat]}22` : "#111", border: `1px solid ${category === cat ? CATEGORY_COLORS[cat] : "#2a2a2a"}`, borderRadius: 10, padding: "10px 12px", color: category === cat ? "#fff" : "#666", fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}>
-                  {CATEGORY_LABELS[cat]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Date + Location row */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      background: `rgba(0,0,0,${visible && sheetDragY < 80 ? 0.85 : 0})`,
+      transition: isDraggingSheet.current ? "none" : "background 0.32s ease",
+    }} onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
+      <div
+        ref={sheetRef}
+        style={{
+          position: "absolute", bottom: 0, left: 0, right: 0,
+          maxHeight: "92dvh", display: "flex", flexDirection: "column",
+          background: "#0f0f0f", borderRadius: "22px 22px 0 0",
+          border: "1px solid #1e1e1e", borderBottom: "none",
+          transform: `translateY(${sheetTranslate}px)`,
+          transition: isDraggingSheet.current ? "none" : "transform 0.32s cubic-bezier(.22,.9,.32,1)",
+          maxWidth: 720, margin: "0 auto",
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={onHandlePointerUp}
+          onPointerCancel={onHandlePointerUp}
+          style={{ padding: "14px 20px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, cursor: "grab", flexShrink: 0, touchAction: "none" }}
+        >
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "#2a2a2a" }} />
+          <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                <Calendar size={11} color="#444" /> DATE OF INCIDENT <span style={{ color: "#333", fontWeight: 400 }}>(opt.)</span>
-              </div>
-              <input type="date" value={dateOfEvent} onChange={e => setDateOfEvent(e.target.value)}
-                style={{ ...inputStyle, colorScheme: "dark" }}
-                onFocus={e => (e.target.style.borderColor = ORANGE)}
-                onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
+              <div style={{ fontWeight: 900, fontSize: 18, color: ORANGE }}>New Incident</div>
+              {preLinkedCaseName && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Adding to: {preLinkedCaseName}</div>}
             </div>
-            <div>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                <MapPin size={11} color="#444" /> LOCATION <span style={{ color: "#333", fontWeight: 400 }}>(opt.)</span>
-              </div>
-              <input value={location} onChange={e => setLocation(e.target.value)}
-                placeholder="City, state, or address"
-                style={inputStyle}
-                onFocus={e => (e.target.style.borderColor = ORANGE)}
-                onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
-            </div>
+            <button onClick={handleClose} style={{ background: "#1a1a1a", border: "none", borderRadius: 20, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <X size={16} color="#aaa" />
+            </button>
           </div>
-
-          {/* Title */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>
-              TITLE <span style={{ color: "#333", fontWeight: 400 }}>(opt. — auto-filled from description)</span>
-            </div>
-            <input value={title} onChange={e => setTitle(e.target.value)}
-              placeholder="Brief label for this incident"
-              style={inputStyle}
-              onFocus={e => (e.target.style.borderColor = ORANGE)}
-              onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
-          </div>
-
-          {/* Description */}
-          <div>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>DESCRIBE WHAT HAPPENED</div>
-            <div style={{ fontSize: 13, color: "#444", marginBottom: 10, lineHeight: 1.6 }}>
-              Write everything you remember — who was involved, what was said, what happened, and in what order. You can always edit this later.
-            </div>
-            <textarea
-              ref={textRef}
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder={"On [date], I was at [location] when [person] did [action]...\n\nBe as specific as possible. Include exact words said, the order things happened, who else was there."}
-              rows={10}
-              style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "14px", color: "#fff", fontSize: 15, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.75 }}
-              onFocus={e => (e.target.style.borderColor = ORANGE)}
-              onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
-            />
-            <div style={{ textAlign: "right", color: "#333", fontSize: 12, marginTop: 4 }}>
-              {description.trim().split(/\s+/).filter(Boolean).length} words
-            </div>
+          {/* Tabs */}
+          <div style={{ width: "100%", display: "flex", gap: 8, borderBottom: "1px solid #1a1a1a", paddingBottom: 0 }}>
+            {([["write", "Write"], ["upload", "Upload Complaint"]] as const).map(([t, label]) => (
+              <button key={t} onClick={() => setTab(t)} style={{
+                background: "none", border: "none", cursor: "pointer",
+                padding: "6px 4px 10px", fontSize: 13, fontWeight: 700,
+                color: tab === t ? ORANGE : "#444",
+                borderBottom: `2px solid ${tab === t ? ORANGE : "transparent"}`,
+                marginBottom: -1, transition: "all 0.15s",
+              }}>{label}</button>
+            ))}
+            {uploadFileName && <span style={{ marginLeft: "auto", fontSize: 11, color: "#555", alignSelf: "center" }}>📄 {uploadFileName}</span>}
           </div>
         </div>
 
-        <div style={{ padding: "16px 20px", borderTop: "1px solid #1a1a1a", display: "flex", gap: 10, flexShrink: 0, paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}>
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          {tab === "upload" ? (
+            <div>
+              <div style={{ fontSize: 14, color: "#555", lineHeight: 1.6, marginBottom: 20 }}>
+                Upload your complaint, statement, or any text document — the content will be loaded into the description field so you can review and save it as an incident.
+              </div>
+              <label style={{
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                border: "2px dashed #2a2a2a", borderRadius: 14, padding: "36px 24px",
+                cursor: "pointer", gap: 12, textAlign: "center",
+                transition: "border-color 0.2s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "66")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+              >
+                <FileText size={32} color="#333" />
+                <div style={{ color: "#666", fontSize: 14 }}>Tap to choose a file</div>
+                <div style={{ color: "#333", fontSize: 12 }}>.txt supported · PDF support coming soon</div>
+                <input type="file" accept=".txt,.md,.rtf" onChange={handleFileUpload} style={{ display: "none" }} />
+              </label>
+              {uploadError && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 12 }}>{uploadError}</div>}
+            </div>
+          ) : (
+            <>
+              {/* Category */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Tag size={11} color="#444" /> TYPE OF SITUATION
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {(["employment", "police", "court", "other"] as IncidentCategory[]).map(cat => (
+                    <button key={cat} onClick={() => setCategory(cat)}
+                      style={{ background: category === cat ? `${CATEGORY_COLORS[cat]}22` : "#111", border: `1px solid ${category === cat ? CATEGORY_COLORS[cat] : "#2a2a2a"}`, borderRadius: 10, padding: "10px 12px", color: category === cat ? "#fff" : "#666", fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}>
+                      {CATEGORY_LABELS[cat]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date + Location */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                    <Calendar size={11} color="#444" /> DATE <span style={{ color: "#333", fontWeight: 400 }}>(opt.)</span>
+                  </div>
+                  <input type="date" value={dateOfEvent} onChange={e => setDateOfEvent(e.target.value)}
+                    style={{ ...inputStyle, colorScheme: "dark" }}
+                    onFocus={e => (e.target.style.borderColor = ORANGE)}
+                    onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                    <MapPin size={11} color="#444" /> LOCATION <span style={{ color: "#333", fontWeight: 400 }}>(opt.)</span>
+                  </div>
+                  <input value={location} onChange={e => setLocation(e.target.value)}
+                    placeholder="City, state, or address"
+                    style={inputStyle}
+                    onFocus={e => (e.target.style.borderColor = ORANGE)}
+                    onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
+                </div>
+              </div>
+
+              {/* Title */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>
+                  TITLE <span style={{ color: "#333", fontWeight: 400 }}>(opt.)</span>
+                </div>
+                <input value={title} onChange={e => setTitle(e.target.value)}
+                  placeholder="Brief label — auto-filled from description if left blank"
+                  style={inputStyle}
+                  onFocus={e => (e.target.style.borderColor = ORANGE)}
+                  onBlur={e => (e.target.style.borderColor = "#2a2a2a")} />
+              </div>
+
+              {/* Description */}
+              <div>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>DESCRIBE WHAT HAPPENED</div>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder={"On [date], I was at [location] when [person] did [action]...\n\nBe as specific as possible. Include exact words said, the order things happened, who else was there."}
+                  rows={9}
+                  style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "14px", color: "#fff", fontSize: 15, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.75 }}
+                  onFocus={e => (e.target.style.borderColor = ORANGE)}
+                  onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+                />
+                <div style={{ textAlign: "right", color: "#333", fontSize: 12, marginTop: 4 }}>
+                  {description.trim().split(/\s+/).filter(Boolean).length} words
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: "14px 20px", borderTop: "1px solid #1a1a1a", display: "flex", gap: 10, flexShrink: 0, paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
           <TapBtn variant="dim" onClick={handleClose}>Cancel</TapBtn>
           <TapBtn variant="orange" onClick={handleSave} disabled={!description.trim()} style={{ flex: 1, justifyContent: "center" }}>
             Save Incident <ArrowRight size={16} />
@@ -1284,17 +1380,6 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
-      {/* Admin panel */}
-      {isAdmin && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Shield size={11} color={ORANGE} />
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</div>
-          </div>
-          <AdminPanel onClose={() => {}} />
-        </div>
-      )}
-
       {/* User info */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
         <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1399,8 +1484,19 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         );
       })}
 
+      {/* Admin panel — above support */}
+      {isAdmin && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <Shield size={11} color={ORANGE} />
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</div>
+          </div>
+          <AdminPanel onClose={() => {}} />
+        </div>
+      )}
+
       {/* Support / Feedback */}
-      <div style={{ marginTop: 24 }}>
+      <div style={{ marginTop: 12 }}>
         <button
           onClick={() => setShowSupport(true)}
           style={{

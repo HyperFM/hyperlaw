@@ -1,2 +1,2 @@
-- [HyperLaw architecture](hyperlaw-arch.md) — Incident→Case data model, TutorService interface, storage key hl_v3
-- [HyperLaw navigation](hyperlaw-nav.md) — NavTab registry, FAB New Incident center button, desktop sidebar + mobile bottom bar
+- [Clerk Auth Setup](clerk-auth-setup.md) — Clerk provisioned (not_configured → managed); dev keys auto-set; Apple needs Auth pane toggle.
+- [HyperLaw Architecture](hyperlaw-arch.md) — Landing page (unauthenticated) = plans carousel; App.tsx = authenticated main app; Wouter routes at /, /sign-in/*?, /sign-up/*?.

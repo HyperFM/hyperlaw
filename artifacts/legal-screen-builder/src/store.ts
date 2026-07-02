@@ -8,16 +8,14 @@ export function loadData(): AppData {
     if (raw) {
       const d = JSON.parse(raw) as Partial<AppData>;
       return {
-        incidents: (d.incidents ?? []).map(i => ({
-          dateOfEvent: "",
-          location: "",
-          category: "other" as IncidentCategory,
-          ...i,
-        })),
-        cases: (d.cases ?? []).map(c => ({
-          status: "open" as CaseStatus,
-          ...c,
-        })),
+        incidents: (d.incidents ?? []).map(i => Object.assign(
+          { dateOfEvent: "", location: "", category: "other" as IncidentCategory },
+          i,
+        ) as Incident),
+        cases: (d.cases ?? []).map(c => Object.assign(
+          { status: "open" as CaseStatus },
+          c,
+        ) as HLCase),
         reminders: d.reminders ?? [],
       };
     }

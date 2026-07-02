@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useClerk, useUser } from "@clerk/react";
 import {
   Home, Folder, Plus, GraduationCap, User, ChevronRight, ChevronLeft,
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
@@ -1017,6 +1018,11 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
 }) {
+  const { signOut } = useClerk();
+  const { user } = useUser();
+  const displayName = user?.fullName || user?.firstName || user?.emailAddresses?.[0]?.emailAddress || "Your Profile";
+  const email = user?.emailAddresses?.[0]?.emailAddress || "";
+
   const sections = [
     { label: "Account", icon: User, items: ["Email", "Display Name", "Plan"] },
     { label: "Subscription", icon: Star, items: ["Current Plan", "Upgrade", "Billing History"] },
@@ -1050,8 +1056,9 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <User size={28} color="#000" />
         </div>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Your Profile</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>{displayName}</div>
+          {email && <div style={{ color: "#555", fontSize: 12, marginBottom: 2 }}>{email}</div>}
           <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {data.incidents.length} incidents · {data.cases.length} cases</div>
         </div>
       </div>
@@ -1129,7 +1136,31 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         );
       })}
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 48, gap: 6 }}>
+      {/* Sign out */}
+      <div style={{ marginTop: 24, marginBottom: 8 }}>
+        <button
+          onClick={() => signOut({ redirectUrl: "/" })}
+          style={{
+            width: "100%",
+            padding: "13px 16px",
+            background: "transparent",
+            border: "1px solid #2a2a2a",
+            borderRadius: 12,
+            color: "#666",
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          Sign Out
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 40, gap: 6 }}>
         <div style={{ color: "#1e1e1e", fontSize: 11, fontWeight: 700 }}>HYPERLAW</div>
         <button onClick={handleEggPress} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, opacity: 0.15, WebkitTapHighlightColor: "transparent" }}>
           <img src="/hyperlaw-logo.png" alt="" style={{ width: 36, height: 36, borderRadius: 8, filter: "grayscale(100%)" }} />

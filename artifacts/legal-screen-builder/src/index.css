@@ -1,5 +1,12 @@
+@layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* Clerk input placeholder visibility on dark backgrounds */
+.cl-formFieldInput::placeholder {
+  color: #666666;
+  opacity: 1;
+}
 
 @custom-variant dark (&:is(.dark *));
 

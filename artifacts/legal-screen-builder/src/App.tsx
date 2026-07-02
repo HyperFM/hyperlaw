@@ -1037,8 +1037,8 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
 
   const plans = [
     { id: "firstfiling", name: "First Filing", price: "Free", tagline: "No card required", badge: null as string | null, features: ["One new case per day", "Guided Tutor included", "Glossary & checklist"] },
-    { id: "prosay", name: "Pro-Say", price: "$19/mo", tagline: "Unlimited access", badge: null as string | null, features: ["Unlimited cases", "Priority tutor", "Document analysis", "Readiness engine"] },
-    { id: "apex", name: "Apex", price: "TBD", tagline: "Full docket", badge: "Coming Soon" as string | null, features: ["Everything in Pro-Say", "Advanced AI analysis", "Full discovery tools"] },
+    { id: "prosay", name: "Pro-Say", price: "$25/mo", tagline: "Unlimited access", badge: null as string | null, features: ["Unlimited cases", "Priority tutor", "Document analysis", "Readiness engine"] },
+    { id: "apex", name: "Apex Litigant", price: "$100/mo", tagline: "THE MANEATER PACKAGE — NO CAP", badge: "Full Docket" as string | null, features: ["Everything in Pro-Say", "Advanced AI analysis", "Full discovery tools"] },
   ];
 
   const [activeIdx, setActiveIdx] = useState(1);
@@ -1085,12 +1085,22 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
 
         {plans.map((plan, i) => i !== activeIdx ? null : (
           <div key={plan.id} style={{
+            position: "relative",
             background: `linear-gradient(180deg, ${PANEL} 0%, ${PANEL2} 100%)`,
-            border: `1px solid ${LINE}`, borderRadius: 22, padding: "30px 24px",
+            border: `1px solid ${LINE}`, borderRadius: 22,
+            padding: plan.badge ? "40px 24px 30px" : "30px 24px",
             boxShadow: "0 0 40px -10px rgba(244,93,1,0.4)",
+            marginTop: plan.badge ? 14 : 0,
           }}>
             {plan.badge && (
-              <div style={{ display: "inline-block", background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})`, color: "#0a0908", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.12em", padding: "5px 14px", borderRadius: 999, marginBottom: 12 }}>
+              <div style={{
+                position: "absolute", top: -14, left: 24,
+                background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})`,
+                color: "#0a0908", fontWeight: 800, fontSize: 11,
+                textTransform: "uppercase", letterSpacing: "0.14em",
+                padding: "6px 16px", borderRadius: 999,
+                whiteSpace: "nowrap",
+              }}>
                 {plan.badge}
               </div>
             )}

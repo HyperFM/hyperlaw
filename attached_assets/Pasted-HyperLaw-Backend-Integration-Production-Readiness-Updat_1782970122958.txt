@@ -1,0 +1,200 @@
+HyperLaw – Backend Integration & Production Readiness Update
+
+The UI is now considered feature complete. The next phase is to transition HyperLaw from a visual prototype into a fully functional legal workspace.
+
+1. Complaint Upload System
+
+The “Upload Complaint” button must become fully operational.
+
+Requirements:
+
+* Tapping the button should open the device’s native file picker.
+* Accept every document type that can reasonably be processed, including:
+    * PDF
+    * DOC
+    * DOCX
+    * TXT
+    * RTF
+    * Images (JPG, JPEG, PNG, HEIC)
+    * Scanned documents
+    * Any additional readable formats supported by OCR.
+* If the uploaded file is an image or scan, automatically run OCR before analysis.
+* Display upload progress.
+* Show success/failure states.
+* Store the original file while creating an AI-readable version for analysis.
+
+⸻
+
+2. Automatic Case Creation
+
+When a complaint is uploaded:
+
+* Create a new case automatically if one doesn’t exist.
+* Attach the uploaded document to the case.
+* Extract:
+    * Plaintiff
+    * Defendant
+    * Court
+    * Case Number (if present)
+    * Filing Date
+    * Claims
+    * Deadlines
+    * Important names
+    * Evidence references
+
+Populate the Case Dashboard automatically whenever possible.
+
+⸻
+
+3. AI Analysis Pipeline
+
+Once the upload finishes:
+
+The AI should immediately begin processing without requiring another button press.
+
+Pipeline:
+
+Upload
+
+↓
+
+OCR (if necessary)
+
+↓
+
+Text extraction
+
+↓
+
+Document understanding
+
+↓
+
+Timeline extraction
+
+↓
+
+Legal issue identification
+
+↓
+
+Evidence detection
+
+↓
+
+Weakness analysis
+
+↓
+
+Suggested strategy generation
+
+↓
+
+Populate every applicable screen inside HyperLaw.
+
+The user should feel that the application “comes alive” after upload.
+
+⸻
+
+4. API Architecture
+
+All AI functionality should route through a centralized AI service layer instead of individual screen logic.
+
+Every feature should call the same backend service.
+
+This includes:
+
+* Complaint Analysis
+* Motion Drafting
+* Timeline Generation
+* Witness Analysis
+* Evidence Review
+* Strategy Suggestions
+* Legal Research
+* Document Summaries
+* Case Chat
+
+No duplicate AI logic should exist across screens.
+
+⸻
+
+5. Intelligent Context Memory
+
+The AI should always understand:
+
+* Current case
+* Uploaded documents
+* Previous conversations
+* Existing evidence
+* Generated motions
+* Timeline
+* User edits
+
+Every interaction should build on previous work instead of starting over.
+
+⸻
+
+6. Screen Connectivity
+
+Every dashboard card and button should now connect to real functionality.
+
+No placeholder buttons.
+
+No inactive navigation.
+
+Every action should either:
+
+* open a screen,
+* trigger AI,
+* upload data,
+* save data,
+* or begin a workflow.
+
+⸻
+
+7. Case Synchronization
+
+Every uploaded document should automatically synchronize with:
+
+* Timeline
+* Evidence Locker
+* AI Chat
+* Motion Builder
+* Strategy Center
+* Case Summary
+* Witness Section
+
+The user should never have to upload the same document twice.
+
+⸻
+
+8. Production Polish
+
+Add:
+
+* Loading animations
+* Progress indicators
+* Error handling
+* Retry logic
+* Offline detection
+* Auto-save
+* Background processing
+* Success confirmations
+
+The experience should feel comparable to a polished commercial SaaS application.
+
+⸻
+
+9. AI Provider Abstraction
+
+Design the backend so the AI provider can be swapped without changing the app.
+
+The application should communicate with a single internal AI service layer, which can route requests to the configured provider.
+
+This keeps HyperLaw flexible and maintainable as AI models evolve.
+
+⸻
+
+Goal
+
+When I connect my API credentials, HyperLaw should immediately function as a cohesive AI-powered legal workspace. Uploading a complaint should automatically trigger document ingestion, analysis, case creation, and synchronization across every relevant feature without requiring manual steps.

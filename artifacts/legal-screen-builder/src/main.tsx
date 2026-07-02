@@ -18,7 +18,8 @@ import {
 } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import App from "./App";
-import Landing from "./pages/Landing";
+import WelcomePage from "./pages/WelcomePage";
+import Plans from "./pages/Plans";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -180,7 +181,7 @@ function HomeRedirect() {
         <App />
       </Show>
       <Show when="signed-out">
-        <Landing />
+        <WelcomePage />
       </Show>
     </>
   );
@@ -219,6 +220,7 @@ function ClerkProviderWithRoutes() {
           <Route path="/" component={HomeRedirect} />
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
+          <Route path="/plans" component={Plans} />
           <Route>
             <Redirect to="/" />
           </Route>

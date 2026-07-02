@@ -42,13 +42,31 @@ export const feedbackTable = pgTable("feedback", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ── HyperLaw AI ──────────────────────────────────────────────────────────────
+
+export const uploadedDocumentsTable = pgTable("uploaded_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id"),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  extractedText: text("extracted_text"),
+  caseExtraction: jsonb("case_extraction"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── Insert schemas ────────────────────────────────────────────────────────────
+
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });
 export const insertFeedbackSchema = createInsertSchema(feedbackTable).omit({ id: true, createdAt: true });
 export const insertMessageSchema = createInsertSchema(messagesTable).omit({ id: true, createdAt: true });
+
+// ── Inferred types ────────────────────────────────────────────────────────────
 
 export type Notification = typeof notificationsTable.$inferSelect;
 export type ChatSession = typeof chatSessionsTable.$inferSelect;
 export type Message = typeof messagesTable.$inferSelect;
 export type Feedback = typeof feedbackTable.$inferSelect;
+export type UploadedDocument = typeof uploadedDocumentsTable.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;

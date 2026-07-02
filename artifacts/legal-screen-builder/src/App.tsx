@@ -5,7 +5,7 @@ import {
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
-  Download, MessageSquare, Shield,
+  Download, MessageSquare, Shield, Loader2, Send, Upload,
 } from "lucide-react";
 import { Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus } from "./types";
 import {
@@ -14,6 +14,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
+import { aiApi, AiChatMessage } from "./lib/aiApi";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
 import SupportModal from "./components/SupportModal";
@@ -813,6 +814,31 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [editingTitle, setEditingTitle] = useState(false);
   const [notes, setNotes] = useState(hlCase.notes);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
+  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadResult, setUploadResult] = useState<{ fileName: string; extraction: ReturnType<typeof Object.create> } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadState("uploading");
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("caseId", hlCase.id);
+      const result = await aiApi.upload(form);
+      setUploadResult({ fileName: file.name, extraction: result.extraction });
+      setUploadState("done");
+    } catch (err: unknown) {
+      setUploadError((err as Error).message || "Upload failed");
+      setUploadState("error");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id))
     .sort((a, b) => (a.dateOfEvent || a.createdAt.toString()).localeCompare(b.dateOfEvent || b.createdAt.toString()));
 
@@ -870,13 +896,75 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         </div>
 
         {/* Action buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 32 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
           <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>
             <GraduationCap size={15} /> Analyze in Tutor
           </TapBtn>
           <TapBtn variant="ghost" onClick={onAddIncident} style={{ justifyContent: "center" }}>
             <Plus size={15} /> Add Incident
           </TapBtn>
+        </div>
+
+        {/* Document Upload */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>DOCUMENTS</div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.heic,image/*"
+            style={{ display: "none" }}
+            onChange={handleUpload}
+          />
+          {(uploadState === "idle" || uploadState === "error") && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{ width: "100%", background: "#111", border: "1px dashed #2a2a2a", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}>
+              <Upload size={16} color={ORANGE} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Upload Document</div>
+                <div style={{ fontSize: 12, color: "#444", marginTop: 2 }}>PDF, DOCX, TXT, images · AI extracts case data</div>
+              </div>
+            </button>
+          )}
+          {uploadState === "uploading" && (
+            <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+              <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+              <div style={{ fontSize: 14, color: "#888" }}>Processing document…</div>
+            </div>
+          )}
+          {uploadState === "done" && uploadResult && (
+            <div style={{ background: "#0d1a0d", border: "1px solid #1a3a1a", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <CheckCircle2 size={16} color="#22c55e" />
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#22c55e", flex: 1 }}>Document processed</div>
+                <button onClick={() => { setUploadState("idle"); setUploadResult(null); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#444" }}><X size={14} /></button>
+              </div>
+              <div style={{ fontSize: 12, color: "#555", marginBottom: uploadResult.extraction ? 10 : 0 }}>{uploadResult.fileName}</div>
+              {uploadResult.extraction && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {uploadResult.extraction.plaintiff && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Plaintiff: </span>{uploadResult.extraction.plaintiff}</div>}
+                  {uploadResult.extraction.defendant && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Defendant: </span>{uploadResult.extraction.defendant}</div>}
+                  {uploadResult.extraction.court && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Court: </span>{uploadResult.extraction.court}</div>}
+                  {uploadResult.extraction.caseNumber && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Case No.: </span>{uploadResult.extraction.caseNumber}</div>}
+                  {uploadResult.extraction.claims?.length > 0 && (
+                    <div style={{ fontSize: 13, color: "#ccc" }}>
+                      <span style={{ color: "#555" }}>Claims: </span>
+                      {(uploadResult.extraction.claims as string[]).slice(0, 3).join(", ")}
+                    </div>
+                  )}
+                  {uploadResult.extraction.summary && (
+                    <div style={{ fontSize: 12, color: "#666", fontStyle: "italic", marginTop: 4, lineHeight: 1.5 }}>{uploadResult.extraction.summary}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {uploadState === "error" && uploadError && (
+            <div style={{ marginTop: 6, padding: "8px 12px", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>{uploadError}</div>
+          )}
         </div>
 
         {/* Incidents */}
@@ -997,16 +1085,106 @@ function TutorView({ data, initialIncident, initialCase }: {
   });
   const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Check AI status once on mount
   useEffect(() => {
-    if (!target) { setAnalysis(null); return; }
+    aiApi.status().then(s => setAiAvailable(s.configured)).catch(() => setAiAvailable(false));
+  }, []);
+
+  // Stable key representing the content of incidents relevant to the selected target.
+  // Recalculated when target or incident descriptions change — avoids stale analysis
+  // when the user edits an incident that belongs to the currently selected case.
+  const relevantIncidentKey = (() => {
+    if (!target) return "";
     if (target.kind === "incident") {
-      setAnalysis(staticTutorService.analyzeIncident(target.item));
-    } else {
-      const incidents = data.incidents.filter(i => target.item.incidentIds.includes(i.id));
-      setAnalysis(staticTutorService.analyzeCase(target.item, incidents));
+      const inc = target.item as Incident;
+      return `${inc.id}::${inc.description}`;
     }
-  }, [target]);
+    const c = target.item as HLCase;
+    return data.incidents
+      .filter(i => c.incidentIds.includes(i.id))
+      .map(i => `${i.id}::${i.description}`)
+      .join("|");
+  })();
+
+  // Analyze whenever target, AI status, or relevant incident content changes
+  useEffect(() => {
+    if (!target) { setAnalysis(null); setChatMessages([]); return; }
+    if (aiAvailable === null) return; // still loading status
+
+    setChatMessages([]);
+    setIsAnalyzing(true);
+
+    async function run() {
+      try {
+        let result: TutorAnalysis;
+        if (aiAvailable) {
+          if (target!.kind === "incident") {
+            result = await aiApi.analyzeIncident(target!.item as Parameters<typeof aiApi.analyzeIncident>[0]);
+          } else {
+            const incs = data.incidents.filter(i => (target!.item as HLCase).incidentIds.includes(i.id));
+            result = await aiApi.analyzeCase(target!.item as HLCase, incs);
+          }
+        } else {
+          if (target!.kind === "incident") {
+            result = staticTutorService.analyzeIncident(target!.item as Incident);
+          } else {
+            const incs = data.incidents.filter(i => (target!.item as HLCase).incidentIds.includes(i.id));
+            result = staticTutorService.analyzeCase(target!.item as HLCase, incs);
+          }
+        }
+        setAnalysis(result);
+      } catch {
+        // Fall back to static on any error
+        if (target!.kind === "incident") {
+          setAnalysis(staticTutorService.analyzeIncident(target!.item as Incident));
+        } else {
+          const incs = data.incidents.filter(i => (target!.item as HLCase).incidentIds.includes(i.id));
+          setAnalysis(staticTutorService.analyzeCase(target!.item as HLCase, incs));
+        }
+      } finally {
+        setIsAnalyzing(false);
+      }
+    }
+
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, aiAvailable, relevantIncidentKey]);
+
+  // Scroll chat to bottom on new messages
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  async function sendChat() {
+    if (!chatInput.trim() || isSending) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setIsSending(true);
+    try {
+      const context = {
+        incident: target?.kind === "incident" ? (target.item as Incident) : null,
+        hlCase: target?.kind === "case" ? (target.item as HLCase) : null,
+        incidents: target?.kind === "case"
+          ? data.incidents.filter(i => (target.item as HLCase).incidentIds.includes(i.id))
+          : undefined,
+        history: chatMessages,
+      };
+      const { reply } = await aiApi.chat(userMsg, context);
+      setChatMessages(prev => [...prev, { role: "assistant", content: reply }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: "assistant", content: "Couldn't get a response — please try again." }]);
+    } finally {
+      setIsSending(false);
+    }
+  }
 
   const insightBg: Record<string, string> = { summary: "#1a2a1a", key_point: "#121e2a", question: "#211e0e", notice: "#2a1212" };
   const insightBorder: Record<string, string> = { summary: "#2a5a2a", key_point: "#2a4a6a", question: "#5a4a12", notice: "#6a2222" };
@@ -1020,11 +1198,21 @@ function TutorView({ data, initialIncident, initialCase }: {
           <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: target ? "#fff" : "#555" }}>
             {target ? target.item.title : "Select an incident or case…"}
           </span>
-          <ChevronRight size={14} color="#555" />
+          {isAnalyzing
+            ? <Loader2 size={14} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
+            : <ChevronRight size={14} color="#555" />}
         </button>
+        {aiAvailable !== null && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 7, paddingLeft: 2 }}>
+            <div style={{ width: 6, height: 6, borderRadius: 3, background: aiAvailable ? "#22c55e" : "#444", flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: aiAvailable ? "#22c55e" : "#444", fontWeight: 600 }}>
+              {aiAvailable ? "Claude AI · Live Analysis" : "Pattern Analysis · Connect Claude in Profile for AI"}
+            </span>
+          </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 80px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 32px" }}>
         {!target ? (
           <div style={{ textAlign: "center", paddingTop: 60 }}>
             <GraduationCap size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
@@ -1032,6 +1220,11 @@ function TutorView({ data, initialIncident, initialCase }: {
             <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
               Select an incident or case above. The Tutor will read what you described and help you think through it.
             </div>
+          </div>
+        ) : isAnalyzing ? (
+          <div style={{ textAlign: "center", paddingTop: 60 }}>
+            <Loader2 size={36} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 16 }} />
+            <div style={{ color: "#555", fontSize: 14 }}>{aiAvailable ? "Claude is reading your case…" : "Analyzing…"}</div>
           </div>
         ) : analysis ? (
           <>
@@ -1055,7 +1248,7 @@ function TutorView({ data, initialIncident, initialCase }: {
               </div>
             )}
             {analysis.guidingQuestions.length > 0 && (
-              <div>
+              <div style={{ marginBottom: aiAvailable ? 28 : 0 }}>
                 <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {analysis.guidingQuestions.map((q, i) => (
@@ -1064,6 +1257,67 @@ function TutorView({ data, initialIncident, initialCase }: {
                       <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.65 }}>{q}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Chat — only when Claude is active */}
+            {aiAvailable && (
+              <div>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ASK THE TUTOR</div>
+                <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+                  {chatMessages.length > 0 && (
+                    <div style={{ maxHeight: 340, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                      {chatMessages.map((m, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+                          <div style={{
+                            maxWidth: "85%", padding: "10px 14px",
+                            borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                            background: m.role === "user" ? ORANGE : "#1a1a1a",
+                            color: m.role === "user" ? "#000" : "#ccc",
+                            fontSize: 14, lineHeight: 1.55, fontWeight: m.role === "user" ? 600 : 400,
+                          }}>
+                            {m.content}
+                          </div>
+                        </div>
+                      ))}
+                      {isSending && (
+                        <div style={{ display: "flex" }}>
+                          <div style={{ background: "#1a1a1a", padding: "10px 16px", borderRadius: "14px 14px 14px 4px", display: "flex", gap: 4, alignItems: "center" }}>
+                            {[0, 0.2, 0.4].map((delay, i) => (
+                              <div key={i} style={{ width: 6, height: 6, borderRadius: 3, background: "#555", animation: `pulse 1.2s ease-in-out ${delay}s infinite` }} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: chatMessages.length > 0 ? "1px solid #1a1a1a" : "none" }}>
+                    <input
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+                      placeholder="Ask about your case, rights, strategy…"
+                      style={{ flex: 1, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", color: "#ccc", fontSize: 14, outline: "none", fontFamily: "Arial, sans-serif" }}
+                      onFocus={e => (e.target.style.borderColor = ORANGE + "66")}
+                      onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+                    />
+                    <button
+                      onClick={sendChat}
+                      disabled={!chatInput.trim() || isSending}
+                      style={{
+                        background: chatInput.trim() && !isSending ? ORANGE : "#1a1a1a",
+                        border: "none", borderRadius: 10, width: 42, height: 42,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: chatInput.trim() && !isSending ? "pointer" : "default",
+                        flexShrink: 0, transition: "background 0.15s",
+                      }}>
+                      {isSending
+                        ? <Loader2 size={16} color="#555" style={{ animation: "spin 1s linear infinite" }} />
+                        : <Send size={16} color={chatInput.trim() ? "#000" : "#444"} />}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1354,6 +1608,11 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
 
   const [showPlans, setShowPlans] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    aiApi.status().then(s => setAiConfigured(s.configured)).catch(() => setAiConfigured(false));
+  }, []);
 
   const [eggPressCount, setEggPressCount] = useState(0);
   const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1411,18 +1670,31 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         <ChevronRight size={15} color="#333" />
       </button>
 
-      {/* Claude API key card */}
-      <div style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
+      {/* Claude AI status card */}
+      <div style={{ background: aiConfigured ? "#0d1a0d" : "#141414", border: `1px solid ${aiConfigured ? "#1a3a1a" : "#2a2a2a"}`, borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <Key size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Connect Claude API for AI Expansion</div>
+          <Key size={18} color={aiConfigured ? "#22c55e" : ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Claude AI</div>
+              <div style={{
+                background: aiConfigured ? "#14532d" : "#1e1e1e",
+                borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+                color: aiConfigured ? "#22c55e" : "#555",
+              }}>
+                {aiConfigured === null ? "Checking…" : aiConfigured ? "Connected" : "Not Connected"}
+              </div>
+            </div>
             <div style={{ color: "#666", fontSize: 13, lineHeight: 1.5 }}>
-              Adding your Anthropic API key upgrades the Tutor to live AI reasoning.
+              {aiConfigured
+                ? "Live AI analysis is active. The Tutor uses Claude for intelligent case reasoning and chat."
+                : "Set ANTHROPIC_API_KEY in your Replit project Secrets to activate live AI analysis and chat in the Tutor."}
             </div>
-            <div style={{ marginTop: 10 }}>
-              <div style={{ background: "#1e1e1e", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, color: "#555", display: "inline-block" }}>Add Key (Coming Soon)</div>
-            </div>
+            {!aiConfigured && aiConfigured !== null && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#555", background: "#1a1a1a", borderRadius: 8, padding: "8px 12px", fontFamily: "monospace" }}>
+                Replit → Secrets → ANTHROPIC_API_KEY → your key
+              </div>
+            )}
           </div>
         </div>
       </div>

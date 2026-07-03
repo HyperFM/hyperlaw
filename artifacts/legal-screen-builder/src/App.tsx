@@ -17,6 +17,9 @@ import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage } from "./lib/aiApi";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
+import WelcomeModal from "./components/WelcomeModal";
+import PreVerificationModal from "./components/PreVerificationModal";
+import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import SupportModal from "./components/SupportModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
@@ -542,6 +545,8 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
   const [editLocation, setEditLocation] = useState(incident.location);
   const [editCategory, setEditCategory] = useState<IncidentCategory>(incident.category);
   const [showCasePicker, setShowCasePicker] = useState(false);
+  const [showDocConfirm, setShowDocConfirm] = useState(false);
+  const [pendingExport, setPendingExport] = useState<(() => void) | null>(null);
   const linkedCase = cases.find(c => c.id === incident.caseId);
   const availableCases = cases.filter(c => c.id !== incident.caseId);
 
@@ -559,7 +564,7 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
         <div style={{ flex: 1 }} />
         {!editing ? (
           <>
-            <button onClick={() => exportIncidentPDF(incident).catch(() => {})} title="Export PDF"
+            <button onClick={() => { setPendingExport(() => () => exportIncidentPDF(incident).catch(() => {})); setShowDocConfirm(true); }} title="Export PDF"
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
             <button onClick={() => { setEditTitle(incident.title); setEditDesc(incident.description); setEditDate(incident.dateOfEvent); setEditLocation(incident.location); setEditCategory(incident.category); setEditing(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Edit3 size={16} /></button>
@@ -659,6 +664,9 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
               style={{ width: "100%", background: "none", border: "none", color: "#555", fontSize: 14, cursor: "pointer", padding: "12px 0" }}>Cancel</button>
           </div>
         </div>
+      )}
+      {showDocConfirm && pendingExport && (
+        <DocGenConfirmModal onConfirm={pendingExport} onClose={() => { setShowDocConfirm(false); setPendingExport(null); }} />
       )}
     </div>
   );
@@ -816,6 +824,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [uploadResult, setUploadResult] = useState<{ fileName: string; extraction: ReturnType<typeof Object.create> } | null>(null);
+  const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
+  const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -862,7 +872,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
         </button>
         <div style={{ flex: 1 }} />
-        <button onClick={() => exportCasePDF(hlCase, data.incidents).catch(() => {})} title="Export PDF"
+        <button onClick={() => { setPendingCaseExport(() => () => exportCasePDF(hlCase, data.incidents).catch(() => {})); setShowCaseDocConfirm(true); }} title="Export PDF"
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
         <button onClick={() => { if (window.confirm("Delete this case?")) onDeleteCase(hlCase.id); }}
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
@@ -1067,6 +1077,9 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         </div>
       )}
+      {showCaseDocConfirm && pendingCaseExport && (
+        <DocGenConfirmModal onConfirm={pendingCaseExport} onClose={() => { setShowCaseDocConfirm(false); setPendingCaseExport(null); }} />
+      )}
     </div>
   );
 }
@@ -1091,6 +1104,9 @@ function TutorView({ data, initialIncident, initialCase }: {
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const forceRefreshRef = useRef(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [showPreVerify, setShowPreVerify] = useState(false);
 
   // Check AI status once on mount
   useEffect(() => {
@@ -1121,15 +1137,26 @@ function TutorView({ data, initialIncident, initialCase }: {
     setChatMessages([]);
     setIsAnalyzing(true);
 
+    // Consume the force-refresh flag for this run, then reset it
+    const isForceRefresh = forceRefreshRef.current;
+    forceRefreshRef.current = false;
+
     async function run() {
       try {
         let result: TutorAnalysis;
         if (aiAvailable) {
           if (target!.kind === "incident") {
-            result = await aiApi.analyzeIncident(target!.item as Parameters<typeof aiApi.analyzeIncident>[0]);
+            result = await aiApi.analyzeIncident(
+              target!.item as Parameters<typeof aiApi.analyzeIncident>[0],
+              { forceRefresh: isForceRefresh },
+            );
           } else {
-            const incs = data.incidents.filter(i => (target!.item as HLCase).incidentIds.includes(i.id));
-            result = await aiApi.analyzeCase(target!.item as HLCase, incs);
+            const hlCase = target!.item as HLCase;
+            const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
+            result = await aiApi.analyzeCase(hlCase, incs, {
+              forceRefresh: isForceRefresh,
+              caseId: hlCase.id,
+            });
           }
         } else {
           if (target!.kind === "incident") {
@@ -1155,7 +1182,7 @@ function TutorView({ data, initialIncident, initialCase }: {
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, aiAvailable, relevantIncidentKey]);
+  }, [target, aiAvailable, relevantIncidentKey, refreshTrigger]);
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
@@ -1228,8 +1255,56 @@ function TutorView({ data, initialIncident, initialCase }: {
           </div>
         ) : analysis ? (
           <>
+            {/* AI Disclaimer Banner — shown whenever Claude generated this content */}
+            {aiAvailable && (
+              <div style={{
+                background: "#0d0d0d", border: "1px solid #1a1a1a",
+                borderRadius: 10, padding: "10px 14px", marginBottom: 20,
+                display: "flex", alignItems: "flex-start", gap: 10,
+              }}>
+                <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
+                <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
+                  <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — This analysis is AI-generated to help organize information and prepare for legal matters.
+                  Review all content carefully before relying on it or filing with any court or agency.
+                  HyperLaw provides legal information and drafting assistance — not legal representation or individualized legal advice.
+                </p>
+              </div>
+            )}
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>OVERVIEW</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>OVERVIEW</div>
+                {aiAvailable && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {analysis.fromCache && (
+                      <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>
+                        Cached result
+                      </span>
+                    )}
+                    <button
+                      onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
+                      style={{
+                        background: "none", border: `1px solid #2a2a2a`, borderRadius: 6,
+                        padding: "3px 8px", cursor: "pointer", color: "#555",
+                        fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4,
+                      }}
+                      title="Run a fresh Claude analysis"
+                    >
+                      ↻ Regenerate
+                    </button>
+                    <button
+                      onClick={() => setShowPreVerify(true)}
+                      style={{
+                        background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6,
+                        padding: "3px 8px", cursor: "pointer", color: ORANGE,
+                        fontSize: 10, fontWeight: 700,
+                      }}
+                      title="Pre-verify this analysis before using it"
+                    >
+                      Pre-Verify
+                    </button>
+                  </div>
+                )}
+              </div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "16px 18px", fontSize: 15, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>
                 {analysis.overview}
               </div>
@@ -1324,6 +1399,19 @@ function TutorView({ data, initialIncident, initialCase }: {
           </>
         ) : null}
       </div>
+
+      {showPreVerify && analysis && (
+        <PreVerificationModal
+          title={target?.item.title}
+          text={[
+            analysis.overview,
+            analysis.insights.map(i => `${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
+            "QUESTIONS TO CONSIDER:",
+            analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n"),
+          ].join("\n\n")}
+          onClose={() => setShowPreVerify(false)}
+        />
+      )}
 
       {showPicker && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 150, display: "flex", flexDirection: "column" }}>
@@ -2122,6 +2210,17 @@ export default function App() {
         </div>
       </div>
 
+      {/* Persistent footer */}
+      <div style={{
+        flexShrink: 0, padding: "4px 16px",
+        background: "#050505", borderTop: "1px solid #0e0e0e",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <span style={{ fontSize: 9, color: "#252525", letterSpacing: "0.03em", textAlign: "center" }}>
+          HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · Not a Law Firm
+        </span>
+      </div>
+
       {isMobile && (
         <BottomNavBar active={navTab} onChange={handleNavChange} onFab={() => openNewIncident()} />
       )}
@@ -2135,6 +2234,9 @@ export default function App() {
       )}
 
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
+
+      {/* First-time welcome screen — shown once after first login */}
+      <WelcomeModal />
 
       {chatSessionId && (
         <UserChatDrawer sessionId={chatSessionId} onClose={() => setChatSessionId(null)} />

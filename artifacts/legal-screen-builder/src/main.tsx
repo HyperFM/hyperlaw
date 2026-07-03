@@ -106,6 +106,25 @@ const clerkAppearance = {
   },
 };
 
+const TOS_LINKS = (
+  <p style={{
+    marginTop: 20, textAlign: "center",
+    fontSize: 11, lineHeight: 1.65, color: "#d9711f",
+    maxWidth: 340,
+  }}>
+    By signing in or creating an account, you agree to HyperLaw's{" "}
+    <a href="https://hyperlaw.app/terms" target="_blank" rel="noopener noreferrer"
+      style={{ color: "#d9711f", textDecoration: "underline", textUnderlineOffset: 2 }}>
+      Terms of Service
+    </a>{" "}
+    and{" "}
+    <a href="https://hyperlaw.app/privacy" target="_blank" rel="noopener noreferrer"
+      style={{ color: "#d9711f", textDecoration: "underline", textUnderlineOffset: 2 }}>
+      Privacy Policy
+    </a>.
+  </p>
+);
+
 function SignInPage() {
   return (
     <div
@@ -125,6 +144,7 @@ function SignInPage() {
         path={`${basePath}/sign-in`}
         signUpUrl={`${basePath}/sign-up`}
       />
+      {TOS_LINKS}
     </div>
   );
 }
@@ -148,6 +168,7 @@ function SignUpPage() {
         path={`${basePath}/sign-up`}
         signInUrl={`${basePath}/sign-in`}
       />
+      {TOS_LINKS}
     </div>
   );
 }

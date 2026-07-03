@@ -1,0 +1,163 @@
+
+HyperLaw Cost Optimization & AI Efficiency Update
+
+Before adding additional AI features, I want to optimize the application’s architecture to minimize AI usage, reduce operating costs, and maximize performance.
+
+The goal is for HyperLaw to intelligently use Claude only when necessary.
+
+⸻
+
+1. AI Usage Minimization
+
+Review every AI call throughout the application.
+
+If information can be retrieved from the database instead of Claude, do not call Claude.
+
+Claude should only be used when reasoning, drafting, summarizing, or analyzing is actually required.
+
+⸻
+
+2. Case Memory
+
+Once a complaint has been analyzed:
+
+Store all extracted information permanently within the case.
+
+Examples:
+
+* Plaintiff
+* Defendant
+* Court
+* Claims
+* Timeline
+* Deadlines
+* Evidence references
+* AI-generated summaries
+* Key legal issues
+
+Future screens should retrieve this information from the database rather than re-analyzing the original complaint.
+
+⸻
+
+3. Smart AI Cache
+
+If the user requests something that has already been generated:
+
+Do not call Claude again.
+
+Instead:
+
+* Retrieve the existing result.
+* Inform the user that the previous analysis is being reused.
+* Only regenerate when the user explicitly requests a fresh analysis.
+
+⸻
+
+4. Incremental Analysis
+
+When new documents are uploaded:
+
+Analyze only the newly uploaded document.
+
+Merge the new findings into the existing case.
+
+Never reprocess the entire case unless explicitly requested.
+
+⸻
+
+5. AI Cost Dashboard (Admin Only)
+
+Create an Admin Analytics section showing:
+
+* Total Claude API calls
+* Estimated API spending
+* Tokens consumed
+* Average cost per case
+* Average cost per document
+* Average cost per drafted motion
+* Daily and monthly usage
+* Most expensive features
+
+This dashboard is for internal management only.
+
+⸻
+
+6. Prompt Logging
+
+For every AI interaction, log:
+
+* Feature that initiated the request
+* Prompt template used
+* User input (when appropriate)
+* Claude response
+* Timestamp
+* Processing time
+* Estimated token usage
+* Estimated cost
+
+These logs will be used to improve HyperLaw’s prompt engineering and workflows.
+
+Do not attempt to capture or infer Claude’s internal reasoning.
+
+⸻
+
+7. Intelligent Context Management
+
+Only send Claude the information needed for the current task.
+
+For example:
+
+If drafting a motion:
+
+Send:
+
+* Relevant facts
+* Timeline
+* Existing case summary
+* Necessary evidence
+
+Do not resend the complete complaint if it has already been analyzed.
+
+⸻
+
+8. Free Tier Protection
+
+Design the AI system so the free tier has controlled AI usage.
+
+Examples include:
+
+* Limited AI analyses
+* Limited document uploads
+* Limited drafting requests
+
+The goal is to provide meaningful value while keeping operating costs sustainable.
+
+⸻
+
+9. Architecture
+
+Claude will remain the sole AI provider for the initial release.
+
+However:
+
+Maintain the centralized AI service architecture so HyperLaw can support additional AI providers in the future without requiring major code changes.
+
+For now, every AI request should route through Claude.
+
+⸻
+
+10. Primary Objective
+
+HyperLaw should become progressively smarter over time by relying on its structured case database instead of repeatedly asking Claude to rediscover information.
+
+The application should remember, organize, and reuse knowledge efficiently to reduce API costs while delivering a faster and more consistent user experience.
+
+⸻
+
+I would add one more request at the end because I think it’s one of the highest ROI features we can build:
+
+Implement an “AI Call Inspector” in the admin panel. Every time HyperLaw calls Claude, record the feature that made the request, the estimated tokens used, the estimated dollar cost, the response time, and whether the response came from Claude or the cache. This data should help optimize prompts, reduce unnecessary AI calls, and ensure the business remains profitable as usage grows.
+
+This gives me visibility into where my money is going and lets me make pricing decisions based on real usage rather than estimates im the future.
+
+This needs to be easy to copy these logs to paste other places 

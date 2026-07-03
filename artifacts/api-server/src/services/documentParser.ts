@@ -74,7 +74,7 @@ export async function parseDocument(
         "HEIC images must be converted to JPEG or PNG before upload. Use your phone's share → save as JPEG option.",
       );
     }
-    const text = await aiService.ocrImage(buffer, mimeType);
+    const { data: text } = await aiService.ocrImage(buffer, mimeType);
     return { text, method: "vision-ocr", wordCount: wordCount(text) };
   }
 

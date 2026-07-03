@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -54,6 +54,40 @@ export const uploadedDocumentsTable = pgTable("uploaded_documents", {
   caseExtraction: jsonb("case_extraction"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ── AI Usage Logging ──────────────────────────────────────────────────────────
+
+export const aiLogsTable = pgTable("ai_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id"),
+  /** e.g. "analyze_incident" | "analyze_case" | "chat" | "extract_document" | "ocr_image" */
+  feature: text("feature").notNull(),
+  model: text("model").notNull().default("claude-opus-4-5"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  /** Micro-USD: divide by 1_000_000 for dollars. $15/MTok input, $75/MTok output */
+  estimatedCostMicroUsd: integer("estimated_cost_micro_usd").notNull().default(0),
+  responseTimeMs: integer("response_time_ms").notNull().default(0),
+  cacheHit: boolean("cache_hit").notNull().default(false),
+  promptTemplate: text("prompt_template"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── AI Analysis Cache ─────────────────────────────────────────────────────────
+
+export const aiAnalysisCacheTable = pgTable("ai_analysis_cache", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  /** SHA-256 of (feature + content) — 32 hex chars */
+  cacheKey: text("cache_key").notNull(),
+  feature: text("feature").notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at").notNull().defaultNow(),
+}, (table) => ({
+  userCacheKeyIdx: uniqueIndex("ai_cache_user_key_idx").on(table.userId, table.cacheKey),
+}));
 
 // ── Insert schemas ────────────────────────────────────────────────────────────
 

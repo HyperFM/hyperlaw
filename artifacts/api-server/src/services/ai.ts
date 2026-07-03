@@ -31,19 +31,48 @@ export interface CaseExtraction {
   summary: string;
 }
 
+// ── Usage / cost metadata returned with every AI call ─────────────────────────
+
+const MODEL = "claude-opus-4-5";
+// Pricing: $15/MTok input, $75/MTok output → expressed as micro-USD per token
+const INPUT_MICRO_USD_PER_TOKEN = 15;
+const OUTPUT_MICRO_USD_PER_TOKEN = 75;
+
+export interface AiCallMeta {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  responseTimeMs: number;
+  estimatedCostMicroUsd: number; // divide by 1_000_000 for dollars
+}
+
+export interface AiResult<T> {
+  data: T;
+  meta: AiCallMeta;
+}
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are HyperLaw Tutor — an AI legal assistant built specifically for pro se civil rights litigants. You are analytical, direct, and empowering. You help people understand what happened to them legally without giving formal legal advice.
+const SYSTEM_PROMPT = `You are HyperLaw AI Assistant — an AI-powered legal self-help tool built specifically for pro se civil rights litigants. You help people organize legal information, understand procedures, draft documents, and prepare for legal matters. You are not a law firm, not an attorney, and you do not provide legal representation.
 
 Your role:
-- Identify legal issues and rights that may apply to the described incident
-- Point out evidence the person may have overlooked or needs to preserve immediately
+- Help users ORGANIZE their legal information clearly
+- Identify legal issues and rights that may apply based on what they describe
+- Point out evidence they may have overlooked or need to preserve immediately
 - Ask targeted questions that reveal legally important details
 - Explain legal concepts in plain, accessible language
 - Be specific to the actual content — never give generic, boilerplate advice
-- Always note that users should consult an attorney for formal legal advice
 
-Tone: Direct, clear, respectful. Like a knowledgeable friend who has read the law, not a cautious institution.`;
+Language rules — ALWAYS follow:
+- Begin responses with phrases like "Based on the information you've shared…", "From what you've described…", or "The details you've provided suggest…"
+- Use "you may wish to consider", "this may suggest", "it's worth exploring" rather than absolute statements
+- Never state or imply: "I am your lawyer", "You will win", "You should definitely sue", "You have no risk", "This guarantees success", or "We know better than attorneys"
+- Never imply an attorney-client relationship exists
+- For well-established procedural facts, be direct. For legal strategy or outcomes, use measured language
+- When relevant, remind the user: "Laws and procedures vary by jurisdiction — verify these details with your local court rules or a licensed attorney in your area."
+- End every analysis or substantive response with a one-sentence disclaimer noting that HyperLaw provides legal information and drafting assistance, not legal advice or representation
+
+Tone: Direct, clear, empowering, respectful. Like a knowledgeable legal self-help resource — not a cautious institution, but not a guarantor of outcomes either.`;
 
 // ── AI Service ────────────────────────────────────────────────────────────────
 
@@ -62,9 +91,20 @@ export class AiService {
     return this._client;
   }
 
-  // Reset client when key changes at runtime
   resetClient(): void {
     this._client = null;
+  }
+
+  private buildMeta(usage: { input_tokens: number; output_tokens: number }, responseTimeMs: number): AiCallMeta {
+    return {
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      model: MODEL,
+      responseTimeMs,
+      estimatedCostMicroUsd:
+        usage.input_tokens * INPUT_MICRO_USD_PER_TOKEN +
+        usage.output_tokens * OUTPUT_MICRO_USD_PER_TOKEN,
+    };
   }
 
   async analyzeIncident(incident: {
@@ -73,7 +113,7 @@ export class AiService {
     category: string;
     dateOfEvent?: string;
     location?: string;
-  }): Promise<TutorAnalysis> {
+  }): Promise<AiResult<TutorAnalysis>> {
     const prompt = `Analyze this civil rights incident and return ONLY valid JSON (no markdown, no explanation):
 
 Title: ${incident.title}
@@ -106,20 +146,24 @@ Guidelines:
 - Be specific to the actual content — no generic advice
 - Return only the JSON object`;
 
+    const start = Date.now();
     const response = await this.client.messages.create({
-      model: "claude-opus-4-5",
+      model: MODEL,
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
     });
 
-    return this.parseJsonResponse<TutorAnalysis>(response);
+    return {
+      data: this.parseJsonResponse<TutorAnalysis>(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
   async analyzeCase(
     hlCase: { title: string; notes: string },
     incidents: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>,
-  ): Promise<TutorAnalysis> {
+  ): Promise<AiResult<TutorAnalysis>> {
     const incidentText = incidents.map((inc, idx) =>
       `--- Incident ${idx + 1}: "${inc.title}" (${inc.category}${inc.dateOfEvent ? ", " + inc.dateOfEvent : ""}) ---\n${inc.description}`,
     ).join("\n\n");
@@ -151,14 +195,18 @@ Return JSON with this exact shape:
 
 Return only the JSON object`;
 
+    const start = Date.now();
     const response = await this.client.messages.create({
-      model: "claude-opus-4-5",
+      model: MODEL,
       max_tokens: 2000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
     });
 
-    return this.parseJsonResponse<TutorAnalysis>(response);
+    return {
+      data: this.parseJsonResponse<TutorAnalysis>(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
   async chat(
@@ -167,17 +215,34 @@ Return only the JSON object`;
       incident?: { title: string; description: string; category: string } | null;
       hlCase?: { title: string; notes: string } | null;
       incidents?: Array<{ title: string; description: string; category: string }>;
+      // Structured case data from uploaded documents — avoids re-sending raw text
+      caseContext?: {
+        plaintiff?: string | null;
+        defendant?: string | null;
+        claims?: string[];
+        summary?: string;
+      } | null;
       history: AiChatMessage[];
     },
-  ): Promise<string> {
+  ): Promise<AiResult<string>> {
     let contextBlock = "";
     if (context.incident) {
       contextBlock = `\n\nContext — Current Incident:\nTitle: ${context.incident.title}\nCategory: ${context.incident.category}\n${context.incident.description}`;
     } else if (context.hlCase) {
-      const incList = (context.incidents || [])
-        .map((i, n) => `${n + 1}. "${i.title}" (${i.category}): ${i.description.slice(0, 300)}`)
-        .join("\n");
-      contextBlock = `\n\nContext — Current Case: ${context.hlCase.title}\nIncidents:\n${incList}`;
+      // Prefer structured extraction over raw incident text when available
+      if (context.caseContext) {
+        const cc = context.caseContext;
+        contextBlock = `\n\nContext — Current Case: ${context.hlCase.title}
+Plaintiff: ${cc.plaintiff ?? "unknown"}
+Defendant: ${cc.defendant ?? "unknown"}
+Claims: ${(cc.claims ?? []).join(", ") || "none identified"}
+Summary: ${cc.summary ?? "none"}`;
+      } else {
+        const incList = (context.incidents || [])
+          .map((i, n) => `${n + 1}. "${i.title}" (${i.category}): ${i.description.slice(0, 300)}`)
+          .join("\n");
+        contextBlock = `\n\nContext — Current Case: ${context.hlCase.title}\nIncidents:\n${incList}`;
+      }
     }
 
     const messages: Anthropic.MessageParam[] = [
@@ -188,19 +253,25 @@ Return only the JSON object`;
       { role: "user", content: message },
     ];
 
+    const start = Date.now();
     const response = await this.client.messages.create({
-      model: "claude-opus-4-5",
+      model: MODEL,
       max_tokens: 800,
       system: SYSTEM_PROMPT + contextBlock,
       messages,
     });
 
-    return response.content[0].type === "text"
+    const text = response.content[0].type === "text"
       ? response.content[0].text
       : "I couldn't generate a response. Please try again.";
+
+    return {
+      data: text,
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
-  async extractFromDocument(text: string): Promise<CaseExtraction> {
+  async extractFromDocument(text: string): Promise<AiResult<CaseExtraction>> {
     const prompt = `Extract legal case information from this document. Return ONLY valid JSON.
 
 Document:
@@ -222,22 +293,27 @@ Return JSON with this exact shape:
 
 Use null for missing string fields, [] for missing arrays. Return only the JSON.`;
 
+    const start = Date.now();
     const response = await this.client.messages.create({
-      model: "claude-opus-4-5",
+      model: MODEL,
       max_tokens: 1000,
       system: "You are a precise legal document parser. Extract structured information accurately from legal documents.",
       messages: [{ role: "user", content: prompt }],
     });
 
-    return this.parseJsonResponse<CaseExtraction>(response);
+    return {
+      data: this.parseJsonResponse<CaseExtraction>(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
-  async ocrImage(buffer: Buffer, mimeType: string): Promise<string> {
+  async ocrImage(buffer: Buffer, mimeType: string): Promise<AiResult<string>> {
     const base64 = buffer.toString("base64");
     const mediaType = mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
+    const start = Date.now();
     const response = await this.client.messages.create({
-      model: "claude-opus-4-5",
+      model: MODEL,
       max_tokens: 4000,
       messages: [{
         role: "user",
@@ -254,12 +330,15 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
       }],
     });
 
-    return response.content[0].type === "text" ? response.content[0].text : "";
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    return {
+      data: text,
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
   private parseJsonResponse<T>(response: Anthropic.Message): T {
     const text = response.content[0].type === "text" ? response.content[0].text : "";
-    // Strip markdown fences if present
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("AI returned invalid JSON format");

@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import notificationsRouter from "./notifications";
 import feedbackRouter from "./feedback";
 import adminRouter from "./admin";
+import adminAiRouter from "./admin-ai";
 import chatRouter from "./chat";
 import aiRouter from "./ai";
 
@@ -12,6 +13,7 @@ router.use(healthRouter);
 router.use(notificationsRouter);
 router.use(feedbackRouter);
 router.use(adminRouter);
+router.use(adminAiRouter);
 router.use(chatRouter);
 router.use(aiRouter);
 

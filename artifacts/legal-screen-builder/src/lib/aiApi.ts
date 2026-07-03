@@ -10,6 +10,10 @@ export interface TutorAnalysis {
   overview: string;
   insights: TutorInsight[];
   guidingQuestions: string[];
+  /** True when this result came from the server-side cache (no Claude call was made) */
+  fromCache?: boolean;
+  /** ISO timestamp of when the result was originally cached */
+  cachedAt?: string;
 }
 
 export interface AiChatMessage {
@@ -37,6 +41,37 @@ export interface UploadResult {
   wordCount: number;
   textPreview: string;
   extraction: CaseExtraction | null;
+  fromCache?: boolean;
+}
+
+// ── Admin types ───────────────────────────────────────────────────────────────
+
+export interface AiLog {
+  id: string;
+  userId: string;
+  caseId: string | null;
+  feature: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostMicroUsd: number;
+  responseTimeMs: number;
+  cacheHit: boolean;
+  promptTemplate: string | null;
+  createdAt: string;
+}
+
+export interface AiStats {
+  totalCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostMicroUsd: number;
+  avgResponseTimeMs: number;
+  cacheHitCount: number;
+  cacheHitRate: number;
+  cachedEntries: number;
+  byFeature: Array<{ feature: string; calls: number; costMicroUsd: number; cacheHits: number }>;
+  dailyStats: Array<{ day: string; calls: number; costMicroUsd: number; cacheHits: number }>;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -75,28 +110,43 @@ export const aiApi = {
     return aiFetch("/ai/status");
   },
 
-  /** Analyze a single incident with Claude */
-  analyzeIncident(incident: {
-    title: string;
-    description: string;
-    category: string;
-    dateOfEvent?: string;
-    location?: string;
-  }): Promise<TutorAnalysis> {
-    return aiFetch("/ai/analyze", {
-      method: "POST",
-      body: JSON.stringify({ type: "incident", incident }),
-    });
-  },
-
-  /** Analyze a full case (multiple incidents) with Claude */
-  analyzeCase(
-    hlCase: { title: string; notes: string },
-    incidents: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>,
+  /** Analyze a single incident — returns cached result if available */
+  analyzeIncident(
+    incident: {
+      title: string;
+      description: string;
+      category: string;
+      dateOfEvent?: string;
+      location?: string;
+    },
+    opts?: { forceRefresh?: boolean; caseId?: string },
   ): Promise<TutorAnalysis> {
     return aiFetch("/ai/analyze", {
       method: "POST",
-      body: JSON.stringify({ type: "case", hlCase, incidents }),
+      body: JSON.stringify({
+        type: "incident",
+        incident,
+        forceRefresh: opts?.forceRefresh ?? false,
+        caseId: opts?.caseId,
+      }),
+    });
+  },
+
+  /** Analyze a full case — returns cached result if available */
+  analyzeCase(
+    hlCase: { title: string; notes: string },
+    incidents: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>,
+    opts?: { forceRefresh?: boolean; caseId?: string },
+  ): Promise<TutorAnalysis> {
+    return aiFetch("/ai/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "case",
+        hlCase,
+        incidents,
+        forceRefresh: opts?.forceRefresh ?? false,
+        caseId: opts?.caseId,
+      }),
     });
   },
 
@@ -107,12 +157,14 @@ export const aiApi = {
       incident?: { title: string; description: string; category: string } | null;
       hlCase?: { title: string; notes: string } | null;
       incidents?: Array<{ title: string; description: string; category: string }>;
+      caseContext?: { plaintiff?: string | null; defendant?: string | null; claims?: string[]; summary?: string } | null;
       history: AiChatMessage[];
     },
+    opts?: { caseId?: string },
   ): Promise<{ reply: string }> {
     return aiFetch("/ai/chat", {
       method: "POST",
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, context, caseId: opts?.caseId }),
     });
   },
 
@@ -125,4 +177,40 @@ export const aiApi = {
   documents(caseId: string): Promise<Array<{ id: string; fileName: string; mimeType: string; caseExtraction: CaseExtraction | null; createdAt: string }>> {
     return aiFetch(`/ai/documents/${caseId}`);
   },
+
+  // ── Admin-only endpoints ───────────────────────────────────────────────────
+
+  admin: {
+    /** Paginated AI call logs */
+    logs(params?: { page?: number; limit?: number; feature?: string; cacheHit?: boolean }): Promise<{ logs: AiLog[]; total: number; page: number; limit: number }> {
+      const q = new URLSearchParams();
+      if (params?.page) q.set("page", String(params.page));
+      if (params?.limit) q.set("limit", String(params.limit));
+      if (params?.feature) q.set("feature", params.feature);
+      if (params?.cacheHit !== undefined) q.set("cacheHit", String(params.cacheHit));
+      return aiFetch(`/admin/ai/logs?${q.toString()}`);
+    },
+
+    /** Aggregated usage stats */
+    stats(): Promise<AiStats> {
+      return aiFetch("/admin/ai/stats");
+    },
+  },
 };
+
+// ── Formatting helpers (used by AdminPanel) ───────────────────────────────────
+
+export function formatMicroUsd(microUsd: number): string {
+  return `$${(microUsd / 1_000_000).toFixed(4)}`;
+}
+
+export function featureLabel(feature: string): string {
+  const labels: Record<string, string> = {
+    analyze_incident: "Incident Analysis",
+    analyze_case: "Case Analysis",
+    chat: "AI Chat",
+    extract_document: "Doc Extraction",
+    ocr_image: "Image OCR",
+  };
+  return labels[feature] ?? feature;
+}

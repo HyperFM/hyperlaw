@@ -11,6 +11,10 @@ export interface TutorAnalysis {
   overview: string;
   insights: TutorInsight[];
   guidingQuestions: string[];
+  /** True when the result came from the server-side cache (no Claude call was made) */
+  fromCache?: boolean;
+  /** ISO timestamp of when the result was originally cached */
+  cachedAt?: string;
 }
 
 // ─── Service interface ────────────────────────────────────────────────────────

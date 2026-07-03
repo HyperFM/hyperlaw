@@ -1,0 +1,357 @@
+
+HyperLaw — Production Readiness, Cost Optimization & Monetization Update
+
+The UI is nearing completion. Before connecting Claude, I want HyperLaw to be organized, efficient, scalable, and financially sustainable. Please complete the following implementation and audit.
+
+⸻
+
+1. Audit Existing Features First
+
+Before building anything new:
+
+Perform a complete audit of the application.
+
+Return a checklist showing which requested features are:
+
+* ✅ Fully Implemented
+* 🟡 Partially Implemented
+* ❌ Not Implemented
+
+Do not assume features are working.
+
+Specifically verify:
+
+* Upload Complaint button
+* Google Sign-In
+* Case creation
+* AI routing
+* Stripe readiness
+* Generated document saving
+* OCR functionality
+* Navigation
+* Profile
+* Settings
+* Terms of Service links
+* Privacy Policy links
+
+Fix broken functionality before adding new features.
+
+⸻
+
+2. HyperLaw Knowledge Library
+
+Implement a two-layer intelligence system.
+
+Layer 1 — HyperLaw Library
+
+Create an editable legal knowledge library.
+
+Store:
+
+* Legal definitions
+* Court terminology
+* Filing explanations
+* Court procedures
+* Frequently asked questions
+* Educational articles
+* Drafting templates
+* Formatting rules
+* Typography settings
+* Branding assets
+* Prompt templates
+
+The library should be editable from the Admin Panel.
+
+Questions that can be answered from the library should never call Claude.
+
+This should cost $0 in AI usage.
+
+⸻
+
+Layer 2 — Claude
+
+Claude should only be used for:
+
+* Complaint drafting
+* Motion drafting
+* Timeline generation
+* Personalized tutoring
+* Battle Documents
+* Evidence analysis
+* Case-specific organization
+* Personalized legal document creation
+
+Never use Claude for static educational information.
+
+⸻
+
+3. Smart AI Routing
+
+Before every Claude request:
+
+1. Search HyperLaw Library.
+2. Search the current case.
+3. Search cached AI responses.
+4. Only if necessary, call Claude.
+
+The application should minimize API usage whenever possible.
+
+⸻
+
+4. Complaint Upload
+
+Repair the Upload Complaint feature.
+
+Requirements:
+
+* Native file picker
+* PDF
+* DOC
+* DOCX
+* TXT
+* RTF
+* JPG
+* PNG
+* HEIC
+* Scanned documents
+
+Automatically:
+
+* OCR images
+* Save originals
+* Extract text
+* Create or update the user’s case
+* Begin AI analysis only when appropriate
+
+⸻
+
+5. Case Organization
+
+Every AI-generated document should automatically save to the user’s case.
+
+Create a clean “Generated Documents” section.
+
+Each document should include:
+
+* Name
+* Type
+* Date
+* Version
+* Status
+* Payment status
+* Download options
+
+Users who purchase a document should be able to download it again at any time without paying again.
+
+⸻
+
+6. Stripe & Pay-As-You-Go
+
+Convert the Free plan into:
+
+Free
+
+Subtitle (orange):
+
+Build your case on your budget.
+
+Description:
+
+Create and organize up to two active cases at no cost. Pay only when you generate personalized AI-powered documents or tutoring sessions. Preview your work before purchasing and permanently save purchased documents to your case for unlimited future downloads.
+
+Implement Stripe Checkout.
+
+⸻
+
+7. Credits
+
+Add a credit wallet.
+
+Allow users to:
+
+* Purchase credits
+* View remaining credits near the top of AI workflow screens
+* Use credits automatically before charging additional payments
+
+Track credit balances in the admin panel.
+
+⸻
+
+8. Document Preview Experience
+
+Do not use screenshot-blocking overlays.
+
+Instead:
+
+Show the beginning portion of the first page of every generated document so users can verify formatting and ensure the document matches their case.
+
+Around the middle of the page, transition into a professional preview notice.
+
+Display the following:
+
+⸻
+
+Document Preview
+
+You’ve successfully generated a personalized legal document.
+
+This preview allows you to verify the formatting and confirm the document matches your case before purchasing.
+
+The remainder of this document is unavailable in preview mode.
+
+HyperLaw uses AI to generate personalized legal documents. Each personalized document requires secure AI processing and computing resources. Our pay-as-you-go model helps keep HyperLaw affordable while allowing everyone to start with a free account.
+
+After purchase you will receive:
+
+• The complete document
+
+• A clean filing-ready version with no HyperLaw branding or watermarks
+
+• Permanent storage inside your case
+
+• Unlimited re-downloads at no additional charge
+
+If you generate documents frequently, you may upgrade your plan at any time for additional flexibility and savings.
+
+Continue to Secure Checkout
+
+⸻
+
+After successful payment:
+
+* Unlock the complete document.
+* Remove all HyperLaw branding from the exported file.
+* Allow download in multiple formats (PDF, DOCX, etc., as supported).
+
+⸻
+
+9. Pre-Verification
+
+Create a new feature called:
+
+Pre-Verification
+
+Purpose:
+
+Allow users to verify AI-generated documents before filing.
+
+Features:
+
+* Orange waveform animation
+* Orange glowing highlight that follows each spoken word
+* Read directly from saved documents
+* Save completed verification status
+
+Display this notice:
+
+“This feature helps you review your document before filing. AI can make mistakes. Carefully review every document yourself before relying on or filing it.”
+
+Require acknowledgment before final export.
+
+If users identify issues, allow them to request edits.
+
+⸻
+
+10. Terms of Service & Privacy
+
+Use the existing Terms of Service and Privacy Policy without modifying their content.
+
+Ensure they appear:
+
+* Bottom of login screen
+* Profile page
+* Settings page
+
+Links must function correctly.
+
+⸻
+
+11. Authentication
+
+Verify Google authentication works.
+
+Test:
+
+* Account creation
+* Login
+* Returning users
+* Session persistence
+
+Repair any broken functionality.
+
+⸻
+
+12. Admin Dashboard
+
+Expand the Admin Panel.
+
+Include:
+
+* Claude API usage
+* Estimated AI costs
+* Cached response rate
+* Stripe revenue
+* Credit balances
+* Active users
+* Generated documents
+* Prompt analytics
+* Knowledge Library editor
+* Template manager
+* Typography manager
+
+Templates, fonts, glossary entries, and branding should be editable without modifying code.
+
+⸻
+
+13. AI Logging
+
+Log every AI request.
+
+Store:
+
+* Feature requesting AI
+* Prompt template
+* Response
+* Timestamp
+* Estimated tokens
+* Estimated cost
+* Response time
+* Cache hit or Claude request
+
+Do not attempt to record or infer Claude’s internal reasoning.
+
+⸻
+
+14. Legal Guardrails
+
+Verify all previously requested legal safety features remain implemented throughout the application, including:
+
+* AI-generated content banner
+* Jurisdiction selection
+* Document review acknowledgment
+* First-time welcome screen
+* AI legal self-help language
+* Consent logging
+* Download verification checklist
+* Age confirmation
+* Account deletion
+* Encryption for stored case data where applicable
+
+These safeguards should be integrated into the application’s behavior, not only described in legal documents.
+
+⸻
+
+15. Final Goal
+
+The application should be fully prepared so that once my Claude API key is connected:
+
+* Uploading a complaint works reliably.
+* Cases are automatically created and organized.
+* Claude is only used when necessary.
+* Static legal information comes from the HyperLaw Knowledge Library.
+* Every generated document is saved neatly within the user’s case.
+* Payments, credits, previews, downloads, and document verification work seamlessly.
+* The interface remains clean, intuitive, persuasive, and professional.
+* HyperLaw feels like a polished, production-ready legal self-help platform rather than a prototype.
+
+Before implementing new features, please complete the audit and provide a report identifying what is already working, what needs repair, and what still needs to be built.

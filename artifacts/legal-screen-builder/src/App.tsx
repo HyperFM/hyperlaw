@@ -1745,7 +1745,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
 }
 
 // ─── PLANS OVERLAY ────────────────────────────────────────────────────────────
-function PlansOverlay({ onClose }: { onClose: () => void }) {
+function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCredits?: () => void }) {
   const [visible, setVisible] = useState(false);
   const [activeIndex, setActiveIndex] = useState(1);
   const startXRef = useRef(0);
@@ -1928,7 +1928,13 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
                           </li>
                         ))}
                       </ul>
-                      <button style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none" }}>
+                      <button
+                        onClick={() => {
+                          handleClose();
+                          onBuyCredits?.();
+                        }}
+                        style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none" }}
+                      >
                         {plan.ctaLabel}
                       </button>
                     </div>
@@ -1965,10 +1971,11 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
+  onBuyCredits?: () => void;
 }) {
   const { signOut } = useClerk();
   const { user } = useUser();
@@ -2226,7 +2233,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         )}
       </div>
 
-      {showPlans && <PlansOverlay onClose={() => setShowPlans(false)} />}
+      {showPlans && <PlansOverlay onClose={() => setShowPlans(false)} onBuyCredits={onBuyCredits} />}
       {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
     </div>
   );
@@ -2538,7 +2545,7 @@ export default function App() {
     }
 
     if (navTab === "profile") {
-      return <ProfileView data={data} onOpenCase={handleOpenCase} onEasterEgg={() => setShowEasterEgg(true)} />;
+      return <ProfileView data={data} onOpenCase={handleOpenCase} onEasterEgg={() => setShowEasterEgg(true)} onBuyCredits={() => setShowCreditShop(true)} />;
     }
 
     if (navTab === "cases") {

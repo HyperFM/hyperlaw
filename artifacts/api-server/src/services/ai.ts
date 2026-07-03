@@ -347,6 +347,140 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
     };
   }
 
+  /**
+   * Generate a formal legal document (complaint, motion, or timeline).
+   * Returns the full document text — NOT JSON.
+   */
+  async generateLegalDocument(
+    documentType: 'complaint' | 'motion' | 'timeline',
+    caseData: {
+      title: string;
+      notes?: string;
+      plaintiff?: string;
+      defendant?: string;
+      court?: string;
+      caseNumber?: string;
+      jurisdiction?: string;
+      incidents?: Array<{
+        title: string;
+        description: string;
+        category: string;
+        dateOfEvent?: string;
+        location?: string;
+      }>;
+    },
+    opts?: { libraryContext?: string },
+  ): Promise<AiResult<string>> {
+    const libBlock = opts?.libraryContext ? `${opts.libraryContext}\n\n---\n\n` : '';
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const incidentBlock = (caseData.incidents ?? [])
+      .map((inc, i) =>
+        `Incident ${i + 1}: "${inc.title}" — ${inc.category}` +
+        (inc.dateOfEvent ? `, ${inc.dateOfEvent}` : '') +
+        (inc.location ? ` at ${inc.location}` : '') +
+        `\n${inc.description}`,
+      )
+      .join('\n\n');
+
+    const header = `Case: ${caseData.title}
+Plaintiff: ${caseData.plaintiff ?? '[PLAINTIFF NAME]'}
+Defendant: ${caseData.defendant ?? '[DEFENDANT NAME]'}
+Court: ${caseData.court ?? '[COURT NAME]'}
+Case Number: ${caseData.caseNumber ?? '[CASE NUMBER]'}
+Jurisdiction: ${caseData.jurisdiction ?? 'Federal / State'}
+Date: ${today}`;
+
+    let prompt = '';
+
+    if (documentType === 'complaint') {
+      prompt = `${libBlock}You are a civil rights legal document drafter. Draft a formal pro se civil rights complaint letter based on the case information below.
+
+${header}
+
+Case Notes: ${caseData.notes || 'None'}
+
+${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
+
+Format the complaint with these sections:
+1. INTRODUCTION (1 paragraph — who the plaintiff is, who the defendant is, what this complaint is about)
+2. PARTIES (identify plaintiff and defendant with available details)
+3. JURISDICTION AND VENUE (explain why this court/body has jurisdiction)
+4. STATEMENT OF FACTS (numbered paragraphs, each covering a distinct factual allegation drawn directly from the incidents described)
+5. LEGAL CLAIMS / CAUSES OF ACTION (identify the specific rights allegedly violated — e.g., 42 U.S.C. § 1983, Title VII, ADA, 4th/14th Amendment, etc. — based on the incident categories)
+6. RELIEF REQUESTED (list specific remedies: injunctive relief, compensatory damages, declaratory relief, attorney fees where applicable)
+7. CERTIFICATION / SIGNATURE BLOCK (pro se self-representation statement)
+
+Important rules:
+- Use formal, professional legal language
+- Fill in real content from the case data — no generic placeholders for the facts
+- Where specific information is missing (case number, court), use bracketed placeholders like [COURT NAME]
+- Do not add a disclaimer at the end
+- Return only the document text, no meta-commentary`;
+    } else if (documentType === 'motion') {
+      prompt = `${libBlock}You are a civil rights legal document drafter. Draft a formal pro se motion document based on the case information below.
+
+${header}
+
+Case Notes: ${caseData.notes || 'None'}
+
+${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
+
+Draft a Motion for Preliminary Relief (or appropriate motion based on the facts). Format with:
+1. CAPTION (case name, court, case number)
+2. NOTICE OF MOTION (brief statement of what the moving party requests)
+3. INTRODUCTION (1-2 paragraphs)
+4. STATEMENT OF FACTS (numbered paragraphs)
+5. LEGAL ARGUMENT (with subsections for each legal ground; cite relevant statutes, constitutional provisions, or case law where applicable)
+6. CONCLUSION AND RELIEF REQUESTED
+7. CERTIFICATION / SIGNATURE BLOCK
+
+Important rules:
+- Use formal, professional legal language
+- Base the motion content directly on the incidents and facts provided
+- Where court or case info is missing, use bracketed placeholders
+- Return only the document text`;
+    } else {
+      // timeline
+      prompt = `${libBlock}You are a civil rights legal document drafter. Create a formal chronological incident timeline document based on the case information below.
+
+${header}
+
+Case Notes: ${caseData.notes || 'None'}
+
+${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
+
+Format the timeline document as follows:
+1. HEADER (case name, parties, date prepared)
+2. INTRODUCTION (1 paragraph describing the overall pattern and purpose of this timeline)
+3. CHRONOLOGICAL INCIDENT LOG (each entry on its own line, formatted as:
+   [DATE] — [LOCATION] — [INCIDENT TITLE]
+   [Detailed description of what occurred, who was involved, what was said or done])
+4. SUMMARY OF PATTERN (2-3 paragraphs analyzing the overall pattern, common threads, and legal significance)
+5. EVIDENCE AND DOCUMENTATION NOTE (list what documentation should be gathered or preserved for each incident)
+6. PREPARER STATEMENT
+
+Important rules:
+- Order entries chronologically, earliest first
+- Extract and include every specific detail from the incident descriptions
+- Where dates are not provided, note "Date TBD — [approximate period if inferable]"
+- Return only the document text`;
+    }
+
+    const start = Date.now();
+    const response = await this.client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    return {
+      data: text,
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   private parseJsonResponse<T>(response: Anthropic.Message): T {
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

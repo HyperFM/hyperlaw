@@ -14,7 +14,8 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage, ServerGeneratedDoc } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct } from "./lib/aiApi";
+import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
 import WelcomeModal from "./components/WelcomeModal";
@@ -811,13 +812,16 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 }
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
   onAddIncident: () => void;
   onAddReminder: (r: Reminder) => void; onDeleteReminder: (id: string) => void;
   onBack: () => void;
+  creditBalance?: number;
+  onBuyCredits?: () => void;
+  onDocGenerated?: () => void;
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -834,6 +838,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [genDocs, setGenDocs] = useState<ServerGeneratedDoc[]>([]);
   const [genDocsLoading, setGenDocsLoading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [generatingDocType, setGeneratingDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -860,6 +866,41 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       setUploadState("error");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleGenerateDoc(docType: "complaint" | "motion" | "timeline") {
+    setGeneratingDocType(docType);
+    setGenerateError(null);
+    const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
+    try {
+      const doc = await aiApi.generateDocument({
+        caseId: hlCase.id,
+        documentType: docType,
+        caseData: {
+          title: hlCase.title,
+          notes: hlCase.notes,
+          jurisdiction: hlCase.jurisdiction,
+          incidents: incidents.map(i => ({
+            title: i.title,
+            description: i.description,
+            category: i.category,
+            dateOfEvent: i.dateOfEvent || undefined,
+            location: i.location || undefined,
+          })),
+        },
+      });
+      setGenDocs(prev => [doc, ...prev]);
+      onDocGenerated?.();
+    } catch (err: unknown) {
+      const e = err as { message?: string; code?: string };
+      if (e.code === "insufficient_credits") {
+        onBuyCredits?.();
+      } else {
+        setGenerateError(e.message || "Generation failed. Try again.");
+      }
+    } finally {
+      setGeneratingDocType(null);
     }
   }
 
@@ -1078,6 +1119,66 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Generate Formal Documents */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>GENERATE FORMAL DOCUMENTS</div>
+            {creditBalance !== undefined && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: creditBalance > 0 ? ORANGE : "#555", fontWeight: 700 }}>
+                  {creditBalance} {creditBalance === 1 ? "credit" : "credits"}
+                </span>
+                <button
+                  onClick={() => onBuyCredits?.()}
+                  style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                >
+                  + Buy
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ color: "#444", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+            AI-drafted formal legal documents based on your case data. Each costs 1 credit.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {(["complaint", "timeline", "motion"] as const).map(docType => {
+              const labels: Record<string, string> = { complaint: "Civil Rights Complaint", timeline: "Incident Timeline", motion: "Litigation Motion" };
+              const isGenerating = generatingDocType === docType;
+              const anyGenerating = !!generatingDocType;
+              const noCredits = (creditBalance ?? 0) === 0;
+              return (
+                <button
+                  key={docType}
+                  disabled={anyGenerating}
+                  onClick={() => noCredits ? onBuyCredits?.() : handleGenerateDoc(docType)}
+                  style={{
+                    background: "#111", border: `1px solid ${isGenerating ? ORANGE : "#1e1e1e"}`,
+                    borderRadius: 10, padding: "10px 14px", cursor: anyGenerating ? "not-allowed" : "pointer",
+                    display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
+                    opacity: anyGenerating && !isGenerating ? 0.4 : 1, flex: "1 1 120px",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#ccc", display: "flex", alignItems: "center", gap: 6 }}>
+                    {isGenerating
+                      ? <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
+                      : <FileText size={13} color="#444" />
+                    }
+                    {labels[docType]}
+                  </div>
+                  <div style={{ fontSize: 10, color: noCredits ? "#ef4444" : "#555" }}>
+                    {noCredits ? "Buy credits →" : "1 credit"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {generateError && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px" }}>
+              {generateError}
             </div>
           )}
         </div>
@@ -2274,8 +2375,34 @@ export default function App() {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [genDocsRefreshKey, setGenDocsRefreshKey] = useState(0);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
+  const [showCreditShop, setShowCreditShop] = useState(false);
+  const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
   function setData(d: AppData) { setDataRaw(d); saveData(d); }
+
+  // Fetch credit balance on mount and after checkout success
+  const fetchCreditBalance = useCallback(async () => {
+    try {
+      const { creditBalance: bal } = await aiApi.creditBalance();
+      setCreditBalance(bal);
+    } catch { /* silently ignore — user may not be signed in yet */ }
+  }, []);
+
+  useEffect(() => {
+    fetchCreditBalance();
+    // Handle Stripe checkout return URL params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      const credits = parseInt(params.get("credits") ?? "0", 10);
+      setCheckoutToast(credits > 0 ? `✓ ${credits} credit${credits === 1 ? "" : "s"} added to your account!` : "✓ Purchase successful! Credits added.");
+      // Clean URL without reloading
+      window.history.replaceState({}, "", window.location.pathname);
+      // Refresh balance after a short delay to allow webhook to process
+      setTimeout(() => fetchCreditBalance(), 2000);
+      setTimeout(() => setCheckoutToast(null), 6000);
+    }
+  }, [fetchCreditBalance]);
 
   function handleSaveIncident(payload: NewIncidentSavePayload) {
     const incident: Incident = {
@@ -2377,6 +2504,12 @@ export default function App() {
           onDeleteReminder={id => setData(deleteReminder(data, id))}
           onBack={() => setView({ type: "home" })}
           genDocsRefreshKey={genDocsRefreshKey}
+          creditBalance={creditBalance}
+          onBuyCredits={() => setShowCreditShop(true)}
+          onDocGenerated={() => {
+            setGenDocsRefreshKey(k => k + 1);
+            fetchCreditBalance();
+          }}
         />
       );
     }
@@ -2452,6 +2585,25 @@ export default function App() {
       )}
 
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
+
+      {showCreditShop && (
+        <CreditShopModal
+          onClose={() => setShowCreditShop(false)}
+          onPurchaseStarted={() => setShowCreditShop(false)}
+        />
+      )}
+
+      {/* Checkout success toast */}
+      {checkoutToast && (
+        <div style={{
+          position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
+          background: "#0e2d14", border: "1px solid #1a5c25", borderRadius: 12,
+          padding: "12px 20px", color: "#4ade80", fontSize: 14, fontWeight: 700,
+          zIndex: 500, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+        }}>
+          {checkoutToast}
+        </div>
+      )}
 
       {/* First-time welcome screen — shown once after first login */}
       <WelcomeModal />

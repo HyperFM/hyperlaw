@@ -80,6 +80,7 @@ const BASE = "/api";
 
 interface AiError extends Error {
   code?: string;
+  creditBalance?: number;
 }
 
 async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -96,6 +97,9 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     const body = await r.json().catch(() => ({ error: "Request failed" })) as { error?: string; code?: string };
     const err: AiError = new Error(body.error || `AI request failed (${r.status})`);
     err.code = body.code;
+    if (r.status === 402 && (body as Record<string, unknown>).creditBalance !== undefined) {
+      err.creditBalance = (body as Record<string, unknown>).creditBalance as number;
+    }
     throw err;
   }
 
@@ -122,6 +126,14 @@ export interface KnowledgeEntry {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreditProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  metadata: { credits?: string; type?: string };
+  prices: Array<{ id: string; unit_amount: number; currency: string; active: boolean }>;
 }
 
 export interface ServerGeneratedDoc {
@@ -257,6 +269,65 @@ export const aiApi = {
   /** Delete all user-owned server data (call before Clerk user.delete()) */
   deleteUserData(): Promise<void> {
     return aiFetch("/user", { method: "DELETE" });
+  },
+
+  // ── Stripe / Credits ───────────────────────────────────────────────────────
+
+  /** Get the authenticated user's current credit balance */
+  creditBalance(): Promise<{ creditBalance: number }> {
+    return aiFetch("/stripe/credits");
+  },
+
+  /** List credit-pack products from Stripe */
+  creditProducts(): Promise<{ data: CreditProduct[] }> {
+    return aiFetch("/stripe/products");
+  },
+
+  /**
+   * Create a Stripe Checkout session for purchasing credits.
+   * Returns { url } — redirect the user to url to complete payment.
+   */
+  createCreditCheckout(priceId: string, _creditAmount: number, successPath = "/"): Promise<{ url: string }> {
+    return aiFetch("/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ priceId, successPath, cancelPath: "/" }),
+    });
+  },
+
+  /** Open the Stripe Billing Portal to view payment history */
+  stripePortal(): Promise<{ url: string }> {
+    return aiFetch("/stripe/portal");
+  },
+
+  /**
+   * Generate a formal legal document using 1 credit.
+   * Returns the saved GeneratedDocument record.
+   */
+  generateDocument(payload: {
+    caseId?: string;
+    documentType: "complaint" | "motion" | "timeline";
+    title?: string;
+    caseData: {
+      title: string;
+      notes?: string;
+      plaintiff?: string;
+      defendant?: string;
+      court?: string;
+      caseNumber?: string;
+      jurisdiction?: string;
+      incidents?: Array<{
+        title: string;
+        description: string;
+        category: string;
+        dateOfEvent?: string;
+        location?: string;
+      }>;
+    };
+  }): Promise<ServerGeneratedDoc> {
+    return aiFetch("/ai/generate-document", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 
   // ── Generated Documents ────────────────────────────────────────────────────

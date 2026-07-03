@@ -9,6 +9,7 @@ import aiRouter from "./ai";
 import generatedDocumentsRouter from "./generated-documents";
 import userRouter from "./user";
 import knowledgeRouter from "./knowledge";
+import stripeRouter from "./stripe";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(aiRouter);
 router.use(generatedDocumentsRouter);
 router.use(userRouter);
 router.use(knowledgeRouter);
+router.use(stripeRouter);
 
 export default router;

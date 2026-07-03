@@ -12,7 +12,8 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable } from "@workspace/db";
+import { storage } from "../storage.js";
 import { and, eq } from "drizzle-orm";
 
 const router = Router();
@@ -316,6 +317,93 @@ router.get("/ai/documents/:caseId", async (req: Request, res: Response): Promise
     res.json(docs);
   } catch {
     res.json([]);
+  }
+});
+
+// ── POST /ai/generate-document ─────────────────────────────────────────────────
+// Costs 1 credit. Generates a formal legal document (complaint, motion, timeline).
+// Body: { caseId: string; documentType: "complaint"|"motion"|"timeline"; title?: string }
+router.post("/ai/generate-document", async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+    return;
+  }
+
+  const { caseId, documentType, caseData, title } = req.body as {
+    caseId?: string;
+    documentType: "complaint" | "motion" | "timeline";
+    caseData: Parameters<typeof aiService.generateLegalDocument>[1];
+    title?: string;
+  };
+
+  if (!documentType || !["complaint", "motion", "timeline"].includes(documentType)) {
+    res.status(400).json({ error: "documentType must be complaint, motion, or timeline" });
+    return;
+  }
+
+  if (!caseData?.title) {
+    res.status(400).json({ error: "caseData.title is required" });
+    return;
+  }
+
+  const userId = auth.userId;
+
+  // Check and atomically deduct 1 credit
+  const deducted = await storage.deductCredit(userId);
+  if (!deducted) {
+    const balance = await storage.getCreditBalance(userId);
+    res.status(402).json({
+      error: "Insufficient credits",
+      code: "insufficient_credits",
+      creditBalance: balance,
+    });
+    return;
+  }
+
+  try {
+    // Library context for richer output
+    const queryText = `${caseData.title} ${caseData.notes ?? ""} ${(caseData.incidents ?? []).map(i => `${i.title} ${i.description}`).join(" ")}`;
+    const libEntries = await searchLibrary({ query: queryText, limit: 3 });
+    const libContext = formatLibraryContext(libEntries) || undefined;
+
+    const aiResult = await aiService.generateLegalDocument(documentType, caseData, { libraryContext: libContext });
+
+    void logAiCall({
+      userId,
+      caseId: caseId ?? null,
+      feature: "generate_document" as AiFeature,
+      model: aiResult.meta.model,
+      inputTokens: aiResult.meta.inputTokens,
+      outputTokens: aiResult.meta.outputTokens,
+      estimatedCostMicroUsd: aiResult.meta.estimatedCostMicroUsd,
+      responseTimeMs: aiResult.meta.responseTimeMs,
+      cacheHit: false,
+      promptTemplate: `generate_${documentType}`,
+    });
+
+    const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
+
+    const [savedDoc] = await db.insert(generatedDocumentsTable).values({
+      userId,
+      caseId: caseId ?? null,
+      title: docTitle,
+      documentType,
+      content: aiResult.data,
+      paymentStatus: "paid",
+    }).returning();
+
+    res.json(savedDoc);
+  } catch (err) {
+    // Refund the credit on AI failure — best-effort; log if it fails
+    try {
+      await storage.addCredits(userId, 1);
+    } catch (refundErr) {
+      logger.error({ err: refundErr, userId }, 'Credit refund failed after AI error');
+    }
+    res.status(500).json({ error: (err as Error).message || "Document generation failed" });
   }
 });
 

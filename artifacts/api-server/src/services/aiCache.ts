@@ -16,7 +16,8 @@ export type AiFeature =
   | "analyze_case"
   | "chat"
   | "extract_document"
-  | "ocr_image";
+  | "ocr_image"
+  | "generate_document";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

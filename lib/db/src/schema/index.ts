@@ -131,6 +131,27 @@ export const knowledgeLibraryTable = pgTable("knowledge_library", {
   libActiveIdx: index("knowledge_library_active_idx").on(table.isActive),
 }));
 
+// ── Stripe idempotency ────────────────────────────────────────────────────────
+// Tracks processed checkout session IDs to prevent double-crediting on webhook retries.
+
+export const stripeProcessedSessionsTable = pgTable("stripe_processed_sessions", {
+  sessionId: text("session_id").primaryKey(),     // Stripe checkout.session.id
+  userId: text("user_id").notNull(),
+  creditAmount: integer("credit_amount").notNull(),
+  processedAt: timestamp("processed_at").notNull().defaultNow(),
+});
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export const usersTable = pgTable("users", {
+  id: text("id").primaryKey(),                            // Clerk user ID
+  email: text("email"),
+  stripeCustomerId: text("stripe_customer_id"),
+  creditBalance: integer("credit_balance").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // ── Insert schemas ────────────────────────────────────────────────────────────
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });

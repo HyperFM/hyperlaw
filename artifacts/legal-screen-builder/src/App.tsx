@@ -14,7 +14,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc } from "./lib/aiApi";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
 import WelcomeModal from "./components/WelcomeModal";
@@ -27,6 +27,7 @@ import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ORANGE = "#d9711f";
 const BG = "#0a0a0a";
 
@@ -810,9 +811,9 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 }
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey }: {
   hlCase: HLCase; data: AppData;
-  onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void;
+  onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
   onAddIncident: () => void;
   onAddReminder: (r: Reminder) => void; onDeleteReminder: (id: string) => void;
@@ -828,6 +829,19 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [jurisdiction, setJurisdiction] = useState(hlCase.jurisdiction ?? "");
+  const [editingJurisdiction, setEditingJurisdiction] = useState(false);
+  const [genDocs, setGenDocs] = useState<ServerGeneratedDoc[]>([]);
+  const [genDocsLoading, setGenDocsLoading] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGenDocsLoading(true);
+    aiApi.generatedDocs.list(hlCase.id)
+      .then(setGenDocs)
+      .catch(() => {})
+      .finally(() => setGenDocsLoading(false));
+  }, [hlCase.id, genDocsRefreshKey]); // genDocsRefreshKey increments when Tutor saves a doc
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -905,6 +919,39 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </button>
         </div>
 
+        {/* Jurisdiction */}
+        <div style={{ marginBottom: 20 }}>
+          {editingJurisdiction ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={jurisdiction}
+                onChange={e => setJurisdiction(e.target.value)}
+                placeholder="e.g. Kentucky, Federal — 6th Circuit"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === "Enter") { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }
+                  if (e.key === "Escape") { setJurisdiction(hlCase.jurisdiction ?? ""); setEditingJurisdiction(false); }
+                }}
+                style={{ flex: 1, background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+              />
+              <TapBtn variant="orange" onClick={() => { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }} style={{ padding: "0 14px" }}><Check size={15} /></TapBtn>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditingJurisdiction(true)}
+              style={{ background: "none", border: "1px dashed #1e1e1e", borderRadius: 10, padding: "8px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left" }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
+            >
+              <MapPin size={13} color={hlCase.jurisdiction ? ORANGE : "#333"} />
+              <span style={{ fontSize: 13, color: hlCase.jurisdiction ? "#888" : "#333" }}>
+                {hlCase.jurisdiction || "Set jurisdiction — state or federal court"}
+              </span>
+              {hlCase.jurisdiction && <span style={{ fontSize: 11, color: "#555", marginLeft: "auto" }}>Edit</span>}
+            </button>
+          )}
+        </div>
+
         {/* Action buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
           <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>
@@ -974,6 +1021,64 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
           {uploadState === "error" && uploadError && (
             <div style={{ marginTop: 6, padding: "8px 12px", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>{uploadError}</div>
+          )}
+        </div>
+
+        {/* Generated Documents */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>GENERATED DOCUMENTS</div>
+            {genDocsLoading && <Loader2 size={12} color="#444" style={{ animation: "spin 1s linear infinite" }} />}
+          </div>
+          {genDocs.length === 0 && !genDocsLoading ? (
+            <div style={{ color: "#333", fontSize: 13, fontStyle: "italic", padding: "10px 0" }}>
+              No saved documents yet. Use the Tutor to analyze your case and save AI-generated content here.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {genDocs.map(doc => {
+                const statusColor = doc.status === "filed" ? "#22c55e" : doc.status === "verified" ? ORANGE : "#555";
+                return (
+                  <div key={doc.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <FileText size={15} color="#444" style={{ flexShrink: 0, marginTop: 2 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "#1a1a1a", borderRadius: 4, padding: "2px 6px" }}>{doc.documentType.replace("_", " ").toUpperCase()}</span>
+                          <span style={{ fontSize: 11, color: statusColor, fontWeight: 700 }}>{doc.status.toUpperCase()}</span>
+                          <span style={{ fontSize: 11, color: "#444" }}>{new Date(doc.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button
+                          title="Download as text"
+                          onClick={() => {
+                            const blob = new Blob([doc.content], { type: "text/plain" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url; a.download = `${doc.title.replace(/[^a-z0-9]/gi, "_")}.txt`;
+                            a.click(); URL.revokeObjectURL(url);
+                          }}
+                          style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center" }}
+                        ><Download size={13} /></button>
+                        <button
+                          title="Delete"
+                          disabled={deletingDocId === doc.id}
+                          onClick={async () => {
+                            setDeletingDocId(doc.id);
+                            await aiApi.generatedDocs.remove(doc.id).catch(() => {});
+                            setGenDocs(prev => prev.filter(d => d.id !== doc.id));
+                            setDeletingDocId(null);
+                          }}
+                          style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center" }}
+                        ><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -1085,10 +1190,11 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 }
 
 // ─── TUTOR VIEW ───────────────────────────────────────────────────────────────
-function TutorView({ data, initialIncident, initialCase }: {
+function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   data: AppData;
   initialIncident?: Incident | null;
   initialCase?: HLCase | null;
+  onDocSaved?: () => void;
 }) {
   type TutorTarget = { kind: "incident"; item: Incident } | { kind: "case"; item: HLCase } | null;
   const [target, setTarget] = useState<TutorTarget>(() => {
@@ -1107,6 +1213,18 @@ function TutorView({ data, initialIncident, initialCase }: {
   const forceRefreshRef = useRef(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showPreVerify, setShowPreVerify] = useState(false);
+  const [savingDoc, setSavingDoc] = useState(false);
+  // key = "${kind}:${id}" of the last successfully saved target; null = not saved yet
+  const [savedTargetKey, setSavedTargetKey] = useState<string | null>(null);
+
+  // Reset save state whenever the user changes what they're analyzing
+  const currentTargetKey = target
+    ? `${target.kind}:${target.item.id}`
+    : null;
+  useEffect(() => {
+    setSavingDoc(false);
+    setSavedTargetKey(null);
+  }, [currentTargetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check AI status once on mount
   useEffect(() => {
@@ -1335,6 +1453,60 @@ function TutorView({ data, initialIncident, initialCase }: {
                 </div>
               </div>
             )}
+
+            {/* Save Analysis to Case */}
+            {aiAvailable && analysis && (() => {
+              const caseId = target?.kind === "case" ? target.item.id
+                : target?.kind === "incident" && target.item.caseId ? target.item.caseId
+                : null;
+              if (!caseId) return null;
+              const isAlreadySaved = savedTargetKey === currentTargetKey && savedTargetKey !== null;
+              return (
+                <div style={{ marginBottom: 24 }}>
+                  <button
+                    onClick={async () => {
+                      if (savingDoc || isAlreadySaved) return;
+                      setSavingDoc(true);
+                      try {
+                        const content = [
+                          analysis.overview,
+                          "KEY INSIGHTS:",
+                          analysis.insights.map(i => `• ${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
+                          "QUESTIONS TO CONSIDER:",
+                          analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n"),
+                        ].join("\n\n");
+                        await aiApi.generatedDocs.create({
+                          caseId,
+                          title: `AI Analysis — ${target!.item.title}`,
+                          documentType: "analysis",
+                          content,
+                        });
+                        setSavedTargetKey(currentTargetKey);
+                        onDocSaved?.();
+                      } catch {}
+                      setSavingDoc(false);
+                    }}
+                    disabled={savingDoc || isAlreadySaved}
+                    style={{
+                      width: "100%", padding: "11px 16px",
+                      background: isAlreadySaved ? "#0d1a0d" : "#111",
+                      border: `1px solid ${isAlreadySaved ? "#22c55e44" : "#2a2a2a"}`,
+                      borderRadius: 10, cursor: savingDoc || isAlreadySaved ? "default" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                      color: isAlreadySaved ? "#22c55e" : "#666", fontSize: 13, fontWeight: 700,
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {savingDoc
+                      ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving…</>
+                      : isAlreadySaved
+                        ? <><CheckCircle2 size={14} /> Saved to Case</>
+                        : <><FileText size={14} /> Save Analysis to Case</>
+                    }
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* AI Chat — only when Claude is active */}
             {aiAvailable && (
@@ -1824,25 +1996,35 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         </div>
       )}
 
-      {settingRows.map(section => {
-        const Icon = section.icon;
-        return (
-          <div key={section.label} style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <Icon size={13} color={ORANGE} />
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>{section.label.toUpperCase()}</div>
-            </div>
-            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
-              {section.items.map((item, i) => (
-                <div key={item} style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: i < section.items.length - 1 ? "1px solid #1a1a1a" : "none" }}>
-                  <span style={{ fontSize: 14, color: "#ccc" }}>{item}</span>
-                  <ChevronRight size={14} color="#333" />
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      {/* Legal & Compliance */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Shield size={13} color={ORANGE} />
+          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>LEGAL & COMPLIANCE</div>
+        </div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          {[
+            { label: "Terms of Service", href: `${basePath}/legal.html` },
+            { label: "Privacy Policy", href: `${basePath}/legal.html` },
+            { label: "AI Use & Legal Disclaimer", href: `${basePath}/legal.html` },
+          ].map(({ label, href }, i, arr) => (
+            <a
+              key={label}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                borderBottom: i < arr.length - 1 ? "1px solid #1a1a1a" : "none",
+                textDecoration: "none", color: "#ccc",
+              }}
+            >
+              <span style={{ fontSize: 14 }}>{label}</span>
+              <ExternalLink size={13} color="#333" />
+            </a>
+          ))}
+        </div>
+      </div>
 
       {/* Admin panel — above support */}
       {isAdmin && (
@@ -1888,6 +2070,39 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
           }}
         >
           Sign Out
+        </button>
+      </div>
+
+      {/* Danger Zone — Account Deletion */}
+      <div style={{ marginTop: 24, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Trash2 size={13} color="#555" />
+          <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5 }}>DANGER ZONE</div>
+        </div>
+        <button
+          onClick={async () => {
+            const confirmed = window.confirm(
+              "Permanently delete your account?\n\nThis cannot be undone. All your cases, incidents, and saved documents will be removed. Type OK to confirm."
+            );
+            if (!confirmed) return;
+            try {
+              // Purge all server-side user data first, then delete the Clerk account
+              await aiApi.deleteUserData().catch(() => {}); // best-effort
+              await user?.delete();
+            } catch (e) {
+              alert("Failed to delete account. Please contact support at Hyperlawcompliance@gmail.com");
+            }
+          }}
+          style={{
+            width: "100%", padding: "12px 16px", background: "transparent",
+            border: "1px solid #2a1a1a", borderRadius: 12, color: "#444",
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "#ff444444"; e.currentTarget.style.color = "#ff4444"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a1a1a"; e.currentTarget.style.color = "#444"; }}
+        >
+          Delete Account
         </button>
       </div>
 
@@ -2057,6 +2272,7 @@ export default function App() {
   const [showNewIncident, setShowNewIncident] = useState(false);
   const [preLinkedCaseId, setPreLinkedCaseId] = useState<string | null>(null);
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [genDocsRefreshKey, setGenDocsRefreshKey] = useState(0);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
 
   function setData(d: AppData) { setDataRaw(d); saveData(d); }
@@ -2160,6 +2376,7 @@ export default function App() {
           onAddReminder={r => setData(addReminder(data, r))}
           onDeleteReminder={id => setData(deleteReminder(data, id))}
           onBack={() => setView({ type: "home" })}
+          genDocsRefreshKey={genDocsRefreshKey}
         />
       );
     }
@@ -2170,6 +2387,7 @@ export default function App() {
           data={data}
           initialIncident={view.type === "tutor" ? view.incident : null}
           initialCase={view.type === "tutor" ? view.hlCase : null}
+          onDocSaved={() => setGenDocsRefreshKey(k => k + 1)}
         />
       );
     }

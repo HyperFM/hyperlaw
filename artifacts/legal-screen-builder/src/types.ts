@@ -24,6 +24,25 @@ export interface HLCase {
   notes: string;
   status: CaseStatus;
   createdAt: number;
+  /** State/jurisdiction where this matter is pending — e.g. "Kentucky" */
+  jurisdiction?: string;
+}
+
+// ─── Generated Document ───────────────────────────────────────────────────────
+
+export type DocumentStatus = "draft" | "verified" | "filed";
+export type PaymentStatus = "free" | "pending" | "paid";
+
+export interface GeneratedDocument {
+  id: string;
+  caseId: string | null;
+  title: string;
+  documentType: string;   // "analysis" | "complaint" | "motion" | "timeline" | "chat_summary" | "other"
+  content: string;        // full text
+  version: number;
+  status: DocumentStatus;
+  paymentStatus: PaymentStatus;
+  createdAt: number;      // unix ms
 }
 
 // ─── Reminder ─────────────────────────────────────────────────────────────────

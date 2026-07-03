@@ -5,27 +5,31 @@ description: Frontend routing, auth setup, data layer, and AI backend integratio
 
 ## Frontend (artifacts/legal-screen-builder/src/)
 
-- `main.tsx` — ClerkProvider, Wouter routes `/, /sign-in/*?, /sign-up/*?, /plans`
-- `App.tsx` — 2000+ lines. Nav: home | cases | tutor | profile. Views: HomeView, IncidentDetailView, CaseDetailView, TutorView, ProfileView.
-- `types.ts` — Incident, HLCase, Reminder, AppData
-- `store.ts` — loadData/saveData (localStorage key `hl_v3`) + CRUD helpers
+- `main.tsx` — ClerkProvider, Wouter routes `/, /sign-in/*?, /sign-up/*?, /plans`; ToS/Privacy links point to `${basePath}/legal.html` (real page)
+- `App.tsx` — 2450+ lines. Nav: home | cases | tutor | profile. Views: HomeView, IncidentDetailView, CaseDetailView, TutorView, ProfileView.
+- `types.ts` — Incident, HLCase (+ jurisdiction?: string), Reminder, AppData, GeneratedDocument, DocumentStatus, PaymentStatus
+- `store.ts` — loadData/saveData (localStorage key `hl_v3`) + CRUD helpers; defaults `jurisdiction: ""` on load
 - `services/tutor.ts` — staticTutorService (keyword regex fallback when Claude not configured)
 - `lib/api.ts` — existing apiFetch wrapper (notifications, feedback, admin, chat)
-- `lib/aiApi.ts` — AI API client (status, analyzeIncident, analyzeCase, chat, upload, documents)
+- `lib/aiApi.ts` — AI API client; includes generated docs CRUD + `deleteUserData()` for server-side account purge
 
 ## Backend (artifacts/api-server/src/)
 
 - `app.ts` — Express, pino, Clerk middleware, routes at `/api`
 - `routes/ai.ts` — AI routes: GET /ai/status, POST /ai/analyze, POST /ai/chat, POST /ai/upload, GET /ai/documents/:caseId
+- `routes/generated-documents.ts` — CRUD for generated docs: GET /ai/generated-documents?caseId=, POST, PATCH/:id, DELETE/:id
+- `routes/user.ts` — DELETE /user: purges all user DB data (parallel deletes across 6 tables) before Clerk account deletion
 - `services/ai.ts` — AiService class wrapping Claude (claude-opus-4-5); analyzeIncident, analyzeCase, chat, extractFromDocument, ocrImage
 - `services/documentParser.ts` — parseDocument: PDF (pdf-parse), DOCX (mammoth), TXT/RTF (text), images (Claude Vision OCR)
 - `middlewares/clerkProxyMiddleware.ts` — Clerk JS proxy
 
 ## Database (lib/db/src/schema/index.ts)
 
-Tables: notifications, chat_sessions, messages, feedback, **uploaded_documents** (new: userId, caseId, fileName, mimeType, extractedText, caseExtraction jsonb)
+Tables: notifications, chat_sessions, messages, feedback, uploaded_documents, ai_logs, ai_analysis_cache, **generated_documents** (userId, caseId, title, documentType, content, version, status, paymentStatus; indexed on userId+createdAt and userId+caseId)
 
-**Why:** uploadedDocumentsTable stores AI-extracted text and case metadata per user/case. Run `pnpm --filter @workspace/db push` to sync schema.
+**Why:** generatedDocumentsTable stores AI-generated content per user/case with status tracking for future paywall (status: draft→verified→filed; paymentStatus: free→pending→paid).
+
+Run `pnpm --filter @workspace/db push` then `cd lib/db && pnpm exec tsc -p tsconfig.json` after schema changes.
 
 ## AI Integration Design
 
@@ -40,11 +44,21 @@ Tables: notifications, chat_sessions, messages, feedback, **uploaded_documents**
 
 **Why:** Swappable provider design — AiService is the single entry point; changing provider = new AiService impl, no app changes.
 
+## Generated Docs Refresh Pattern
+
+TutorView has `onDocSaved?: () => void` prop. When user saves analysis, it calls `onDocSaved()`. App increments `genDocsRefreshKey` state. CaseDetailView receives `genDocsRefreshKey` in its useEffect deps, triggering a re-fetch of docs. TutorView save guard: `savedTargetKey` state (string `kind:id`) prevents duplicate saves per target; resets via useEffect when target changes.
+
+## Legal Docs
+
+`public/legal.html` — actual ToS/Privacy/AI Disclaimer content served statically. Hash-based tab selector script at bottom: `#tos`, `#privacy`, `#ai`. Links throughout app use `${basePath}/legal.html#tos` etc.
+
 ## Security Notes
 
 - `/ai/upload`: `requireAuth` middleware runs BEFORE `upload.single("file")` (multer) — prevents unauthenticated 20MB memory exhaustion
-- CORS is still `origin: true` (Task #2 proposed but not yet done) — high risk in production
-- caseId on upload comes from request body; not ownership-validated server-side (track for Task #3)
+- `DELETE /user` purges all 6 table groups (generated_documents, ai_logs, ai_analysis_cache, uploaded_documents, notifications, chat_sessions→messages cascade) before Clerk account deletion
+- CORS is still `origin: true` — high risk in production
+- caseId on upload comes from request body; not ownership-validated server-side (track for future hardening)
+- req.params.id values must use `String(req.params.id)` in route handlers — typed as `string | string[]` in Express; `eq()` rejects `string | string[]` for UUID columns
 
 ## CSS Animations
 
@@ -53,4 +67,5 @@ Tables: notifications, chat_sessions, messages, feedback, **uploaded_documents**
 ## TypeScript Notes
 
 - `@types/multer` does not exist for multer v2 — custom declaration at `artifacts/api-server/src/types/multer.d.ts`
-- lib/db uses TypeScript project references; run `npx tsc -p lib/db/tsconfig.json` after schema changes to rebuild dist declarations before api-server typecheck
+- lib/db uses TypeScript project references; run `cd lib/db && pnpm exec tsc -p tsconfig.json` after schema changes to rebuild dist declarations before api-server typecheck
+- drizzle-orm 0.45.x: `eq(uuid_column, value)` requires value typed as `string` (not `string | string[]`) — use `String(req.params.id)` for URL params, explicit cast for query params

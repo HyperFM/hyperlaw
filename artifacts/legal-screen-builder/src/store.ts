@@ -13,7 +13,7 @@ export function loadData(): AppData {
           i,
         ) as Incident),
         cases: (d.cases ?? []).map(c => Object.assign(
-          { status: "open" as CaseStatus },
+          { status: "open" as CaseStatus, jurisdiction: "" },
           c,
         ) as HLCase),
         reminders: d.reminders ?? [],

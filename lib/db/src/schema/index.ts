@@ -89,6 +89,28 @@ export const aiAnalysisCacheTable = pgTable("ai_analysis_cache", {
   userCacheKeyIdx: uniqueIndex("ai_cache_user_key_idx").on(table.userId, table.cacheKey),
 }));
 
+// ── Generated Documents ───────────────────────────────────────────────────────
+
+export const generatedDocumentsTable = pgTable("generated_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id"),
+  title: text("title").notNull(),
+  /** e.g. "analysis" | "complaint" | "motion" | "timeline" | "chat_summary" | "other" */
+  documentType: text("document_type").notNull().default("other"),
+  content: text("content").notNull(),
+  version: integer("version").notNull().default(1),
+  /** "draft" | "verified" | "filed" */
+  status: text("status").notNull().default("draft"),
+  /** "free" | "pending" | "paid" */
+  paymentStatus: text("payment_status").notNull().default("free"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  genDocsUserIdx: uniqueIndex("gen_docs_user_idx").on(table.userId, table.createdAt),
+  genDocsCaseIdx: uniqueIndex("gen_docs_case_idx").on(table.userId, table.caseId),
+}));
+
 // ── Insert schemas ────────────────────────────────────────────────────────────
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });
@@ -102,5 +124,6 @@ export type ChatSession = typeof chatSessionsTable.$inferSelect;
 export type Message = typeof messagesTable.$inferSelect;
 export type Feedback = typeof feedbackTable.$inferSelect;
 export type UploadedDocument = typeof uploadedDocumentsTable.$inferSelect;
+export type GeneratedDocument = typeof generatedDocumentsTable.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;

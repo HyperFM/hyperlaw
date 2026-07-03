@@ -113,12 +113,12 @@ const TOS_LINKS = (
     maxWidth: 340,
   }}>
     By signing in or creating an account, you agree to HyperLaw's{" "}
-    <a href="https://hyperlaw.app/terms" target="_blank" rel="noopener noreferrer"
+    <a href={`${basePath}/legal.html`} target="_blank" rel="noopener noreferrer"
       style={{ color: "#d9711f", textDecoration: "underline", textUnderlineOffset: 2 }}>
       Terms of Service
     </a>{" "}
     and{" "}
-    <a href="https://hyperlaw.app/privacy" target="_blank" rel="noopener noreferrer"
+    <a href={`${basePath}/legal.html`} target="_blank" rel="noopener noreferrer"
       style={{ color: "#d9711f", textDecoration: "underline", textUnderlineOffset: 2 }}>
       Privacy Policy
     </a>.

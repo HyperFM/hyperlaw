@@ -6,6 +6,8 @@ import adminRouter from "./admin";
 import adminAiRouter from "./admin-ai";
 import chatRouter from "./chat";
 import aiRouter from "./ai";
+import generatedDocumentsRouter from "./generated-documents";
+import userRouter from "./user";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use(adminRouter);
 router.use(adminAiRouter);
 router.use(chatRouter);
 router.use(aiRouter);
+router.use(generatedDocumentsRouter);
+router.use(userRouter);
 
 export default router;

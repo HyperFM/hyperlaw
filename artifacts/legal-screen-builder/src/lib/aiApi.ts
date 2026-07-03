@@ -104,6 +104,22 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+// ── Server-side GeneratedDocument shape (matches DB / API response) ──────────
+
+export interface ServerGeneratedDoc {
+  id: string;
+  userId: string;
+  caseId: string | null;
+  title: string;
+  documentType: string;
+  content: string;
+  version: number;
+  status: string;         // "draft" | "verified" | "filed"
+  paymentStatus: string;  // "free" | "pending" | "paid"
+  createdAt: string;      // ISO timestamp from server
+  updatedAt: string;
+}
+
 export const aiApi = {
   /** Check whether Claude is configured on the server */
   status(): Promise<{ configured: boolean; provider: string }> {
@@ -176,6 +192,49 @@ export const aiApi = {
   /** Get previously uploaded documents for a case */
   documents(caseId: string): Promise<Array<{ id: string; fileName: string; mimeType: string; caseExtraction: CaseExtraction | null; createdAt: string }>> {
     return aiFetch(`/ai/documents/${caseId}`);
+  },
+
+  // ── User self-service ──────────────────────────────────────────────────────
+
+  /** Delete all user-owned server data (call before Clerk user.delete()) */
+  deleteUserData(): Promise<void> {
+    return aiFetch("/user", { method: "DELETE" });
+  },
+
+  // ── Generated Documents ────────────────────────────────────────────────────
+
+  generatedDocs: {
+    /** List documents — optionally scoped to a caseId */
+    list(caseId?: string): Promise<ServerGeneratedDoc[]> {
+      const q = caseId ? `?caseId=${encodeURIComponent(caseId)}` : "";
+      return aiFetch(`/ai/generated-documents${q}`);
+    },
+
+    /** Save a new generated document to the server */
+    create(payload: {
+      caseId?: string | null;
+      title: string;
+      documentType?: string;
+      content: string;
+    }): Promise<ServerGeneratedDoc> {
+      return aiFetch("/ai/generated-documents", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    /** Update title or status of a saved document */
+    update(id: string, changes: { status?: string; title?: string }): Promise<ServerGeneratedDoc> {
+      return aiFetch(`/ai/generated-documents/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(changes),
+      });
+    },
+
+    /** Delete a document */
+    remove(id: string): Promise<void> {
+      return aiFetch(`/ai/generated-documents/${id}`, { method: "DELETE" });
+    },
   },
 
   // ── Admin-only endpoints ───────────────────────────────────────────────────

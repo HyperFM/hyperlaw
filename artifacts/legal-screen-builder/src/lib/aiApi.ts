@@ -364,11 +364,32 @@ export const aiApi = {
     remove(id: string): Promise<void> {
       return aiFetch(`/ai/generated-documents/${id}`, { method: "DELETE" });
     },
+
+    /**
+     * Unlock a preview document. Spends 1 credit and sets paymentStatus → "paid".
+     * Idempotent: if already paid, returns the doc immediately.
+     * Throws AiError with code "insufficient_credits" if balance is 0.
+     */
+    unlock(id: string): Promise<ServerGeneratedDoc> {
+      return aiFetch(`/ai/generated-documents/${id}/unlock`, { method: "POST" });
+    },
   },
 
   // ── Admin-only endpoints ───────────────────────────────────────────────────
 
   admin: {
+    /** Platform-wide aggregate metrics */
+    platformStats(): Promise<{
+      totalUsers: number;
+      totalDocs: number;
+      unlockedDocs: number;
+      previewDocs: number;
+      creditsSold: number;
+      stripeRevenueCents: number;
+    }> {
+      return aiFetch("/admin/platform-stats");
+    },
+
     /** Paginated AI call logs */
     logs(params?: { page?: number; limit?: number; feature?: string; cacheHit?: boolean }): Promise<{ logs: AiLog[]; total: number; page: number; limit: number }> {
       const q = new URLSearchParams();

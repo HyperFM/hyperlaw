@@ -2,8 +2,30 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { getAuth } from "@clerk/express";
 import { db, generatedDocumentsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
+import { storage } from "../storage.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
+
+// ── Server-side paywall helper ────────────────────────────────────────────────
+// Preview docs are stored with full content but must NEVER be sent in full to
+// the client until unlocked. This function strips content down to ~200 words
+// for preview docs, guaranteeing enforcement even if the client is bypassed.
+const PREVIEW_SERVER_WORD_LIMIT = 200;
+
+type GeneratedDoc = typeof generatedDocumentsTable.$inferSelect;
+
+function toClientDoc(doc: GeneratedDoc): GeneratedDoc {
+  if (doc.paymentStatus === "paid") return doc;
+  const words = doc.content.split(/\s+/);
+  const truncated = words.slice(0, PREVIEW_SERVER_WORD_LIMIT).join(" ");
+  return {
+    ...doc,
+    content: truncated + (words.length > PREVIEW_SERVER_WORD_LIMIT
+      ? " … [Unlock the full document to continue reading]"
+      : ""),
+  };
+}
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const { userId } = getAuth(req);
@@ -29,7 +51,7 @@ router.get("/ai/generated-documents", requireAuth, async (req: Request, res: Res
           .from(generatedDocumentsTable)
           .where(eq(generatedDocumentsTable.userId, userId))
           .orderBy(desc(generatedDocumentsTable.createdAt));
-    res.json(rows);
+    res.json(rows.map(toClientDoc));
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch generated documents" });
   }
@@ -93,6 +115,67 @@ router.patch("/ai/generated-documents/:id", requireAuth, async (req: Request, re
     res.json(doc);
   } catch (err) {
     res.status(500).json({ error: "Failed to update document" });
+  }
+});
+
+// ── Unlock a generated document (spend 1 credit) ──────────────────────────────
+// If the document is already "paid", returns it immediately (idempotent).
+router.post("/ai/generated-documents/:id/unlock", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as any).userId as string;
+  const id = String(req.params.id);
+
+  // Verify the document belongs to this user
+  const [doc] = await db
+    .select()
+    .from(generatedDocumentsTable)
+    .where(and(eq(generatedDocumentsTable.id, id), eq(generatedDocumentsTable.userId, userId)));
+
+  if (!doc) { res.status(404).json({ error: "Not found" }); return; }
+
+  // Already unlocked — idempotent (return full content)
+  if (doc.paymentStatus === "paid") { res.json(doc); return; }
+
+  // Deduct 1 credit atomically
+  const deducted = await storage.deductCredit(userId);
+  if (!deducted) {
+    const balance = await storage.getCreditBalance(userId);
+    res.status(402).json({
+      error: "Insufficient credits",
+      code: "insufficient_credits",
+      creditBalance: balance,
+    });
+    return;
+  }
+
+  try {
+    // Race-safe: only update if still "preview". If another parallel request already
+    // flipped to "paid", this returns 0 rows → refund the credit we just deducted.
+    const [updated] = await db
+      .update(generatedDocumentsTable)
+      .set({ paymentStatus: "paid", updatedAt: new Date() })
+      .where(and(
+        eq(generatedDocumentsTable.id, id),
+        eq(generatedDocumentsTable.userId, userId),
+        eq(generatedDocumentsTable.paymentStatus, "preview"), // ← prevents double-unlock
+      ))
+      .returning();
+
+    if (!updated) {
+      // Another request already unlocked it — refund credit and return the paid doc
+      await storage.addCredits(userId, 1).catch(e => logger.error({ e }, 'Refund failed'));
+      const [existing] = await db
+        .select()
+        .from(generatedDocumentsTable)
+        .where(and(eq(generatedDocumentsTable.id, id), eq(generatedDocumentsTable.userId, userId)));
+      res.json(existing ?? { error: "Not found" });
+      return;
+    }
+
+    res.json(updated); // full content — paymentStatus is now "paid"
+  } catch (err) {
+    // Refund credit on DB failure
+    await storage.addCredits(userId, 1).catch(e => logger.error({ e }, 'Refund failed'));
+    res.status(500).json({ error: "Failed to unlock document" });
   }
 });
 

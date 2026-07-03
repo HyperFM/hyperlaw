@@ -321,7 +321,9 @@ router.get("/ai/documents/:caseId", async (req: Request, res: Response): Promise
 });
 
 // ── POST /ai/generate-document ─────────────────────────────────────────────────
-// Costs 1 credit. Generates a formal legal document (complaint, motion, timeline).
+// FREE — Generates a formal legal document and saves it as a "preview".
+// The full content is stored but gated behind paymentStatus: "preview".
+// Users spend 1 credit via POST /ai/generated-documents/:id/unlock to unlock.
 // Body: { caseId: string; documentType: "complaint"|"motion"|"timeline"; title?: string }
 router.post("/ai/generate-document", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
@@ -351,18 +353,6 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
 
   const userId = auth.userId;
 
-  // Check and atomically deduct 1 credit
-  const deducted = await storage.deductCredit(userId);
-  if (!deducted) {
-    const balance = await storage.getCreditBalance(userId);
-    res.status(402).json({
-      error: "Insufficient credits",
-      code: "insufficient_credits",
-      creditBalance: balance,
-    });
-    return;
-  }
-
   try {
     // Library context for richer output
     const queryText = `${caseData.title} ${caseData.notes ?? ""} ${(caseData.incidents ?? []).map(i => `${i.title} ${i.description}`).join(" ")}`;
@@ -386,23 +376,25 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
 
     const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
 
+    // Save as "preview" — full content stored in DB, client receives truncated preview
     const [savedDoc] = await db.insert(generatedDocumentsTable).values({
       userId,
       caseId: caseId ?? null,
       title: docTitle,
       documentType,
       content: aiResult.data,
-      paymentStatus: "paid",
+      paymentStatus: "preview",
     }).returning();
 
-    res.json(savedDoc);
+    // Never send full content to the client for preview docs — truncate server-side
+    const PREVIEW_WORDS = 200;
+    const words = (savedDoc.content ?? "").split(/\s+/);
+    const clientContent = words.length > PREVIEW_WORDS
+      ? words.slice(0, PREVIEW_WORDS).join(" ") + " … [Unlock the full document to continue reading]"
+      : savedDoc.content;
+
+    res.json({ ...savedDoc, content: clientContent });
   } catch (err) {
-    // Refund the credit on AI failure — best-effort; log if it fails
-    try {
-      await storage.addCredits(userId, 1);
-    } catch (refundErr) {
-      logger.error({ err: refundErr, userId }, 'Credit refund failed after AI error');
-    }
     res.status(500).json({ error: (err as Error).message || "Document generation failed" });
   }
 });

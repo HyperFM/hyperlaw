@@ -5,7 +5,7 @@ import {
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
-  Download, MessageSquare, Shield, Loader2, Send, Upload,
+  Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock,
 } from "lucide-react";
 import { Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus } from "./types";
 import {
@@ -22,6 +22,7 @@ import WelcomeModal from "./components/WelcomeModal";
 import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import SupportModal from "./components/SupportModal";
+import DocumentViewerModal from "./components/DocumentViewerModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 
@@ -840,6 +841,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [generatingDocType, setGeneratingDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [viewingDoc, setViewingDoc] = useState<ServerGeneratedDoc | null>(null);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -891,14 +893,10 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         },
       });
       setGenDocs(prev => [doc, ...prev]);
-      onDocGenerated?.();
+      setViewingDoc(doc); // auto-open preview so user can verify formatting
     } catch (err: unknown) {
-      const e = err as { message?: string; code?: string };
-      if (e.code === "insufficient_credits") {
-        onBuyCredits?.();
-      } else {
-        setGenerateError(e.message || "Generation failed. Try again.");
-      }
+      const e = err as { message?: string };
+      setGenerateError(e.message || "Generation failed. Try again.");
     } finally {
       setGeneratingDocType(null);
     }
@@ -1087,22 +1085,19 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                         <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "#1a1a1a", borderRadius: 4, padding: "2px 6px" }}>{doc.documentType.replace("_", " ").toUpperCase()}</span>
-                          <span style={{ fontSize: 11, color: statusColor, fontWeight: 700 }}>{doc.status.toUpperCase()}</span>
+                          {doc.paymentStatus === "paid"
+                            ? <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>UNLOCKED</span>
+                            : <span style={{ fontSize: 10, fontWeight: 700, color: ORANGE, display: "flex", alignItems: "center", gap: 2 }}><Lock size={9} /> PREVIEW</span>
+                          }
                           <span style={{ fontSize: 11, color: "#444" }}>{new Date(doc.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         <button
-                          title="Download as text"
-                          onClick={() => {
-                            const blob = new Blob([doc.content], { type: "text/plain" });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url; a.download = `${doc.title.replace(/[^a-z0-9]/gi, "_")}.txt`;
-                            a.click(); URL.revokeObjectURL(url);
-                          }}
-                          style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center" }}
-                        ><Download size={13} /></button>
+                          title={doc.paymentStatus === "paid" ? "View document" : "View preview"}
+                          onClick={() => setViewingDoc(doc)}
+                          style={{ background: "none", border: `1px solid ${doc.paymentStatus === "paid" ? "#2a3a2a" : "#2a2a1a"}`, borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: doc.paymentStatus === "paid" ? "#22c55e" : ORANGE, display: "flex", alignItems: "center" }}
+                        ><Eye size={13} /></button>
                         <button
                           title="Delete"
                           disabled={deletingDocId === doc.id}
@@ -1142,19 +1137,18 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             )}
           </div>
           <div style={{ color: "#444", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-            AI-drafted formal legal documents based on your case data. Each costs 1 credit.
+            Generate a free preview — verify the formatting, then unlock the full document for 1 credit.
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {(["complaint", "timeline", "motion"] as const).map(docType => {
               const labels: Record<string, string> = { complaint: "Civil Rights Complaint", timeline: "Incident Timeline", motion: "Litigation Motion" };
               const isGenerating = generatingDocType === docType;
               const anyGenerating = !!generatingDocType;
-              const noCredits = (creditBalance ?? 0) === 0;
               return (
                 <button
                   key={docType}
                   disabled={anyGenerating}
-                  onClick={() => noCredits ? onBuyCredits?.() : handleGenerateDoc(docType)}
+                  onClick={() => handleGenerateDoc(docType)}
                   style={{
                     background: "#111", border: `1px solid ${isGenerating ? ORANGE : "#1e1e1e"}`,
                     borderRadius: 10, padding: "10px 14px", cursor: anyGenerating ? "not-allowed" : "pointer",
@@ -1169,9 +1163,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                     }
                     {labels[docType]}
                   </div>
-                  <div style={{ fontSize: 10, color: noCredits ? "#ef4444" : "#555" }}>
-                    {noCredits ? "Buy credits →" : "1 credit"}
-                  </div>
+                  <div style={{ fontSize: 10, color: "#555" }}>Free preview</div>
                 </button>
               );
             })}
@@ -1266,6 +1258,21 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         )}
       </div>
+
+      {/* Document viewer / paywall / TTS / download */}
+      {viewingDoc && (
+        <DocumentViewerModal
+          doc={viewingDoc}
+          creditBalance={creditBalance}
+          onBuyCredits={onBuyCredits}
+          onClose={() => setViewingDoc(null)}
+          onDocUnlocked={(updatedDoc) => {
+            setGenDocs(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
+            setViewingDoc(updatedDoc);
+            onDocGenerated?.(); // refreshes credit balance in parent
+          }}
+        />
+      )}
 
       {/* Status picker sheet */}
       {showStatusPicker && (

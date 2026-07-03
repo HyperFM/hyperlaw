@@ -3,6 +3,7 @@ import {
   Users, MessageSquare, X, Send, Clock, Infinity, ChevronLeft,
   RefreshCw, Shield, Calendar, Mail, Search, BarChart2, Zap, Copy, Check,
   BookOpen, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
+  DollarSign, FileText, Lock, Unlock,
 } from "lucide-react";
 import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
 import { aiApi, AiLog, AiStats, KnowledgeEntry, formatMicroUsd, featureLabel } from "../lib/aiApi";
@@ -11,7 +12,16 @@ const ORANGE = "#d9711f";
 const DIM = "#666";
 const LINE = "#1e1e1e";
 
-type AdminView = "users" | "chat" | "ai" | "knowledge";
+type AdminView = "users" | "chat" | "ai" | "knowledge" | "revenue";
+
+interface PlatformStats {
+  totalUsers: number;
+  totalDocs: number;
+  unlockedDocs: number;
+  previewDocs: number;
+  creditsSold: number;
+  stripeRevenueCents: number;
+}
 
 interface KbForm {
   id?: string;
@@ -58,6 +68,10 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [kbForm, setKbForm] = useState<KbForm | null>(null);
   const [kbSaving, setKbSaving] = useState(false);
   const [kbExpandedId, setKbExpandedId] = useState<string | null>(null);
+
+  // ── Revenue / Platform stats state ───────────────────────────────────────
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
+  const [revenueLoading, setRevenueLoading] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -199,6 +213,23 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     }
   }, [view, kbEntries.length, kbLoading, loadKbData]);
 
+  const loadRevenue = useCallback(async () => {
+    setRevenueLoading(true);
+    try {
+      const stats = await aiApi.admin.platformStats();
+      setPlatformStats(stats);
+    } catch {
+    } finally {
+      setRevenueLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === "revenue" && !platformStats && !revenueLoading) {
+      loadRevenue();
+    }
+  }, [view, platformStats, revenueLoading, loadRevenue]);
+
   function blankForm(): KbForm {
     return { title: "", summary: "", body: "", category: "other", tagsStr: "", keywordsStr: "", jurisdiction: "", source: "", isActive: true };
   }
@@ -281,6 +312,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     { id: "users", icon: Users, label: "Users" },
     { id: "ai", icon: Zap, label: "AI Inspector" },
     { id: "knowledge", icon: BookOpen, label: "Knowledge" },
+    { id: "revenue", icon: DollarSign, label: "Revenue" },
   ];
 
   return (
@@ -303,7 +335,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
-            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : loadUsers()}
+            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : view === "revenue" ? loadRevenue() : loadUsers()}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 5, display: "flex" }}
             title="Refresh"
           >
@@ -868,6 +900,119 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
           {!kbLoading && kbEntries.length > 0 && (
             <div style={{ padding: "8px 14px", borderTop: `1px solid ${LINE}`, fontSize: 10, color: "#444" }}>
               {kbEntries.filter(e => e.isActive).length} active · {kbEntries.length} total
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Revenue / Platform Stats view ── */}
+      {view === "revenue" && (
+        <div>
+          {revenueLoading && (
+            <div style={{ padding: 24, textAlign: "center", color: "#444", fontSize: 13 }}>Loading platform stats…</div>
+          )}
+          {platformStats && !revenueLoading && (
+            <div>
+              {/* Big stats grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 0, borderBottom: `1px solid ${LINE}` }}>
+                {[
+                  {
+                    label: "Total Users",
+                    value: platformStats.totalUsers.toLocaleString(),
+                    icon: <Users size={14} color={ORANGE} />,
+                    sub: "Registered in HyperLaw",
+                  },
+                  {
+                    label: "Stripe Revenue",
+                    value: `${(platformStats.stripeRevenueCents / 100).toFixed(2)}`,
+                    icon: <DollarSign size={14} color={ORANGE} />,
+                    sub: "From successful payments",
+                  },
+                  {
+                    label: "Credits Sold",
+                    value: platformStats.creditsSold.toLocaleString(),
+                    icon: <Zap size={14} color={ORANGE} />,
+                    sub: "Via Stripe checkout",
+                  },
+                  {
+                    label: "Documents Unlocked",
+                    value: platformStats.unlockedDocs.toLocaleString(),
+                    icon: <Unlock size={14} color={ORANGE} />,
+                    sub: `${platformStats.previewDocs} previews pending`,
+                  },
+                ].map((stat, i) => (
+                  <div key={i} style={{
+                    padding: "16px 14px",
+                    borderRight: i % 2 === 0 ? `1px solid ${LINE}` : "none",
+                    borderBottom: i < 2 ? `1px solid ${LINE}` : "none",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      {stat.icon}
+                      <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5 }}>{stat.label.toUpperCase()}</div>
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: ORANGE, letterSpacing: "-0.02em" }}>{stat.value}</div>
+                    <div style={{ fontSize: 10, color: "#444", marginTop: 3 }}>{stat.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Document funnel */}
+              <div style={{ padding: "14px 16px", borderBottom: `1px solid ${LINE}` }}>
+                <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>DOCUMENT FUNNEL</div>
+                {platformStats.totalDocs > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {[
+                      { label: "Generated (Previews)", value: platformStats.totalDocs, color: "#555" },
+                      { label: "Unlocked (Paid)", value: platformStats.unlockedDocs, color: ORANGE },
+                    ].map((row, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 110, fontSize: 11, color: "#888" }}>{row.label}</div>
+                        <div style={{ flex: 1, height: 6, background: "#111", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{
+                            width: `${platformStats.totalDocs > 0 ? (row.value / platformStats.totalDocs) * 100 : 0}%`,
+                            height: "100%", background: row.color, borderRadius: 3,
+                            transition: "width 0.4s",
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: "#666", width: 30, textAlign: "right" }}>{row.value}</div>
+                        <div style={{ fontSize: 10, color: "#444", width: 36, textAlign: "right" }}>
+                          {platformStats.totalDocs > 0
+                            ? `${Math.round((row.value / platformStats.totalDocs) * 100)}%`
+                            : "0%"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: "#444", fontStyle: "italic" }}>No documents generated yet.</div>
+                )}
+              </div>
+
+              {/* Conversion rate */}
+              {platformStats.totalDocs > 0 && (
+                <div style={{ padding: "14px 16px" }}>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>CONVERSION RATE</div>
+                  <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.6 }}>
+                    <span style={{ color: ORANGE, fontWeight: 800, fontSize: 20 }}>
+                      {Math.round((platformStats.unlockedDocs / platformStats.totalDocs) * 100)}%
+                    </span>
+                    {" "}of generated previews converted to paid unlocks.
+                  </div>
+                  {platformStats.creditsSold > 0 && (
+                    <div style={{ fontSize: 11, color: "#444", marginTop: 4 }}>
+                      Avg revenue per credit sold: ${((platformStats.stripeRevenueCents / 100) / platformStats.creditsSold).toFixed(2)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {!platformStats && !revenueLoading && (
+            <div style={{ padding: 24, textAlign: "center" }}>
+              <button onClick={loadRevenue}
+                style={{ background: ORANGE, border: "none", borderRadius: 8, padding: "8px 16px", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Load Stats
+              </button>
             </div>
           )}
         </div>

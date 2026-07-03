@@ -2,3 +2,4 @@
 - [HyperLaw Architecture](hyperlaw-arch.md) — Landing page (unauthenticated) = plans carousel; App.tsx = authenticated main app; Wouter routes at /, /sign-in/*?, /sign-up/*?.
 - [Stripe Replit Connector](stripe-replit-connector.md) — credential field names and header quirks; esbuild externalization; syncBackfill behavior.
 - [HyperLaw Phase 3 Payments](hyperlaw-phase3-payments.md) — credit wallet architecture, idempotency table, server-authoritative credit amounts.
+- [HyperLaw Phase 4 Paywall](hyperlaw-phase4-paywall.md) — preview→unlock model, server-side truncation required, race-safe conditional UPDATE, DocumentViewerModal, Admin Revenue tab.

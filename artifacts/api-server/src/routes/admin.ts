@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "@clerk/express";
-import { db, chatSessionsTable, messagesTable, notificationsTable } from "@workspace/db";
-import { eq, desc, asc } from "drizzle-orm";
+import { db, chatSessionsTable, messagesTable, notificationsTable, usersTable, stripeProcessedSessionsTable, generatedDocumentsTable } from "@workspace/db";
+import { eq, desc, asc, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback";
 
 const router = Router();
@@ -99,6 +99,60 @@ router.post("/admin/messages/:sessionId", async (req: Request, res: Response): P
   });
 
   res.json(msg);
+});
+
+// ── GET /admin/platform-stats ─────────────────────────────────────────────────
+// Returns aggregate platform metrics: users, docs by status, credits sold, revenue.
+router.get("/admin/platform-stats", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+
+  try {
+    // Users registered in HyperLaw DB (may be < Clerk total if new users haven't used AI yet)
+    const [userCountRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(usersTable);
+
+    // Generated documents grouped by paymentStatus
+    const docRows = await db
+      .select({
+        paymentStatus: generatedDocumentsTable.paymentStatus,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(generatedDocumentsTable)
+      .groupBy(generatedDocumentsTable.paymentStatus);
+
+    const totalDocs = docRows.reduce((sum, r) => sum + r.count, 0);
+    const unlockedDocs = docRows.find(r => r.paymentStatus === "paid")?.count ?? 0;
+    const previewDocs = docRows.find(r => r.paymentStatus === "preview")?.count ?? 0;
+
+    // Credits sold via Stripe checkout (sum from idempotency table)
+    const [creditsRow] = await db
+      .select({ total: sql<number>`coalesce(sum(credit_amount), 0)::int` })
+      .from(stripeProcessedSessionsTable);
+
+    // Stripe revenue — try stripe schema first, fall back to 0
+    let stripeRevenueCents = 0;
+    try {
+      const revResult = await db.execute(
+        sql`SELECT COALESCE(SUM(amount), 0)::bigint AS total FROM stripe.payment_intents WHERE status = 'succeeded'`
+      );
+      stripeRevenueCents = parseInt(String((revResult.rows[0] as Record<string, unknown>)?.total ?? "0"), 10);
+    } catch {
+      // stripe schema may not be populated yet — return 0
+    }
+
+    res.json({
+      totalUsers: userCountRow?.count ?? 0,
+      totalDocs,
+      unlockedDocs,
+      previewDocs,
+      creditsSold: creditsRow?.total ?? 0,
+      stripeRevenueCents,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch platform stats" });
+  }
 });
 
 router.put("/admin/sessions/:sessionId/retention", async (req: Request, res: Response): Promise<void> => {

@@ -1772,16 +1772,16 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
   const plans = [
     {
       id: "firstfiling", name: "First Filing", tagline: "You don't have to be fearless. Doing it afraid is just as brave.",
-      price: "Free", cycle: null as string | null, priceNote: "No card required · usage limits apply",
+      price: "Pay As You Go", cycle: null as string | null, priceNote: "No subscription · 1 credit unlocks one full document",
       badge: null as string | null,
       quote: '"You\'ll make mistakes. That\'s not disqualifying — quitting is. Stay determined and the scale tips your way eventually, even when it doesn\'t look like it yet."',
       features: [
-        { text: "<b>Build one case, start to finish</b> — one new case per day, so it grows with you instead of overwhelming you", tbd: false },
-        { text: "Guided case tutor included, with its own usage limits so it's there whenever you need it", tbd: false },
-        { text: "A document & evidence checklist: keep the camera rolling, save every receipt", tbd: false },
-        { text: "Plain-English glossary for the terms nobody explains to you", tbd: false },
+        { text: "<b>Cases, incidents & timelines — always free</b> — build and document everything at no cost", tbd: false },
+        { text: "<b>AI document previews — always free</b> — generate any complaint, motion, or timeline and review it before spending a cent", tbd: false },
+        { text: "<b>Unlock full documents à la carte</b> — spend 1 credit per document only when you're ready to download", tbd: false },
+        { text: "Guided case tutor included — plain-English answers to your legal questions", tbd: false },
       ],
-      ctaLabel: "Start First Filing", ctaStyle: "secondary" as const,
+      ctaLabel: "Start Building Your Case", ctaStyle: "secondary" as const,
     },
     {
       id: "prosay", name: "Pro-Say Selection", tagline: "Say it right, every filing",
@@ -1957,7 +1957,7 @@ function PlansOverlay({ onClose }: { onClose: () => void }) {
         </div>
 
         <p style={{ textAlign: "center", color: "#4a4542", fontSize: 11, marginTop: 32, lineHeight: 1.6 }}>
-          No auto-renewals without notice · Cancel anytime · Usage limits apply on free tier
+          No subscription required · Pay only for what you unlock · Cancel paid plans anytime
         </p>
       </div>
     </div>
@@ -2035,7 +2035,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg }: {
         <Star size={18} color={ORANGE} style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Membership</div>
-          <div style={{ color: "#555", fontSize: 12 }}>First Filing (Free) · View plans & upgrade</div>
+          <div style={{ color: "#555", fontSize: 12 }}>Pay As You Go · Buy credits to unlock documents</div>
         </div>
         <ChevronRight size={15} color="#333" />
       </button>

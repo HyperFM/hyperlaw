@@ -97,7 +97,7 @@ export default function WelcomePage() {
             boxShadow: "0 10px 30px -10px rgba(244,93,1,.75)",
           }}
         >
-          Start for Free
+          Start Building Your Case
         </button>
         <button
           onClick={() => navigate(`${basePath}/sign-in`)}
@@ -135,7 +135,7 @@ export default function WelcomePage() {
       </div>
 
       <p style={{ color: "#3a3532", fontSize: 11, marginTop: 40, lineHeight: 1.6 }}>
-        Free tier available · No card required to start
+No subscription · pay only when you unlock a document
       </p>
     </div>
   );

@@ -145,7 +145,7 @@ export interface ServerGeneratedDoc {
   content: string;
   version: number;
   status: string;         // "draft" | "verified" | "filed"
-  paymentStatus: string;  // "free" | "pending" | "paid"
+  paymentStatus: string;  // "preview" (generated, not yet unlocked) | "paid" (credit spent, full access)
   createdAt: string;      // ISO timestamp from server
   updatedAt: string;
 }

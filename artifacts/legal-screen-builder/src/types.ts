@@ -31,7 +31,7 @@ export interface HLCase {
 // ─── Generated Document ───────────────────────────────────────────────────────
 
 export type DocumentStatus = "draft" | "verified" | "filed";
-export type PaymentStatus = "free" | "pending" | "paid";
+export type PaymentStatus = "preview" | "paid";
 
 export interface GeneratedDocument {
   id: string;

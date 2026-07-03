@@ -15,6 +15,9 @@ import {
 import { db, uploadedDocumentsTable, generatedDocumentsTable } from "@workspace/db";
 import { storage } from "../storage.js";
 import { and, eq } from "drizzle-orm";
+import { getClerkUserEmail } from "./feedback.js";
+
+const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
 const router = Router();
 
@@ -376,17 +379,28 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
 
     const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
 
-    // Save as "preview" — full content stored in DB, client receives truncated preview
+    // Admin accounts always get full access — check before deciding truncation
+    const adminInfo = await getClerkUserEmail(userId).catch(() => null);
+    const isAdminUser = adminInfo?.email === ADMIN_EMAIL;
+
+    // Save as "preview" — full content stored in DB
     const [savedDoc] = await db.insert(generatedDocumentsTable).values({
       userId,
       caseId: caseId ?? null,
       title: docTitle,
       documentType,
       content: aiResult.data,
-      paymentStatus: "preview",
+      // Admin documents are saved as "paid" immediately — no credit gate
+      paymentStatus: isAdminUser ? "paid" : "preview",
     }).returning();
 
-    // Never send full content to the client for preview docs — truncate server-side
+    if (isAdminUser) {
+      // Admin: return full content, already marked as paid
+      res.json(savedDoc);
+      return;
+    }
+
+    // Non-admin: truncate before sending to client — full content stays in DB
     const PREVIEW_WORDS = 200;
     const words = (savedDoc.content ?? "").split(/\s+/);
     const clientContent = words.length > PREVIEW_WORDS

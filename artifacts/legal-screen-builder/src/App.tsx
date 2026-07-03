@@ -813,7 +813,7 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 }
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
@@ -823,6 +823,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   creditBalance?: number;
   onBuyCredits?: () => void;
   onDocGenerated?: () => void;
+  isAdmin?: boolean;
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1265,6 +1266,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           doc={viewingDoc}
           creditBalance={creditBalance}
           onBuyCredits={onBuyCredits}
+          isAdmin={isAdmin}
           onClose={() => setViewingDoc(null)}
           onDocUnlocked={(updatedDoc) => {
             setGenDocs(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
@@ -2373,6 +2375,8 @@ type AppView =
 export default function App() {
   const w = useWindowWidth();
   const isMobile = w < 768;
+  const { user } = useUser();
+  const isAdmin = (user?.emailAddresses?.[0]?.emailAddress || "") === ADMIN_EMAIL;
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   const [navTab, setNavTab] = useState<NavTab>("home");
@@ -2512,6 +2516,7 @@ export default function App() {
           onBack={() => setView({ type: "home" })}
           genDocsRefreshKey={genDocsRefreshKey}
           creditBalance={creditBalance}
+          isAdmin={isAdmin}
           onBuyCredits={() => setShowCreditShop(true)}
           onDocGenerated={() => {
             setGenDocsRefreshKey(k => k + 1);

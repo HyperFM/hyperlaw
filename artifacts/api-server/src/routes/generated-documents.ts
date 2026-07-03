@@ -4,19 +4,21 @@ import { db, generatedDocumentsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { storage } from "../storage.js";
 import { logger } from "../lib/logger.js";
+import { getClerkUserEmail } from "./feedback.js";
 
 const router = Router();
 
+const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+
 // ── Server-side paywall helper ────────────────────────────────────────────────
 // Preview docs are stored with full content but must NEVER be sent in full to
-// the client until unlocked. This function strips content down to ~200 words
-// for preview docs, guaranteeing enforcement even if the client is bypassed.
+// the client until unlocked. Admins always receive the full content.
 const PREVIEW_SERVER_WORD_LIMIT = 200;
 
 type GeneratedDoc = typeof generatedDocumentsTable.$inferSelect;
 
-function toClientDoc(doc: GeneratedDoc): GeneratedDoc {
-  if (doc.paymentStatus === "paid") return doc;
+function toClientDoc(doc: GeneratedDoc, isAdmin = false): GeneratedDoc {
+  if (doc.paymentStatus === "paid" || isAdmin) return doc;
   const words = doc.content.split(/\s+/);
   const truncated = words.slice(0, PREVIEW_SERVER_WORD_LIMIT).join(" ");
   return {
@@ -25,6 +27,15 @@ function toClientDoc(doc: GeneratedDoc): GeneratedDoc {
       ? " … [Unlock the full document to continue reading]"
       : ""),
   };
+}
+
+async function checkIsAdmin(userId: string): Promise<boolean> {
+  try {
+    const info = await getClerkUserEmail(userId);
+    return info?.email === ADMIN_EMAIL;
+  } catch {
+    return false;
+  }
 }
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
@@ -40,18 +51,17 @@ router.get("/ai/generated-documents", requireAuth, async (req: Request, res: Res
   const rawCaseId = req.query.caseId;
   const caseId = typeof rawCaseId === "string" ? rawCaseId : undefined;
   try {
-    const rows = caseId
-      ? await db
-          .select()
-          .from(generatedDocumentsTable)
-          .where(and(eq(generatedDocumentsTable.userId, userId), eq(generatedDocumentsTable.caseId, caseId)))
-          .orderBy(desc(generatedDocumentsTable.createdAt))
-      : await db
-          .select()
-          .from(generatedDocumentsTable)
-          .where(eq(generatedDocumentsTable.userId, userId))
-          .orderBy(desc(generatedDocumentsTable.createdAt));
-    res.json(rows.map(toClientDoc));
+    const [rows, isAdmin] = await Promise.all([
+      caseId
+        ? db.select().from(generatedDocumentsTable)
+            .where(and(eq(generatedDocumentsTable.userId, userId), eq(generatedDocumentsTable.caseId, caseId)))
+            .orderBy(desc(generatedDocumentsTable.createdAt))
+        : db.select().from(generatedDocumentsTable)
+            .where(eq(generatedDocumentsTable.userId, userId))
+            .orderBy(desc(generatedDocumentsTable.createdAt)),
+      checkIsAdmin(userId),
+    ]);
+    res.json(rows.map(r => toClientDoc(r, isAdmin)));
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch generated documents" });
   }
@@ -134,6 +144,18 @@ router.post("/ai/generated-documents/:id/unlock", requireAuth, async (req: Reque
 
   // Already unlocked — idempotent (return full content)
   if (doc.paymentStatus === "paid") { res.json(doc); return; }
+
+  // Admin bypass — unlock immediately without charging any credits
+  const isAdmin = await checkIsAdmin(userId);
+  if (isAdmin) {
+    const [unlocked] = await db
+      .update(generatedDocumentsTable)
+      .set({ paymentStatus: "paid", updatedAt: new Date() })
+      .where(and(eq(generatedDocumentsTable.id, id), eq(generatedDocumentsTable.userId, userId)))
+      .returning();
+    res.json(unlocked ?? doc);
+    return;
+  }
 
   // Deduct 1 credit atomically
   const deducted = await storage.deductCredit(userId);

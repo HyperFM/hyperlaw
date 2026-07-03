@@ -99,14 +99,17 @@ interface DocumentViewerModalProps {
   onClose: () => void;
   /** Called when unlock succeeds — provides the updated doc (paymentStatus: "paid") */
   onDocUnlocked?: (updatedDoc: ServerGeneratedDoc) => void;
+  /** Admin accounts bypass the paywall and are never charged */
+  isAdmin?: boolean;
 }
 
 type FooterPanel = "actions" | "tts" | "checklist";
 
 export default function DocumentViewerModal({
-  doc, creditBalance, onBuyCredits, onClose, onDocUnlocked,
+  doc, creditBalance, onBuyCredits, onClose, onDocUnlocked, isAdmin,
 }: DocumentViewerModalProps) {
-  const isPaid = doc.paymentStatus === "paid";
+  // Admins always see full content — treat any doc as paid for UI purposes
+  const isPaid = doc.paymentStatus === "paid" || !!isAdmin;
 
   // Unlock state
   const [unlocking, setUnlocking] = useState(false);
@@ -172,6 +175,18 @@ export default function DocumentViewerModal({
     utteranceRef.current = null;
   }
 
+  // ── Auto-unlock for admin ────────────────────────────────────────────────────
+  // If admin opens a doc that's still in "preview" state in the DB, silently
+  // flip it to "paid" on the server so future reads also return full content.
+  useEffect(() => {
+    if (isAdmin && doc.paymentStatus === "preview") {
+      aiApi.generatedDocs.unlock(doc.id)
+        .then(updated => onDocUnlocked?.(updated))
+        .catch(() => { /* no-op — server may already have updated */ });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Unlock ───────────────────────────────────────────────────────────────────
 
   async function handleUnlock() {
@@ -228,7 +243,11 @@ export default function DocumentViewerModal({
               <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "#1a1a1a", borderRadius: 4, padding: "2px 6px" }}>
                 {docTypeLabel}
               </span>
-              {isPaid ? (
+              {isAdmin ? (
+                <span style={{ fontSize: 10, fontWeight: 700, color: ORANGE, display: "flex", alignItems: "center", gap: 3 }}>
+                  ADMIN ACCESS
+                </span>
+              ) : isPaid ? (
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", display: "flex", alignItems: "center", gap: 3 }}>
                   <Check size={10} /> UNLOCKED
                 </span>

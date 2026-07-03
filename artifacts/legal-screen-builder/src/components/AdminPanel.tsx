@@ -2,15 +2,29 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Users, MessageSquare, X, Send, Clock, Infinity, ChevronLeft,
   RefreshCw, Shield, Calendar, Mail, Search, BarChart2, Zap, Copy, Check,
+  BookOpen, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
-import { aiApi, AiLog, AiStats, formatMicroUsd, featureLabel } from "../lib/aiApi";
+import { aiApi, AiLog, AiStats, KnowledgeEntry, formatMicroUsd, featureLabel } from "../lib/aiApi";
 
 const ORANGE = "#d9711f";
 const DIM = "#666";
 const LINE = "#1e1e1e";
 
-type AdminView = "users" | "chat" | "ai";
+type AdminView = "users" | "chat" | "ai" | "knowledge";
+
+interface KbForm {
+  id?: string;
+  title: string;
+  summary: string;
+  body: string;
+  category: string;
+  tagsStr: string;       // comma-separated in the form
+  keywordsStr: string;   // comma-separated in the form
+  jurisdiction: string;
+  source: string;
+  isActive: boolean;
+}
 
 interface AdminPanelProps { onClose: () => void }
 
@@ -36,6 +50,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [aiTotal, setAiTotal] = useState(0);
   const [copied, setCopied] = useState(false);
   const AI_PAGE_SIZE = 50;
+
+  // ── Knowledge Library state ───────────────────────────────────────────────
+  const [kbEntries, setKbEntries] = useState<KnowledgeEntry[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [kbSearch, setKbSearch] = useState("");
+  const [kbForm, setKbForm] = useState<KbForm | null>(null);
+  const [kbSaving, setKbSaving] = useState(false);
+  const [kbExpandedId, setKbExpandedId] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -160,10 +182,105 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     });
   }
 
+  const loadKbData = useCallback(async () => {
+    setKbLoading(true);
+    try {
+      const entries = await aiApi.knowledge.list();
+      setKbEntries(entries);
+    } catch {
+    } finally {
+      setKbLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === "knowledge" && kbEntries.length === 0 && !kbLoading) {
+      loadKbData();
+    }
+  }, [view, kbEntries.length, kbLoading, loadKbData]);
+
+  function blankForm(): KbForm {
+    return { title: "", summary: "", body: "", category: "other", tagsStr: "", keywordsStr: "", jurisdiction: "", source: "", isActive: true };
+  }
+
+  async function saveKbEntry() {
+    if (!kbForm) return;
+    if (!kbForm.title.trim() || !kbForm.summary.trim() || !kbForm.body.trim()) return;
+    setKbSaving(true);
+    const payload = {
+      title: kbForm.title.trim(),
+      summary: kbForm.summary.trim(),
+      body: kbForm.body.trim(),
+      category: kbForm.category,
+      tags: kbForm.tagsStr.split(",").map(s => s.trim()).filter(Boolean),
+      keywords: kbForm.keywordsStr.split(",").map(s => s.trim()).filter(Boolean),
+      jurisdiction: kbForm.jurisdiction.trim() || null,
+      source: kbForm.source.trim() || null,
+      isActive: kbForm.isActive,
+    };
+    try {
+      if (kbForm.id) {
+        const updated = await aiApi.knowledge.update(kbForm.id, payload);
+        setKbEntries(prev => prev.map(e => e.id === updated.id ? updated : e));
+      } else {
+        const created = await aiApi.knowledge.create(payload);
+        setKbEntries(prev => [created, ...prev]);
+      }
+      setKbForm(null);
+    } catch {
+    } finally {
+      setKbSaving(false);
+    }
+  }
+
+  async function toggleKbActive(entry: KnowledgeEntry) {
+    try {
+      const updated = await aiApi.knowledge.update(entry.id, { isActive: !entry.isActive });
+      setKbEntries(prev => prev.map(e => e.id === updated.id ? updated : e));
+    } catch {}
+  }
+
+  async function deleteKbEntry(id: string) {
+    if (!window.confirm("Delete this knowledge entry? This cannot be undone.")) return;
+    try {
+      await aiApi.knowledge.remove(id);
+      setKbEntries(prev => prev.filter(e => e.id !== id));
+      if (kbExpandedId === id) setKbExpandedId(null);
+    } catch {}
+  }
+
+  function editEntry(entry: KnowledgeEntry) {
+    setKbForm({
+      id: entry.id,
+      title: entry.title,
+      summary: entry.summary,
+      body: entry.body,
+      category: entry.category,
+      tagsStr: entry.tags.join(", "),
+      keywordsStr: entry.keywords.join(", "),
+      jurisdiction: entry.jurisdiction ?? "",
+      source: entry.source ?? "",
+      isActive: entry.isActive,
+    });
+  }
+
+  const CATEGORIES = ["employment", "police", "court", "federal", "other"];
+  const CAT_COLORS: Record<string, string> = {
+    employment: "#f59e0b", police: "#3b82f6", court: "#8b5cf6",
+    federal: "#10b981", other: "#666",
+  };
+
+  const filteredKb = kbEntries.filter(e => {
+    if (!kbSearch.trim()) return true;
+    const q = kbSearch.toLowerCase();
+    return e.title.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q) || e.category.includes(q);
+  });
+
   // ── Tab bar ──────────────────────────────────────────────────────────────────
   const tabs: { id: AdminView; icon: React.ElementType; label: string }[] = [
     { id: "users", icon: Users, label: "Users" },
     { id: "ai", icon: Zap, label: "AI Inspector" },
+    { id: "knowledge", icon: BookOpen, label: "Knowledge" },
   ];
 
   return (
@@ -186,7 +303,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
-            onClick={() => view === "ai" ? loadAiData(aiPage) : loadUsers()}
+            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : loadUsers()}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 5, display: "flex" }}
             title="Refresh"
           >
@@ -560,6 +677,198 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* ── Knowledge Library view ── */}
+      {view === "knowledge" && (
+        <div>
+          {/* Toolbar */}
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${LINE}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <Search size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#444", pointerEvents: "none" }} />
+              <input
+                value={kbSearch}
+                onChange={e => setKbSearch(e.target.value)}
+                placeholder="Search entries…"
+                style={{ width: "100%", boxSizing: "border-box", background: "#111", border: "1px solid #222", borderRadius: 8, padding: "7px 10px 7px 28px", color: "#ccc", fontSize: 12, outline: "none" }}
+              />
+            </div>
+            <button
+              onClick={() => { setKbForm(blankForm()); }}
+              style={{ background: `${ORANGE}18`, border: `1px solid ${ORANGE}44`, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: ORANGE, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+            >
+              <Plus size={11} /> New Entry
+            </button>
+          </div>
+
+          {/* Create / Edit form */}
+          {kbForm !== null && (
+            <div style={{ margin: 14, background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: ORANGE, marginBottom: 12 }}>
+                {kbForm.id ? "Edit Entry" : "New Knowledge Entry"}
+              </div>
+              {/* Title */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>TITLE *</div>
+                <input value={kbForm.title} onChange={e => setKbForm(f => f && { ...f, title: e.target.value })}
+                  placeholder="e.g. First Amendment Retaliation — Public Employees"
+                  style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }} />
+              </div>
+              {/* Summary */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>SUMMARY * (1–2 sentences)</div>
+                <textarea value={kbForm.summary} onChange={e => setKbForm(f => f && { ...f, summary: e.target.value })} rows={2}
+                  placeholder="Brief description shown in search results and AI context headers."
+                  style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none", resize: "vertical", fontFamily: "inherit" }} />
+              </div>
+              {/* Body */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>BODY * (full content injected into AI prompts)</div>
+                <textarea value={kbForm.body} onChange={e => setKbForm(f => f && { ...f, body: e.target.value })} rows={6}
+                  placeholder="Full authoritative content: statutes, case law excerpts, procedural steps, rights explanations…"
+                  style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none", resize: "vertical", fontFamily: "inherit" }} />
+              </div>
+              {/* Category + Jurisdiction row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>CATEGORY</div>
+                  <select value={kbForm.category} onChange={e => setKbForm(f => f && { ...f, category: e.target.value })}
+                    style={{ width: "100%", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }}>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>JURISDICTION (optional)</div>
+                  <input value={kbForm.jurisdiction} onChange={e => setKbForm(f => f && { ...f, jurisdiction: e.target.value })}
+                    placeholder="e.g. Kentucky, Federal, or leave blank for all"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }} />
+                </div>
+              </div>
+              {/* Tags + Keywords row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>TAGS (comma-separated)</div>
+                  <input value={kbForm.tagsStr} onChange={e => setKbForm(f => f && { ...f, tagsStr: e.target.value })}
+                    placeholder="e.g. retaliation, first amendment"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>SEARCH KEYWORDS (comma-separated)</div>
+                  <input value={kbForm.keywordsStr} onChange={e => setKbForm(f => f && { ...f, keywordsStr: e.target.value })}
+                    placeholder="e.g. fired speech government employee"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }} />
+                </div>
+              </div>
+              {/* Source + isActive row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 4, letterSpacing: 0.5 }}>SOURCE (optional citation or URL)</div>
+                  <input value={kbForm.source} onChange={e => setKbForm(f => f && { ...f, source: e.target.value })}
+                    placeholder="e.g. 42 U.S.C. § 1983 or https://…"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#0d0d0d", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", color: "#ccc", fontSize: 12, outline: "none" }} />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setKbForm(f => f && { ...f, isActive: !f.isActive })}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: kbForm.isActive ? "#22c55e" : "#555", display: "flex", alignItems: "center", gap: 5, padding: "8px 0", fontSize: 11, fontWeight: 700 }}
+                  >
+                    {kbForm.isActive ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                    {kbForm.isActive ? "Active" : "Inactive"}
+                  </button>
+                </div>
+              </div>
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={saveKbEntry} disabled={kbSaving || !kbForm.title.trim() || !kbForm.summary.trim() || !kbForm.body.trim()}
+                  style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: "#000", fontWeight: 800, fontSize: 12 }}>
+                  {kbSaving ? "Saving…" : kbForm.id ? "Save Changes" : "Create Entry"}
+                </button>
+                <button onClick={() => setKbForm(null)}
+                  style={{ background: "#111", border: "1px solid #222", borderRadius: 8, padding: "9px 14px", cursor: "pointer", color: "#666", fontSize: 12 }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Entry list */}
+          <div style={{ maxHeight: kbForm ? 260 : 480, overflowY: "auto" }}>
+            {kbLoading ? (
+              <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>Loading library…</div>
+            ) : filteredKb.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>
+                {kbSearch ? `No entries matching "${kbSearch}"` : "No knowledge entries yet. Click New Entry to add the first one."}
+              </div>
+            ) : filteredKb.map(entry => {
+              const expanded = kbExpandedId === entry.id;
+              const catColor = CAT_COLORS[entry.category] ?? "#666";
+              return (
+                <div key={entry.id} style={{ borderBottom: "1px solid #0e0e0e" }}>
+                  {/* Row header */}
+                  <div style={{ padding: "11px 14px", display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}
+                    onClick={() => setKbExpandedId(expanded ? null : entry.id)}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: entry.isActive ? "#ccc" : "#555" }}>{entry.title}</span>
+                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: `${catColor}20`, color: catColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, flexShrink: 0 }}>
+                          {entry.category}
+                        </span>
+                        {!entry.isActive && (
+                          <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#1a1a1a", color: "#555", fontWeight: 700 }}>INACTIVE</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#555", lineHeight: 1.4 }}>{entry.summary}</div>
+                      {entry.tags.length > 0 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
+                          {entry.tags.map(tag => (
+                            <span key={tag} style={{ fontSize: 9, padding: "2px 5px", borderRadius: 3, background: "#1a1a1a", color: "#666" }}>{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      <button onClick={e => { e.stopPropagation(); toggleKbActive(entry); }}
+                        title={entry.isActive ? "Deactivate" : "Activate"}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: entry.isActive ? "#22c55e" : "#555", padding: 4 }}>
+                        {entry.isActive ? <ToggleRight size={15} /> : <ToggleLeft size={15} />}
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); editEntry(entry); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 4 }}>
+                        <Pencil size={13} />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); deleteKbEntry(entry.id); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#4a1a1a", padding: 4 }}>
+                        <Trash2 size={13} />
+                      </button>
+                      {expanded ? <ChevronUp size={13} color="#555" /> : <ChevronDown size={13} color="#555" />}
+                    </div>
+                  </div>
+                  {/* Expanded body */}
+                  {expanded && (
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <div style={{ background: "#0d0d0d", border: "1px solid #1a1a1a", borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{entry.body}</div>
+                        {(entry.source || entry.jurisdiction) && (
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a1a1a", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            {entry.source && <span style={{ fontSize: 10, color: "#444" }}>Source: {entry.source}</span>}
+                            {entry.jurisdiction && <span style={{ fontSize: 10, color: "#444" }}>Jurisdiction: {entry.jurisdiction}</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer count */}
+          {!kbLoading && kbEntries.length > 0 && (
+            <div style={{ padding: "8px 14px", borderTop: `1px solid ${LINE}`, fontSize: 10, color: "#444" }}>
+              {kbEntries.filter(e => e.isActive).length} active · {kbEntries.length} total
+            </div>
           )}
         </div>
       )}

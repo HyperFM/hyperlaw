@@ -44,6 +44,27 @@ Run `pnpm --filter @workspace/db push` then `cd lib/db && pnpm exec tsc -p tscon
 
 **Why:** Swappable provider design — AiService is the single entry point; changing provider = new AiService impl, no app changes.
 
+## Phase 2 — Knowledge Library
+
+**DB table:** `knowledge_library` — title, summary, body, category, tags (jsonb), keywords (jsonb), jurisdiction, source, isActive, createdAt, updatedAt.
+**Indexes:** GIN on full tsvector (title+summary+body+keywords::text+tags::text) created via raw psql (drizzle push can't do GIN expression indexes — run psql manually after schema changes); btree indexes on category and isActive via drizzle.
+
+**Search service:** `artifacts/api-server/src/services/knowledgeLibrary.ts` — PostgreSQL `plainto_tsquery` FTS using pool.query() (raw SQL, not drizzle ORM, to avoid drizzle typing issues with dynamic conditions). FTS vector includes keywords/tags jsonb cast to text. Falls back to empty array on any error so library failures never break AI calls.
+
+**Library-first routing:** `routes/ai.ts` searches library AFTER cache check and BEFORE Claude call. Results injected as `opts.libraryContext` into `aiService.analyzeIncident()` / `analyzeCase()`. Library context appears as a `---` separated block at the top of the prompt.
+
+**Admin auth pattern:** Knowledge CRUD routes use same `requireAdmin` + `getClerkUserEmail` check as `routes/admin.ts` — admin email is `hyperlawcompliance@gmail.com`. Search endpoint is public (no auth).
+
+**aiFetch 204 fix:** Added `if (r.status === 204) return undefined as unknown as T;` before `r.json()` in `aiApi.ts`. Required for DELETE routes that return 204 No Content.
+
+**GIN index creation command (run after schema changes):**
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS knowledge_library_fts_gin
+ON knowledge_library USING gin(
+  to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(body,'') || ' ' || coalesce(keywords::text,'') || ' ' || coalesce(tags::text,''))
+);
+```
+
 ## Generated Docs Refresh Pattern
 
 TutorView has `onDocSaved?: () => void` prop. When user saves analysis, it calls `onDocSaved()`. App increments `genDocsRefreshKey` state. CaseDetailView receives `genDocsRefreshKey` in its useEffect deps, triggering a re-fetch of docs. TutorView save guard: `savedTargetKey` state (string `kind:id`) prevents duplicate saves per target; resets via useEffect when target changes.

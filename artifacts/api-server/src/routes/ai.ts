@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
+import { searchLibrary, formatLibraryContext } from "../services/knowledgeLibrary.js";
 import multer from "multer";
 import { aiService } from "../services/ai.js";
 import { parseDocument } from "../services/documentParser.js";
@@ -103,12 +104,23 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // ── Library-first context injection ──────────────────────────────────────
+    const queryText = type === "incident"
+      ? `${(incident as Record<string, string>)?.title ?? ""} ${(incident as Record<string, string>)?.description ?? ""}`
+      : `${hlCase?.title ?? ""} ${hlCase?.notes ?? ""} ${(incidents ?? []).map(i => `${i.title} ${i.description}`).join(" ")}`;
+    const libCategory = type === "incident" ? (incident as Record<string, string>)?.category : undefined;
+    const libEntries = await searchLibrary({ query: queryText, category: libCategory, limit: 3 });
+    const libContext = formatLibraryContext(libEntries) || undefined;
+
     // ── Call Claude ──────────────────────────────────────────────────────────
     let aiResult;
     if (type === "incident" && incident) {
-      aiResult = await aiService.analyzeIncident(incident as Parameters<typeof aiService.analyzeIncident>[0]);
+      aiResult = await aiService.analyzeIncident(
+        incident as Parameters<typeof aiService.analyzeIncident>[0],
+        { libraryContext: libContext },
+      );
     } else if (type === "case" && hlCase) {
-      aiResult = await aiService.analyzeCase(hlCase, incidents ?? []);
+      aiResult = await aiService.analyzeCase(hlCase, incidents ?? [], { libraryContext: libContext });
     } else {
       res.status(400).json({ error: "Invalid request body" });
       return;

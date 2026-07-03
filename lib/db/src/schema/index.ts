@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -109,6 +109,26 @@ export const generatedDocumentsTable = pgTable("generated_documents", {
 }, (table) => ({
   genDocsUserIdx: uniqueIndex("gen_docs_user_idx").on(table.userId, table.createdAt),
   genDocsCaseIdx: uniqueIndex("gen_docs_case_idx").on(table.userId, table.caseId),
+}));
+
+// ── Knowledge Library ─────────────────────────────────────────────────────────
+
+export const knowledgeLibraryTable = pgTable("knowledge_library", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),       // 1-2 sentence description shown in search results
+  body: text("body").notNull(),             // Full authoritative content
+  category: text("category").notNull().default("other"), // employment|police|court|other|federal
+  tags: jsonb("tags").notNull().$type<string[]>().default([]),
+  keywords: jsonb("keywords").notNull().$type<string[]>().default([]),  // extra search terms
+  jurisdiction: text("jurisdiction"),       // e.g. "Kentucky" or "Federal" or null = all
+  source: text("source"),                   // optional citation/URL
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  libCategoryIdx: index("knowledge_library_category_idx").on(table.category),
+  libActiveIdx: index("knowledge_library_active_idx").on(table.isActive),
 }));
 
 // ── Insert schemas ────────────────────────────────────────────────────────────

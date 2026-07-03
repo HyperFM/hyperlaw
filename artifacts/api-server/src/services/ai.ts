@@ -107,14 +107,20 @@ export class AiService {
     };
   }
 
-  async analyzeIncident(incident: {
-    title: string;
-    description: string;
-    category: string;
-    dateOfEvent?: string;
-    location?: string;
-  }): Promise<AiResult<TutorAnalysis>> {
-    const prompt = `Analyze this civil rights incident and return ONLY valid JSON (no markdown, no explanation):
+  async analyzeIncident(
+    incident: {
+      title: string;
+      description: string;
+      category: string;
+      dateOfEvent?: string;
+      location?: string;
+    },
+    opts?: { libraryContext?: string },
+  ): Promise<AiResult<TutorAnalysis>> {
+    const libBlock = opts?.libraryContext
+      ? `${opts.libraryContext}\n\n---\n\n`
+      : "";
+    const prompt = `${libBlock}Analyze this civil rights incident and return ONLY valid JSON (no markdown, no explanation):
 
 Title: ${incident.title}
 Category: ${incident.category}
@@ -163,12 +169,16 @@ Guidelines:
   async analyzeCase(
     hlCase: { title: string; notes: string },
     incidents: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>,
+    opts?: { libraryContext?: string },
   ): Promise<AiResult<TutorAnalysis>> {
+    const libBlock = opts?.libraryContext
+      ? `${opts.libraryContext}\n\n---\n\n`
+      : "";
     const incidentText = incidents.map((inc, idx) =>
       `--- Incident ${idx + 1}: "${inc.title}" (${inc.category}${inc.dateOfEvent ? ", " + inc.dateOfEvent : ""}) ---\n${inc.description}`,
     ).join("\n\n");
 
-    const prompt = `Analyze this civil rights case with ${incidents.length} incident(s) and return ONLY valid JSON:
+    const prompt = `${libBlock}Analyze this civil rights case with ${incidents.length} incident(s) and return ONLY valid JSON:
 
 Case Title: ${hlCase.title}
 Case Notes: ${hlCase.notes || "None"}

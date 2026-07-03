@@ -99,12 +99,30 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     throw err;
   }
 
+  // 204 No Content — nothing to parse (e.g. DELETE success)
+  if (r.status === 204) return undefined as unknown as T;
+
   return r.json() as Promise<T>;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 // ── Server-side GeneratedDocument shape (matches DB / API response) ──────────
+
+export interface KnowledgeEntry {
+  id: string;
+  title: string;
+  summary: string;
+  body: string;
+  category: string;
+  tags: string[];
+  keywords: string[];
+  jurisdiction: string | null;
+  source: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ServerGeneratedDoc {
   id: string;
@@ -192,6 +210,46 @@ export const aiApi = {
   /** Get previously uploaded documents for a case */
   documents(caseId: string): Promise<Array<{ id: string; fileName: string; mimeType: string; caseExtraction: CaseExtraction | null; createdAt: string }>> {
     return aiFetch(`/ai/documents/${caseId}`);
+  },
+
+  // ── Knowledge Library ──────────────────────────────────────────────────────
+
+  knowledge: {
+    /** Search the knowledge library (no auth required) */
+    search(q: string, category?: string, jurisdiction?: string): Promise<KnowledgeEntry[]> {
+      const params = new URLSearchParams({ q });
+      if (category) params.set("category", category);
+      if (jurisdiction) params.set("jurisdiction", jurisdiction);
+      return aiFetch(`/knowledge/search?${params.toString()}`);
+    },
+
+    /** List all entries (admin) */
+    list(): Promise<KnowledgeEntry[]> {
+      return aiFetch("/knowledge");
+    },
+
+    /** Create a new entry (admin) */
+    create(entry: {
+      title: string; summary: string; body: string;
+      category?: string; tags?: string[]; keywords?: string[];
+      jurisdiction?: string | null; source?: string | null; isActive?: boolean;
+    }): Promise<KnowledgeEntry> {
+      return aiFetch("/knowledge", { method: "POST", body: JSON.stringify(entry) });
+    },
+
+    /** Update an entry (admin) */
+    update(id: string, changes: Partial<{
+      title: string; summary: string; body: string; category: string;
+      tags: string[]; keywords: string[]; jurisdiction: string | null;
+      source: string | null; isActive: boolean;
+    }>): Promise<KnowledgeEntry> {
+      return aiFetch(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify(changes) });
+    },
+
+    /** Delete an entry (admin) */
+    remove(id: string): Promise<void> {
+      return aiFetch(`/knowledge/${id}`, { method: "DELETE" });
+    },
   },
 
   // ── User self-service ──────────────────────────────────────────────────────

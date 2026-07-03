@@ -8,6 +8,7 @@ import chatRouter from "./chat";
 import aiRouter from "./ai";
 import generatedDocumentsRouter from "./generated-documents";
 import userRouter from "./user";
+import knowledgeRouter from "./knowledge";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(chatRouter);
 router.use(aiRouter);
 router.use(generatedDocumentsRouter);
 router.use(userRouter);
+router.use(knowledgeRouter);
 
 export default router;

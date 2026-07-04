@@ -1,0 +1,460 @@
+HyperLaw — Final Production Update (Master Implementation Specification, Revised)
+
+Objective
+
+Treat this document as the primary implementation specification for HyperLaw.
+
+Before building any new features, compare this specification against the current codebase and produce an implementation report identifying:
+
+* ✅ Completed
+* 🟡 Partially Implemented
+* ❌ Missing
+* ⚠️ Needs Revision
+
+Do not remove existing functionality unless it conflicts with this specification.
+
+The goal is to prepare HyperLaw for production while maintaining a clean, intuitive, trustworthy user experience.
+
+⸻
+
+Core Product Philosophy
+
+HyperLaw is an AI-powered legal self-help platform that helps users:
+
+* Organize legal information
+* Upload and manage case files
+* Draft legal documents from user-provided facts
+* Learn general legal concepts
+* Track deadlines
+* Prepare for legal matters
+* Stay organized throughout their case
+
+HyperLaw is not a law firm.
+
+HyperLaw does not provide legal representation.
+
+HyperLaw does not create an attorney-client relationship.
+
+HyperLaw does not make legal decisions for users.
+
+**HyperLaw does not create any relationship of trust or reliance between the user and HyperLaw regarding the accuracy or applicability of any output.** The user remains responsible for every legal decision and every document submitted.
+
+⸻
+
+Phase One — Foundation (Highest Priority)
+
+Verify and complete the following production-critical systems:
+
+Authentication
+
+* Google Sign-In functions correctly.
+* Clerk authentication is fully operational.
+* Logout works.
+* Password reset works.
+* Session persistence works.
+
+⸻
+
+Complaint Upload
+
+The Upload Complaint button must fully function.
+
+Allow upload of:
+
+* PDF
+* DOCX
+* DOC
+* TXT
+* Images (JPG, PNG, HEIC)
+
+Process uploads through OCR when necessary.
+
+Display upload progress.
+
+Gracefully handle unsupported or corrupted files.
+
+⸻
+
+Case Creation
+
+Uploading a complaint should automatically:
+
+* Create a new case
+* Extract available information
+* Populate the user's workspace
+* Save all uploaded files
+* Allow later editing
+
+⸻
+
+AI Service Layer
+
+Build one centralized AI service.
+
+Every AI feature should use this service.
+
+No duplicate AI logic should exist across screens.
+
+Support future AI providers while initially using Claude.
+
+⸻
+
+Claude Integration
+
+Prepare the application for Claude API integration.
+
+Ensure:
+
+* Central prompt management
+* Error handling
+* Retry logic
+* Rate limiting
+* Usage logging
+* Token tracking
+* Cost tracking
+
+**Data retention setting must be explicitly decided before launch, not deferred.** Confirm whether the Anthropic API account has Zero Data Retention (ZDR) enabled. This is not a "future option" — a February 2026 federal ruling (*United States v. Heppner*, S.D.N.Y.) found that documents generated through standard-retention Claude access were not protected by attorney-client privilege, specifically because the platform's data policy "fatally compromised" confidentiality. Since HyperLaw processes uploaded complaints and case-specific facts, this decision affects real user data now, at launch, not at some later maturity stage.
+
+⸻
+
+AI Architecture
+
+Create two AI layers.
+
+Layer One
+
+Internal HyperLaw Knowledge Library.
+
+Contains:
+
+* Legal glossary
+* Court terminology
+* Procedural explanations
+* Definitions
+* General educational material
+
+No AI request should occur when information already exists locally.
+
+Store this information in a centralized database or structured content system so it can be updated without changing application code.
+
+**Layer One is not exempt from disclaimer requirements.** Court precedent (a Tennessee bankruptcy court; the North Carolina State Bar) has found that even defining legal terms or explaining procedural concepts can itself constitute legal advice under some states' unauthorized-practice-of-law rules. Every Layer One response — glossary lookups, term definitions, procedural explanations — must display the same compliance notice treatment as Layer Two (personalized/AI-drafted) output, pulled from the same centralized Compliance Language Manager described below. Do not treat Layer One as a "safe, no-disclaimer-needed" tier.
+
+⸻
+
+Layer Two
+
+Claude API.
+
+Only use Claude when personalization or drafting is required.
+
+Examples:
+
+* Complaint drafting
+* Motions
+* Demand letters
+* Affidavits
+* Declarations
+* Tutor conversations about the user's own case
+* Case organization
+
+Always minimize unnecessary API usage.
+
+⸻
+
+AI Behavior
+
+Review every prompt and response template.
+
+The AI should consistently:
+
+* Explain concepts.
+* Organize user information.
+* Draft documents from user-provided facts.
+* Encourage review before filing.
+* Encourage verification of court rules.
+
+Avoid wording that implies HyperLaw is making legal decisions or guarantees. The AI should present information in a neutral, educational way and avoid directing users toward a particular legal strategy or predicting legal outcomes. Specifically, the AI should never say or imply: "you should file," "I recommend," "you will win," "this is a strong case," or similar outcome-predictive or strategy-directive language, in either Layer One or Layer Two output.
+
+⸻
+
+Compliance Language System
+
+Create a centralized Compliance Language Manager.
+
+Do not hardcode legal notices throughout the application.
+
+Store centrally:
+
+* AI disclaimer
+* Review before filing notice
+* Educational disclaimer
+* Jurisdiction reminder
+* No attorney-client relationship notice
+* **No relationship of trust or reliance notice** (distinct from the attorney-client notice — states this explicitly regarding reliance on HyperLaw's output generally)
+* Legal self-help notice
+* Payment disclosure
+* Privacy notices
+* Terms acknowledgment
+* Export notices
+* Data retention / confidentiality notice (see Privacy & Data section below)
+
+Every screen should reference these centralized resources, including Layer One glossary/informational screens.
+
+Changing one notice should update it everywhere.
+
+⸻
+
+Jurisdiction Awareness
+
+Whenever drafting begins:
+
+Ask:
+
+"What state or jurisdiction does this matter involve?"
+
+Store this value with the case.
+
+Display a reminder that laws and court procedures vary by jurisdiction.
+
+**Design this so the jurisdiction value can eventually drive which compliance notice variant is shown** (e.g., a more detailed disclaimer for jurisdictions with broader unauthorized-practice-of-law definitions). This does not need to be fully built in v1, but the jurisdiction field and Compliance Language Manager should be architected so state-specific notice variants can be added later without a rebuild.
+
+⸻
+
+Verification Workflow
+
+Before any document can be exported:
+
+Require completion of a verification flow.
+
+Checklist includes:
+
+☐ I reviewed all facts.
+
+☐ I reviewed dates.
+
+☐ I reviewed names.
+
+☐ I reviewed formatting.
+
+☐ I reviewed citations.
+
+☐ I reviewed deadlines.
+
+☐ I understand I am responsible for everything filed with a court.
+
+Only then allow export.
+
+⸻
+
+Pre-Verification Reader
+
+Implement a Pre-Verification feature.
+
+Users can select any generated document.
+
+The application reads the document aloud while highlighting each word with an orange glow.
+
+Purpose:
+
+Help users catch:
+
+* Typos
+* Missing information
+* Formatting errors
+* AI mistakes
+
+Display reminders encouraging users to review the document independently before filing.
+
+Save completed verification sessions to the case history.
+
+⸻
+
+Payments
+
+Implement the Free tier as Pay-As-You-Go.
+
+Users receive:
+
+* Two free cases
+* Case management
+* Document previews
+* Educational tools
+
+AI-generated documents are purchased individually.
+
+Examples:
+
+* Complaint Draft
+* Motion
+* Affidavit
+* Tutor Session
+* Battle Document
+* Other AI-generated documents
+
+Each purchase is processed through Stripe.
+
+Purchased documents remain permanently available in that user's case for future download at no additional cost.
+
+⸻
+
+Credits
+
+Allow users to purchase credits.
+
+Display remaining credits prominently during AI workflows.
+
+Credits should be consumed automatically for eligible AI actions.
+
+⸻
+
+Preview Before Purchase
+
+Before payment:
+
+Users may:
+
+* Preview blank templates
+* View document structure
+* Read feature descriptions
+
+Personalized AI-generated content remains locked until payment is complete.
+
+⸻
+
+Case Organization
+
+Every generated item automatically saves into the appropriate case.
+
+Organize:
+
+* Complaints
+* Motions
+* Evidence
+* Timelines
+* Notes
+* Tutor conversations
+* Audio verification history
+* Generated documents
+
+Keep the interface clean and easy to navigate.
+
+⸻
+
+Admin Dashboard
+
+Create an internal dashboard showing:
+
+* AI requests
+* Token usage
+* Cost estimates
+* Stripe payments
+* Credits
+* User counts
+* Generated documents
+* Error logs
+* Upload failures
+* API performance
+
+Support future analytics without changing the architecture.
+
+⸻
+
+Product Polish
+
+Implement:
+
+* Auto-save
+* Retry logic
+* Offline detection
+* Mobile optimization
+* Responsive layouts
+* Friendly error messages
+* Loading states
+* Consistent animations
+* Accessible color contrast
+* Keyboard accessibility where applicable
+
+⸻
+
+Privacy & Data
+
+Review the existing Privacy Policy and Terms of Service already included in the project.
+
+Ensure the application behavior matches those documents.
+
+Clearly explain:
+
+* What data is stored
+* How uploaded files are handled
+* AI processing
+* Account deletion
+* Data retention
+
+**This section requires one concrete decision before launch, not just future-proofing:** confirm and document whether Zero Data Retention (ZDR) is enabled on the Claude API integration (see Claude Integration section above). Once decided, the Privacy Policy language must accurately reflect the actual setting in production — do not publish privacy language describing stronger protections than what's actually configured.
+
+Design the architecture so higher-confidentiality processing options can be enabled in the future if needed, in addition to — not instead of — making the initial decision now.
+
+⸻
+
+Production Readiness Review
+
+Before implementing additional features, compare the current codebase against this specification.
+
+Produce a detailed report showing:
+
+* Completed items
+* Missing items
+* Broken functionality
+* Technical debt
+* Recommended implementation order
+
+Do not begin building everything simultaneously.
+
+Implement in phases beginning with:
+
+1. Foundation
+2. AI Integration (including the ZDR decision)
+3. Core Case Workflow
+4. Compliance Language System (including Layer One disclaimer coverage)
+5. Payments
+6. Verification
+7. Product Polish
+
+After each phase, verify functionality before moving to the next.
+
+⸻
+
+Success Criteria
+
+HyperLaw Version 1 is considered production-ready when a user can:
+
+1. Create an account.
+2. Sign in.
+3. Create a case.
+4. Upload a complaint.
+5. Have Claude analyze the uploaded information.
+6. Organize all case materials automatically.
+7. Generate an AI-assisted document.
+8. Complete the Pre-Verification workflow.
+9. Purchase the document or use available credits.
+10. Download the document.
+11. Return later and manage the case from a clean, organized dashboard.
+
+Every feature should reinforce HyperLaw's mission:
+
+Prepare Smarter. Stay Organized. Navigate with Confidence.
+
+⸻
+
+Compliance Addendum (Reference — Not for Replit to Implement as Code)
+
+The following items are tracked for the founder's own follow-up and are not application features, but are recorded here for continuity:
+
+* **Arbitration clause in the Terms of Service** is currently a placeholder and requires review by a licensed attorney before publication — enforceability and required disclosures vary by state.
+* **Entity structure**: HyperLaw currently operates under a single LLC shared with other ventures. This is a deliberate decision given solo operation and no current need to wall off other assets — documented here for the record, not an open item unless business circumstances change.
+* **Refund reserve**: given precedent for treble-damages exposure in comparable unauthorized-practice-of-law litigation (Missouri), early revenue should remain in HyperLaw's own account rather than being reallocated elsewhere until a reserve buffer is established.
+* **Full legal review before public launch or before accepting payment from users other than the founder** — this specification reflects legal research conducted collaboratively, not formal legal advice, and has not been reviewed by a licensed attorney.
+
+⸻
+
+Final Instruction: Before implementing this specification, perform a complete gap analysis against the existing codebase and present a phased implementation plan. Prioritize preserving existing functionality, minimizing technical debt, and building a stable, production-ready application rather than adding features as quickly as possible. This update should serve as the master specification for HyperLaw going forward.

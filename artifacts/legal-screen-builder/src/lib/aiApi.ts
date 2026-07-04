@@ -224,6 +224,14 @@ export const aiApi = {
     });
   },
 
+  /** Build a chronological timeline from a free-text narrative */
+  buildTimeline(story: string, caseId?: string): Promise<{ events: Array<{ title: string; description: string }> }> {
+    return aiFetch("/ai/timeline", {
+      method: "POST",
+      body: JSON.stringify({ story, caseId }),
+    });
+  },
+
   /** Upload a document for text extraction + AI case metadata extraction */
   upload(formData: FormData): Promise<UploadResult> {
     return aiFetch("/ai/upload", { method: "POST", body: formData });

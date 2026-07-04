@@ -1,6 +1,12 @@
-import { AppData, Incident, HLCase, Reminder, IncidentCategory, CaseStatus } from "./types";
+import {
+  AppData, Incident, HLCase, Reminder,
+  IncidentCategory, CaseStatus, WorkflowStage,
+} from "./types";
 
 const KEY = "hl_v3";
+
+/** Default workflow stage for cases that pre-date the new workflow system. */
+const LEGACY_STAGE: WorkflowStage = "documents";
 
 export function loadData(): AppData {
   try {
@@ -12,10 +18,24 @@ export function loadData(): AppData {
           { dateOfEvent: "", location: "", category: "other" as IncidentCategory },
           i,
         ) as Incident),
-        cases: (d.cases ?? []).map(c => Object.assign(
-          { status: "open" as CaseStatus, jurisdiction: "" },
-          c,
-        ) as HLCase),
+        cases: (d.cases ?? []).map(c => {
+          // Migrate legacy cases: add new workflow fields with safe defaults
+          const migrated = Object.assign(
+            {
+              status: "open" as CaseStatus,
+              jurisdiction: "",
+              // New fields — existing cases skip the new workflow
+              parties: [],
+              court: null,
+              story: "",
+              timeline: [],
+              workflowStage: LEGACY_STAGE,
+              intakeChecklist: [],
+            },
+            c,
+          );
+          return migrated as HLCase;
+        }),
         reminders: d.reminders ?? [],
       };
     }

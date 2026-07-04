@@ -7,10 +7,82 @@ export interface Incident {
   title: string;
   description: string;
   dateOfEvent: string;      // YYYY-MM-DD or ""
-  location: string;         // free text or ""
+  location: string;
   category: IncidentCategory;
   createdAt: number;
   caseId: string | null;
+}
+
+// ─── Party ────────────────────────────────────────────────────────────────────
+
+export type PartyType = "official" | "civilian";
+
+export interface Party {
+  id: string;
+  firstName: string;
+  lastName: string;
+  type: PartyType;
+  // Official-only fields
+  agency?: string;
+  title?: string;
+  badge?: string;
+  officialLocation?: string;
+  // Voice nickname (auto-assigned at creation, user-editable)
+  nickname: string;       // e.g. "Pickle"
+  nicknameEmoji: string;  // e.g. "🥒"
+}
+
+// ─── Court ────────────────────────────────────────────────────────────────────
+
+export type CourtLevel = "federal" | "state";
+
+export interface Court {
+  level: CourtLevel;
+  state: string;      // e.g. "New York"
+  name: string;       // e.g. "Southern District of New York"
+  shortName?: string; // e.g. "S.D.N.Y."
+}
+
+// ─── Timeline Event ───────────────────────────────────────────────────────────
+
+export interface TimelineEvent {
+  id: string;
+  title: string;
+  description: string;
+  order: number;
+}
+
+// ─── Workflow Stage ───────────────────────────────────────────────────────────
+
+export type WorkflowStage =
+  | "parties"    // Phase 1 — identify who was involved
+  | "court"      // Phase 2 — select court / jurisdiction
+  | "story"      // Phase 3 — tell the story
+  | "timeline"   // Phase 4 — review AI-generated timeline
+  | "assembly"   // Phase 5 — AI assembles complaint
+  | "learning"   // Phase 6 — learning index
+  | "documents"; // Phase 7/8 — generate documents
+
+// ─── Intake Checklist ─────────────────────────────────────────────────────────
+
+export type IntakeChecklistKey =
+  | "witnesses"
+  | "photos"
+  | "video"
+  | "audio"
+  | "medical_records"
+  | "police_reports"
+  | "body_camera"
+  | "prior_incidents"
+  | "property_damage"
+  | "financial_loss"
+  | "emotional_harm"
+  | "filing_deadlines";
+
+export interface IntakeChecklistItem {
+  key: IntakeChecklistKey;
+  completed: boolean;
+  notes: string;
 }
 
 // ─── Case ─────────────────────────────────────────────────────────────────────
@@ -24,8 +96,16 @@ export interface HLCase {
   notes: string;
   status: CaseStatus;
   createdAt: number;
-  /** State/jurisdiction where this matter is pending — e.g. "Kentucky" */
+  /** Legacy: free-text jurisdiction — kept for backward compat */
   jurisdiction?: string;
+  // ── New workflow fields ──────────────────────────────────────────────────────
+  parties: Party[];
+  court: Court | null;
+  /** Raw narrative from "Tell Your Story" screen */
+  story: string;
+  timeline: TimelineEvent[];
+  workflowStage: WorkflowStage;
+  intakeChecklist: IntakeChecklistItem[];
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────
@@ -37,12 +117,12 @@ export interface GeneratedDocument {
   id: string;
   caseId: string | null;
   title: string;
-  documentType: string;   // "analysis" | "complaint" | "motion" | "timeline" | "chat_summary" | "other"
-  content: string;        // full text
+  documentType: string; // "analysis" | "complaint" | "motion" | "timeline" | "chat_summary" | "other"
+  content: string;
   version: number;
   status: DocumentStatus;
   paymentStatus: PaymentStatus;
-  createdAt: number;      // unix ms
+  createdAt: number;
 }
 
 // ─── Reminder ─────────────────────────────────────────────────────────────────
@@ -51,7 +131,7 @@ export interface Reminder {
   id: string;
   caseId: string;
   label: string;
-  dueDate: string;          // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD
   createdAt: number;
 }
 
@@ -61,4 +141,41 @@ export interface AppData {
   incidents: Incident[];
   cases: HLCase[];
   reminders: Reminder[];
+}
+
+// ─── Case health ──────────────────────────────────────────────────────────────
+
+export interface CaseHealth {
+  parties: boolean;
+  court: boolean;
+  story: boolean;
+  timeline: boolean;
+  documents: boolean; // must be fetched separately from server
+}
+
+/** Computes local health fields (documents must be injected separately). */
+export function computeCaseHealth(c: HLCase, hasDocuments = false): CaseHealth {
+  return {
+    parties: c.parties.length > 0,
+    court: c.court !== null,
+    story: c.story.trim().length > 0,
+    timeline: c.timeline.length > 0,
+    documents: hasDocuments,
+  };
+}
+
+/** Returns the label and workflow stage of the next incomplete step. */
+export function getNextStep(c: HLCase, health: CaseHealth): { label: string; stage: WorkflowStage } {
+  if (!health.parties) return { label: "Add Parties", stage: "parties" };
+  if (!health.court) return { label: "Select Court", stage: "court" };
+  if (!health.story) return { label: "Tell Your Story", stage: "story" };
+  if (!health.timeline) return { label: "Review Timeline", stage: "timeline" };
+  return { label: "View Documents", stage: "documents" };
+}
+
+/** Percentage complete (0–100) based on health. */
+export function caseCompletionPct(health: CaseHealth): number {
+  const fields: (keyof CaseHealth)[] = ["parties", "court", "story", "timeline", "documents"];
+  const done = fields.filter(k => health[k]).length;
+  return Math.round((done / fields.length) * 100);
 }

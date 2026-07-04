@@ -508,12 +508,62 @@ Important rules:
     };
   }
 
+  // ── Timeline builder ──────────────────────────────────────────────────────────
+  async buildTimeline(
+    story: string,
+  ): Promise<AiResult<Array<{ title: string; description: string }>>> {
+    const prompt = `Parse this narrative into 3-8 discrete chronological events. Return ONLY a valid JSON array.
+
+Narrative:
+${story.slice(0, 8000)}
+
+Return format (array only — no wrapper object, no extra text):
+[
+  { "title": "Brief event name (2-6 words)", "description": "1-2 sentences describing what happened" },
+  ...
+]
+
+Rules:
+- Order events chronologically as they appear in the narrative
+- Each event should be a distinct action or turning point
+- Use "title" for a short label and "description" for detail
+- Return only the JSON array`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: "You are a precise legal timeline parser. Extract discrete chronological events from personal narratives. Return only valid JSON.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "[]";
+    const events = this.parseJsonArray<{ title: string; description: string }>(text) ?? [];
+
+    return {
+      data: events,
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   private parseJsonResponse<T>(response: Anthropic.Message): T {
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("AI returned invalid JSON format");
     return JSON.parse(jsonMatch[0]) as T;
+  }
+
+  private parseJsonArray<T>(raw: string): T[] {
+    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    // Try to find a JSON array in the response
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (!arrMatch) return [];
+    try {
+      return JSON.parse(arrMatch[0]) as T[];
+    } catch {
+      return [];
+    }
   }
 }
 

@@ -7,7 +7,10 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
 } from "lucide-react";
-import { Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus } from "./types";
+import {
+  Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
+  computeCaseHealth, getNextStep, caseCompletionPct,
+} from "./types";
 import {
   loadData, saveData, addIncident, updateIncident, deleteIncident,
   addCase, updateCase, deleteCase, addIncidentToCase,
@@ -26,6 +29,11 @@ import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
+import { CaseHealthBar } from "./components/CaseHealthBar";
+import { PartiesView } from "./pages/workflow/PartiesView";
+import { CourtSelectionView } from "./pages/workflow/CourtSelectionView";
+import { StoryView } from "./pages/workflow/StoryView";
+import { TimelineView } from "./pages/workflow/TimelineView";
 
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
@@ -414,67 +422,60 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onUploadForNewCase }: {
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase }: {
   data: AppData;
   onOpenIncident: (i: Incident) => void;
   onOpenCase: (c: HLCase) => void;
   onNewIncident: () => void;
+  onCreateCase: () => void;
+  onContinueCase: (c: HLCase, stage: WorkflowStage) => void;
   onUploadForNewCase?: (file: File) => void;
 }) {
   const uploadNewRef = useRef<HTMLInputElement>(null);
-  const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
-  const recentCases = [...data.cases].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
-  const hasContent = data.incidents.length > 0 || data.cases.length > 0;
 
-  // Upcoming reminders
+  // Most recent active case for the "Continue Your Case" card
+  const activeCases = [...data.cases]
+    .filter(c => c.status !== "closed")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const primaryCase = activeCases[0] ?? null;
+  const otherActiveCases = activeCases.slice(1);
+  const closedCases = data.cases.filter(c => c.status === "closed");
+
+  const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
+
   const upcoming = [...data.reminders]
     .filter(r => daysUntil(r.dueDate) >= 0)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 3);
 
+  const hasCases = data.cases.length > 0;
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px" }}>
-      <div style={{ marginBottom: 32 }}>
+      {/* Logo */}
+      <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <img src="/hyperlaw-logo.png" alt="HL" style={{ width: 32, height: 32, borderRadius: 8 }} />
           <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5 }}>HyperLaw</div>
         </div>
-        <div style={{ color: "#444", fontSize: 14, lineHeight: 1.5 }}>Describe what happened. Organize it clearly. Build from it later.</div>
+        <div style={{ color: "#444", fontSize: 14, lineHeight: 1.5 }}>Civil rights legal self-help platform.</div>
       </div>
 
-      {/* Upcoming reminders banner */}
-      {upcoming.length > 0 && (
-        <div style={{ background: "#141414", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "14px 16px", marginBottom: 24 }}>
-          <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <Bell size={11} color={ORANGE} /> UPCOMING DEADLINES
-          </div>
-          {upcoming.map(r => {
-            const days = daysUntil(r.dueDate);
-            const hlCase = data.cases.find(c => c.id === r.caseId);
-            return (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: 3, background: days <= 3 ? "#ef4444" : days <= 7 ? ORANGE : "#3b82f6", flexShrink: 0 }} />
-                <div style={{ flex: 1, fontSize: 13, color: "#ccc" }}>{r.label}</div>
-                <div style={{ fontSize: 12, color: days <= 3 ? "#ef4444" : "#666", fontWeight: 700 }}>
-                  {days === 0 ? "Today" : days === 1 ? "Tomorrow" : `${days}d`}
-                </div>
-                {hlCase && <div style={{ fontSize: 11, color: "#444" }}>{truncate(hlCase.title, 20)}</div>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {!hasContent ? (
-        <div style={{ textAlign: "center", paddingTop: 48 }}>
-          <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>
-          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, letterSpacing: -0.3 }}>Start by describing what happened</div>
+      {!hasCases ? (
+        /* ── Empty state ─────────────────────────────────────────────────────── */
+        <div style={{ textAlign: "center", paddingTop: 40 }}>
+          <div style={{ fontSize: 52, marginBottom: 20 }}>⚖️</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 10, letterSpacing: -0.3 }}>Start Your First Case</div>
           <div style={{ color: "#555", fontSize: 15, marginBottom: 36, lineHeight: 1.65, maxWidth: 340, margin: "0 auto 36px" }}>
-            Create your first incident — write everything out in plain language. HyperLaw will help you organize it from there.
+            Create a case and walk through each phase — identify who was involved, select a court, tell your story, and build your timeline.
           </div>
-          <TapBtn variant="orange" onClick={onNewIncident} style={{ fontSize: 16, padding: "14px 28px" }}>
-            <Plus size={18} /> New Incident
-          </TapBtn>
+          <button onClick={onCreateCase} style={{
+            background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none",
+            borderRadius: 14, padding: "16px 32px", color: "#000", fontSize: 16, fontWeight: 900,
+            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8,
+          }}>
+            <Plus size={18} /> New Case
+          </button>
           {onUploadForNewCase && (
             <>
               <input
@@ -482,83 +483,189 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onUploadFor
                 type="file"
                 accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png"
                 style={{ display: "none" }}
-                onChange={e => {
-                  const f = e.target.files?.[0];
-                  if (f) { onUploadForNewCase(f); e.target.value = ""; }
-                }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) { onUploadForNewCase(f); e.target.value = ""; } }}
               />
-              <button
-                onClick={() => uploadNewRef.current?.click()}
-                style={{
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <button onClick={() => uploadNewRef.current?.click()} style={{
                   background: "none", border: "1px solid #2a2a2a", borderRadius: 10,
                   padding: "11px 22px", color: "#555", fontSize: 14, cursor: "pointer",
                   display: "flex", alignItems: "center", gap: 8, marginTop: 12,
                 }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
-              >
-                <Upload size={15} /> Start from a Document
-              </button>
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+                >
+                  <Upload size={15} /> Start from a Document
+                </button>
+              </div>
             </>
+          )}
+          {data.incidents.length > 0 && (
+            <div style={{ marginTop: 36, textAlign: "left" }}>
+              <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" }}>Your Incidents</div>
+              {recentIncidents.map(incident => (
+                <button key={incident.id} onClick={() => onOpenIncident(incident)}
+                  style={{ background: "#0a0a0a", border: "1px solid #141414", borderRadius: 12, padding: "12px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 3, background: CATEGORY_COLORS[incident.category], flexShrink: 0, marginTop: 5 }} />
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{incident.title}</div>
+                  <ChevronRight size={13} color="#333" style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
           )}
         </div>
       ) : (
         <>
+          {/* ── Primary case ─────────────────────────────────────────────────── */}
+          {primaryCase && (
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Continue Your Case</div>
+              <PrimaryCaseCard
+                hlCase={primaryCase}
+                onOpen={() => onOpenCase(primaryCase)}
+                onContinue={(stage) => onContinueCase(primaryCase, stage)}
+              />
+            </div>
+          )}
+
+          {/* ── Upcoming deadlines ───────────────────────────────────────────── */}
+          {upcoming.length > 0 && (
+            <div style={{ background: "#141414", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "14px 16px", marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <Bell size={11} color={ORANGE} /> UPCOMING DEADLINES
+              </div>
+              {upcoming.map(r => {
+                const days = daysUntil(r.dueDate);
+                const rCase = data.cases.find(c => c.id === r.caseId);
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 3, background: days <= 3 ? "#ef4444" : days <= 7 ? ORANGE : "#3b82f6", flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 13, color: "#ccc" }}>{r.label}</div>
+                    <div style={{ fontSize: 12, color: days <= 3 ? "#ef4444" : "#666", fontWeight: 700 }}>
+                      {days === 0 ? "Today" : days === 1 ? "Tomorrow" : `${days}d`}
+                    </div>
+                    {rCase && <div style={{ fontSize: 11, color: "#444" }}>{truncate(rCase.title, 20)}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── Other open cases ─────────────────────────────────────────────── */}
+          {otherActiveCases.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" }}>Other Cases</div>
+              {otherActiveCases.map(c => (
+                <button key={c.id} onClick={() => onOpenCase(c)}
+                  style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+                  <Folder size={18} color="#444" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                    <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{formatDate(c.createdAt)}</div>
+                  </div>
+                  <div style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 5, padding: "2px 7px", fontSize: 10, fontWeight: 700, color: STATUS_COLORS[c.status], flexShrink: 0 }}>
+                    {STATUS_LABELS[c.status]}
+                  </div>
+                  <ChevronRight size={14} color="#333" style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Closed cases ─────────────────────────────────────────────────── */}
+          {closedCases.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" }}>Closed</div>
+              {closedCases.map(c => (
+                <button key={c.id} onClick={() => onOpenCase(c)}
+                  style={{ background: "#0a0a0a", border: "1px solid #141414", borderRadius: 12, padding: "12px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 12, marginBottom: 6, opacity: 0.7 }}>
+                  <Folder size={16} color="#333" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                  <ChevronRight size={13} color="#333" style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Recent incidents (backward compat) ───────────────────────────── */}
           {recentIncidents.length > 0 && (
-            <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>RECENT INCIDENTS</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {recentIncidents.map(incident => (
-                  <button key={incident.id} onClick={() => onOpenIncident(incident)}
-                    style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "13px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "flex-start", gap: 12 }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-                    <div style={{ width: 8, height: 8, borderRadius: 4, background: CATEGORY_COLORS[incident.category], flexShrink: 0, marginTop: 5 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{incident.title}</div>
-                      <div style={{ color: "#555", fontSize: 13, lineHeight: 1.4 }}>{truncate(incident.description, 80)}</div>
-                      <div style={{ color: "#333", fontSize: 11, marginTop: 5, display: "flex", alignItems: "center", gap: 8 }}>
-                        {incident.dateOfEvent && <span>{formatEventDate(incident.dateOfEvent)}</span>}
-                        {incident.location && <span>{truncate(incident.location, 24)}</span>}
-                        <span style={{ color: CATEGORY_COLORS[incident.category] + "88" }}>{CATEGORY_LABELS[incident.category]}</span>
-                      </div>
-                    </div>
-                    <ChevronRight size={14} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
-                  </button>
-                ))}
-              </div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" }}>Recent Incidents</div>
+              {recentIncidents.map(incident => (
+                <button key={incident.id} onClick={() => onOpenIncident(incident)}
+                  style={{ background: "#0a0a0a", border: "1px solid #141414", borderRadius: 12, padding: "12px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 3, background: CATEGORY_COLORS[incident.category], flexShrink: 0, marginTop: 5 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#888" }}>{incident.title}</div>
+                    <div style={{ color: "#444", fontSize: 12, marginTop: 2 }}>{truncate(incident.description, 60)}</div>
+                  </div>
+                  <ChevronRight size={13} color="#333" style={{ flexShrink: 0, marginTop: 3 }} />
+                </button>
+              ))}
             </div>
           )}
 
-          {recentCases.length > 0 && (
-            <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>CASES</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {recentCases.map(c => (
-                  <button key={c.id} onClick={() => onOpenCase(c)}
-                    style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "13px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 12 }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-                    <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{c.title}</div>
-                      <div style={{ color: "#555", fontSize: 13 }}>{c.incidentIds.length} incident{c.incidentIds.length !== 1 ? "s" : ""}</div>
-                    </div>
-                    <div style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700, color: STATUS_COLORS[c.status] }}>
-                      {STATUS_LABELS[c.status]}
-                    </div>
-                    <ChevronRight size={14} color="#333" style={{ flexShrink: 0 }} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <TapBtn variant="orange" onClick={onNewIncident} style={{ width: "100%", justifyContent: "center" }}>
-            <Plus size={16} /> New Incident
-          </TapBtn>
+          {/* ── New case button ───────────────────────────────────────────────── */}
+          <button onClick={onCreateCase} style={{
+            width: "100%", background: "none", border: `1px solid ${ORANGE}44`,
+            borderRadius: 12, padding: "13px", color: ORANGE, fontSize: 14,
+            fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center",
+            justifyContent: "center", gap: 6,
+          }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "88")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
+          >
+            <Plus size={15} /> New Case
+          </button>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Primary case card (home screen) ───────────────────────────────────────────
+function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
+  hlCase: HLCase;
+  onOpen: () => void;
+  onContinue: (stage: WorkflowStage) => void;
+}) {
+  const health = computeCaseHealth(hlCase);
+  const pct = caseCompletionPct(health);
+  const next = getNextStep(hlCase, health);
+
+  return (
+    <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 16, padding: "20px" }}>
+      {/* Title + court + view all */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16 }}>
+        <Folder size={20} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 900, fontSize: 17, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hlCase.title}</div>
+          <div style={{ fontSize: 12, color: "#555" }}>
+            {formatDate(hlCase.createdAt)}
+            {hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
+          </div>
+        </div>
+        <button onClick={onOpen} style={{ background: "none", border: "1px solid #2a2521", borderRadius: 8, padding: "5px 10px", color: "#555", fontSize: 12, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+          View All
+        </button>
+      </div>
+
+      {/* Case health bar */}
+      <CaseHealthBar hlCase={hlCase} />
+
+      {/* Next step CTA */}
+      <button
+        onClick={() => onContinue(next.stage)}
+        style={{
+          marginTop: 16, width: "100%",
+          background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`,
+          border: "none", borderRadius: 12, padding: "14px",
+          color: "#000", fontSize: 15, fontWeight: 900, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>
+        {next.label} <ChevronRight size={16} />
+      </button>
     </div>
   );
 }
@@ -1499,8 +1606,17 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
       };
       const { reply } = await aiApi.chat(userMsg, context);
       setChatMessages(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch {
-      setChatMessages(prev => [...prev, { role: "assistant", content: "Couldn't get a response — please try again." }]);
+    } catch (err: unknown) {
+      const e = err as { code?: string; message?: string };
+      let errMsg = "Couldn't get a response. Please try again.";
+      if (e?.code === "ai_not_configured") {
+        errMsg = "AI isn't configured yet. The API key needs to be set in project settings.";
+      } else if (e?.code === "rate_limited") {
+        errMsg = "You've reached today's AI limit. Come back tomorrow, or upgrade your plan.";
+      } else if (e?.code === "insufficient_credits" || (e?.message ?? "").includes("402")) {
+        errMsg = "You're out of credits. Top up in Profile → Credits.";
+      }
+      setChatMessages(prev => [...prev, { role: "assistant", content: errMsg }]);
     } finally {
       setIsSending(false);
     }
@@ -2454,7 +2570,7 @@ function DesktopSideNav({ active, onChange, onFab }: { active: NavTab; onChange:
       </div>
       <button onClick={onFab}
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: ORANGE, border: "none", color: "#000", cursor: "pointer", fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
-        <Plus size={18} /> New Incident
+        <Plus size={18} /> New Case
       </button>
       {NAV_ITEMS.map(item => {
         const Icon = item.icon;
@@ -2477,6 +2593,10 @@ type AppView =
   | { type: "home" }
   | { type: "incident_detail"; incident: Incident }
   | { type: "case_detail"; hlCase: HLCase }
+  | { type: "case_parties"; caseId: string }
+  | { type: "case_court"; caseId: string }
+  | { type: "case_story"; caseId: string }
+  | { type: "case_timeline"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase };
 
 export default function App() {
@@ -2563,6 +2683,41 @@ export default function App() {
     }
   }
 
+  function handleCreateNewCase() {
+    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
+      setShowCreditShop(true);
+      return;
+    }
+    const newCase: HLCase = {
+      id: crypto.randomUUID(),
+      title: "New Case",
+      incidentIds: [],
+      notes: "",
+      status: "open",
+      createdAt: Date.now(),
+      parties: [],
+      court: null,
+      story: "",
+      timeline: [],
+      workflowStage: "parties",
+      intakeChecklist: [],
+    };
+    const d = addCase(data, newCase);
+    setData(d);
+    setNavTab("cases");
+    setView({ type: "case_parties", caseId: newCase.id });
+  }
+
+  function handleContinueCase(hlCase: HLCase, stage: WorkflowStage) {
+    const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
+    setNavTab("cases");
+    if (stage === "parties") setView({ type: "case_parties", caseId: fresh.id });
+    else if (stage === "court") setView({ type: "case_court", caseId: fresh.id });
+    else if (stage === "story") setView({ type: "case_story", caseId: fresh.id });
+    else if (stage === "timeline") setView({ type: "case_timeline", caseId: fresh.id });
+    else setView({ type: "case_detail", hlCase: fresh });
+  }
+
   function handleConvertToCase(incident: Incident) {
     // After 2 free cases, require at least 1 credit to create more
     if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
@@ -2576,12 +2731,19 @@ export default function App() {
       notes: "",
       status: "open",
       createdAt: Date.now(),
+      // New workflow fields — pre-fill story from incident description
+      parties: [],
+      court: null,
+      story: incident.description,
+      timeline: [],
+      workflowStage: "parties",
+      intakeChecklist: [],
     };
     const d1 = addCase(data, hlCase);
     const d2 = addIncidentToCase(d1, incident.id, hlCase.id);
     setData(d2);
     setNavTab("cases");
-    setView({ type: "case_detail", hlCase });
+    setView({ type: "case_parties", caseId: hlCase.id });
   }
 
   async function handleUploadForNewCase(file: File) {
@@ -2612,6 +2774,13 @@ export default function App() {
         notes: ex?.summary ?? "",
         status: "open",
         createdAt: Date.now(),
+        // Upload cases skip the new workflow — they jump straight to case_detail
+        parties: [],
+        court: null,
+        story: "",
+        timeline: [],
+        workflowStage: "documents",
+        intakeChecklist: [],
       };
       setData(addCase(data, newCase));
       setNavTab("cases");
@@ -2651,6 +2820,62 @@ export default function App() {
   const preLinkedCase = preLinkedCaseId ? data.cases.find(c => c.id === preLinkedCaseId) : null;
 
   function currentContent() {
+    // ── New workflow phase screens ─────────────────────────────────────────────
+    if (view.type === "case_parties") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <PartiesView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => setView({ type: "case_court", caseId: hlCase.id })}
+          onBack={() => setView({ type: "case_detail", hlCase })}
+        />
+      );
+    }
+
+    if (view.type === "case_court") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <CourtSelectionView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => setView({ type: "case_story", caseId: hlCase.id })}
+          onBack={() => setView({ type: "case_parties", caseId: hlCase.id })}
+        />
+      );
+    }
+
+    if (view.type === "case_story") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <StoryView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => setView({ type: "case_timeline", caseId: hlCase.id })}
+          onBack={() => setView({ type: "case_court", caseId: hlCase.id })}
+        />
+      );
+    }
+
+    if (view.type === "case_timeline") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <TimelineView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => {
+            const updated = data.cases.find(c => c.id === view.caseId) ?? hlCase;
+            setView({ type: "case_detail", hlCase: updated });
+          }}
+          onBack={() => setView({ type: "case_story", caseId: hlCase.id })}
+        />
+      );
+    }
+
     if (view.type === "incident_detail") {
       const incident = data.incidents.find(i => i.id === view.incident.id) ?? view.incident;
       return (
@@ -2718,6 +2943,8 @@ export default function App() {
         onOpenIncident={handleOpenIncident}
         onOpenCase={handleOpenCase}
         onNewIncident={() => openNewIncident()}
+        onCreateCase={handleCreateNewCase}
+        onContinueCase={handleContinueCase}
         onUploadForNewCase={handleUploadForNewCase}
       />
     );
@@ -2732,7 +2959,7 @@ export default function App() {
 
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
-          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={() => openNewIncident()} />
+          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} />
         )}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {!isOnline && (
@@ -2759,7 +2986,7 @@ export default function App() {
       </div>
 
       {isMobile && (
-        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={() => openNewIncident()} />
+        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} />
       )}
 
       {showNewIncident && (

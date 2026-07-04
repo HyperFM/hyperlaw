@@ -212,6 +212,49 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ── POST /ai/timeline ─────────────────────────────────────────────────────────
+// Parse a free-text story into chronological timeline events.
+router.post("/ai/timeline", async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "Claude AI not configured", code: "ai_not_configured" });
+    return;
+  }
+
+  const { story, caseId } = req.body as { story?: string; caseId?: string };
+  if (!story?.trim()) { res.status(400).json({ error: "story is required" }); return; }
+
+  const userId = auth.userId;
+  const limitCheck = await checkDailyLimit(userId);
+  if (!limitCheck.allowed) {
+    res.status(429).json({ error: `Daily AI limit reached (${limitCheck.count}/${limitCheck.limit}).`, code: "rate_limited" });
+    return;
+  }
+
+  try {
+    const aiResult = await aiService.buildTimeline(story);
+
+    void logAiCall({
+      userId,
+      caseId: caseId ?? null,
+      feature: "timeline",
+      model: aiResult.meta.model,
+      inputTokens: aiResult.meta.inputTokens,
+      outputTokens: aiResult.meta.outputTokens,
+      estimatedCostMicroUsd: aiResult.meta.estimatedCostMicroUsd,
+      responseTimeMs: aiResult.meta.responseTimeMs,
+      cacheHit: false,
+      promptTemplate: "timeline",
+    });
+
+    res.json({ events: aiResult.data });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Timeline build failed" });
+  }
+});
+
 // ── POST /ai/upload ────────────────────────────────────────────────────────────
 router.post(
   "/ai/upload",

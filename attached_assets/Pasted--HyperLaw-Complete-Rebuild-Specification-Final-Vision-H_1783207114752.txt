@@ -1,0 +1,1121 @@
+
+HyperLaw — Complete Rebuild Specification (Final)
+
+Vision
+
+HyperLaw is not a chatbot.
+
+It is an AI-powered legal case building platform that helps people organize their facts, understand the law, and generate legal documents in a calm, structured workflow.
+
+The goal is to reduce the mental burden of legal matters by guiding users through one simple task at a time.
+
+Every screen should answer one question:
+
+“What do I do next?”
+
+The user should never feel overwhelmed by seeing multiple unrelated tools competing for attention.
+
+⸻
+
+Core Design Rules
+
+Throughout the application, follow these principles:
+
+* One task per screen.
+* One primary button per screen.
+* One clear objective before moving to the next stage.
+* AI should not interrupt users while they are entering information.
+* AI should activate only after structured information has been collected.
+* Every screen should feel calm, focused, and easy to understand.
+* The workflow should always show users what their next step is.
+
+The experience should feel closer to Duolingo than a legal dashboard.
+
+⸻
+
+New Case Building Workflow
+
+Create Case
+↓
+Parties
+↓
+Court Selection
+↓
+Tell Your Story
+↓
+Timeline Review
+↓
+AI Assembly
+↓
+Learning Index
+↓
+Tutor
+↓
+Documents
+↓
+Optional Evidence Modules
+
+Each stage should be its own screen.
+
+Do not combine these stages together.
+
+⸻
+
+PHASE 1 — Parties
+
+This replaces the current “Add Incident” starting point.
+
+The first thing every user should do after creating a case is identify the people involved.
+
+Nothing else should appear on this screen.
+
+No AI.
+
+No documents.
+
+No motions.
+
+No deadlines.
+
+No jurisdiction.
+
+No uploads.
+
+Only party collection.
+
+⸻
+
+Collect
+
+For each person:
+
+* First name
+* Last name
+* Official or Civilian
+
+If Official:
+
+* Agency
+* Title
+* Badge number (if known)
+* Location (if known)
+
+If identity is unknown:
+
+Allow:
+
+* John Doe
+* Jane Doe
+
+Display this disclosure:
+
+Use Doe placeholders only when a person’s identity is genuinely unknown. Officials can often be identified later through discovery. This is informational only and not legal advice.
+
+AI must never generate or infer names.
+
+This screen is structured data entry only.
+
+⸻
+
+Voice Reference System
+
+Replace the color and number tagging system.
+
+Every party automatically receives a simple voice-friendly nickname.
+
+Purpose:
+
+* Improve speech recognition.
+* Reduce dictation errors.
+* Reduce stress.
+* Make storytelling easier.
+
+Example:
+
+🥒 Pickle → Officer Jonathan Smith
+
+🐟 Fish → Officer Maria Lopez
+
+🍎 Apple → Jane Brown
+
+🥜 Peanut → John Doe
+
+👾 Monster → Officer Robert Davis
+
+The nickname is displayed beside the legal name throughout the workspace.
+
+⸻
+
+Absolutely. I reorganized everything into a single product specification that I think is much clearer for Replit to execute. I also reordered the priorities so they’re building the foundation first instead of continuing to pile features onto a confusing workflow.
+
+⸻
+
+HyperLaw — Complete Rebuild Specification (Final)
+
+Vision
+
+HyperLaw is not a chatbot.
+
+It is an AI-powered legal case building platform that helps people organize their facts, understand the law, and generate legal documents in a calm, structured workflow.
+
+The goal is to reduce the mental burden of legal matters by guiding users through one simple task at a time.
+
+Every screen should answer one question:
+
+“What do I do next?”
+
+The user should never feel overwhelmed by seeing multiple unrelated tools competing for attention.
+
+⸻
+
+Core Design Rules
+
+Throughout the application, follow these principles:
+
+* One task per screen.
+* One primary button per screen.
+* One clear objective before moving to the next stage.
+* AI should not interrupt users while they are entering information.
+* AI should activate only after structured information has been collected.
+* Every screen should feel calm, focused, and easy to understand.
+* The workflow should always show users what their next step is.
+
+The experience should feel closer to Duolingo than a legal dashboard.
+
+⸻
+
+New Case Building Workflow
+
+Create Case
+↓
+Parties
+↓
+Court Selection
+↓
+Tell Your Story
+↓
+Timeline Review
+↓
+AI Assembly
+↓
+Learning Index
+↓
+Tutor
+↓
+Documents
+↓
+Optional Evidence Modules
+
+Each stage should be its own screen.
+
+Do not combine these stages together.
+
+⸻
+
+PHASE 1 — Parties
+
+This replaces the current “Add Incident” starting point.
+
+The first thing every user should do after creating a case is identify the people involved.
+
+Nothing else should appear on this screen.
+
+No AI.
+
+No documents.
+
+No motions.
+
+No deadlines.
+
+No jurisdiction.
+
+No uploads.
+
+Only party collection.
+
+⸻
+
+Collect
+
+For each person:
+
+* First name
+* Last name
+* Official or Civilian
+
+If Official:
+
+* Agency
+* Title
+* Badge number (if known)
+* Location (if known)
+
+If identity is unknown:
+
+Allow:
+
+* John Doe
+* Jane Doe
+
+Display this disclosure:
+
+Use Doe placeholders only when a person’s identity is genuinely unknown. Officials can often be identified later through discovery. This is informational only and not legal advice.
+
+AI must never generate or infer names.
+
+This screen is structured data entry only.
+
+⸻
+
+Voice Reference System
+
+Replace the color and number tagging system.
+
+Every party automatically receives a simple voice-friendly nickname.
+
+Purpose:
+
+* Improve speech recognition.
+* Reduce dictation errors.
+* Reduce stress.
+* Make storytelling easier.
+
+Example:
+
+🥒 Pickle → Officer Jonathan Smith
+
+🐟 Fish → Officer Maria Lopez
+
+🍎 Apple → Jane Brown
+
+🥜 Peanut → John Doe
+
+👾 Monster → Officer Robert Davis
+
+The nickname is displayed beside the legal name throughout the workspace.
+
+⸻
+
+Voice Nickname Library
+
+Generate simple, distinct words that phone dictation recognizes reliably.
+
+Examples:
+
+* Pickle
+* Fish
+* Peanut
+* Apple
+* Monster
+* Rocket
+* Tiger
+* Lemon
+* Pebble
+* River
+* Cloud
+* Maple
+* Anchor
+* Olive
+* Cookie
+* Button
+* Pumpkin
+* Penguin
+* Bicycle
+* Taco
+* Waffle
+* Banana
+
+Avoid words that sound similar.
+
+⸻
+
+Custom Nicknames
+
+Allow users to replace the assigned nickname with another simple word if desired.
+
+Encourage users to choose easy-to-pronounce words for better dictation accuracy.
+
+⸻
+
+Important Rule
+
+These nicknames are internal voice references only.
+
+They are never legal identities.
+
+Generated complaints, motions, affidavits, timelines, or other legal documents must always use the person’s legal name (or John/Jane Doe).
+
+⸻
+
+PHASE 2 — Court Selection
+
+Replace the free-text jurisdiction field.
+
+Workflow:
+
+Choose:
+
+* State
+* Federal
+
+↓
+
+Search
+
+↓
+
+Autocomplete
+
+↓
+
+Choose State
+
+↓
+
+Display only valid courts within that jurisdiction
+
+↓
+
+Select Court
+
+Jurisdiction should never be typed manually.
+
+⸻
+
+PHASE 3 — Tell Your Story
+
+Replace “Add Incident.”
+
+Rename this screen:
+
+Tell Your Story
+
+The page should be intentionally minimal.
+
+Display:
+
+* Large orange animated microphone.
+* Large text field.
+* Small instructions.
+
+The microphone should activate the device’s built-in keyboard dictation.
+
+Do not build a custom transcription service.
+
+No paid speech APIs.
+
+Use native speech-to-text.
+
+Users simply tell the story.
+
+Example:
+
+Pickle grabbed my wrist while Fish stood nearby. Monster walked over and told Pickle to place me in handcuffs.
+
+No AI processing occurs while speaking.
+
+No interruptions.
+
+No clarifying questions.
+
+The AI waits until the user presses Submit.
+
+⸻
+
+PHASE 4 — Timeline Builder
+
+After submission:
+
+AI automatically separates the narrative into chronological events.
+
+Example:
+
+Event 1
+
+Arrival
+
+⸻
+
+Event 2
+
+Conversation
+
+⸻
+
+Event 3
+
+Physical Contact
+
+⸻
+
+Event 4
+
+Detention
+
+Users can edit this timeline before continuing.
+
+Avoid storing one massive block of text.
+
+⸻
+
+PHASE 5 — AI Assembly
+
+Only after:
+
+* Parties
+* Court
+* Timeline
+* Facts
+
+have been completed.
+
+AI responsibilities:
+
+* Build complaint.
+* Match facts to legal claims.
+* Organize allegations.
+* Associate supporting evidence.
+* Detect factual gaps.
+* Organize the case logically.
+
+The AI should not conduct intake.
+
+The AI should assemble information.
+
+⸻
+
+PHASE 6 — Learning Index
+
+Automatically generated.
+
+Read-only.
+
+No chat.
+
+The AI should extract every legal allegation from the complaint.
+
+For each allegation display:
+
+* Applicable statute.
+* Constitutional provision (if applicable).
+* Relevant case precedent.
+* Plain-English explanation.
+* How that authority may relate to this specific fact pattern.
+
+Examples:
+
+* Excessive Force
+* False Arrest
+* Retaliation
+* First Amendment
+* Fourth Amendment
+
+This updates automatically as the complaint evolves.
+
+⸻
+
+PHASE 7 — Tutor
+
+Tutor has one responsibility:
+
+Conversation.
+
+Not legal research.
+
+Not document generation.
+
+Not intake.
+
+Not case law.
+
+Tutor should provide:
+
+* Encouragement.
+* Organization.
+* Practical guidance.
+* Plain-English explanations.
+* Emotional support while remaining professional.
+
+If the user reveals new facts during conversation:
+
+Prompt:
+
+“You mentioned something that isn’t currently in your case. Would you like to add it?”
+
+Never silently modify the case.
+
+Always ask permission first.
+
+⸻
+
+PHASE 8 — Documents
+
+After the complaint exists:
+
+Generate:
+
+* Complaint
+* Timeline
+* Motion
+* Declaration
+* Affidavit
+* Demand Letter
+* Other pleadings
+
+These should use the structured case database instead of repeatedly asking users the same questions.
+
+⸻
+
+PHASE 9 — Evidence Modules
+
+Move these outside the primary workflow.
+
+Examples:
+
+* Video Evidence
+* Audio Evidence
+* Medical Records
+* Police Reports
+* Exhibits
+* Photographs
+
+These are optional organizational tools.
+
+Do not force users through them during intake.
+
+⸻
+
+Upload Shortcut
+
+If the uploaded document is already a complaint or legal filing:
+
+Skip:
+
+* Parties
+* Court Selection
+* Story
+* Timeline
+
+Automatically:
+
+* Extract parties.
+* Detect the court.
+* Build timeline.
+* Detect legal claims.
+* Populate the case.
+* Build Learning Index.
+
+The uploaded complaint becomes the starting point.
+
+⸻
+
+Intake Checklist
+
+Replace conversational intake questions with a structured checklist.
+
+Examples:
+
+☐ Witnesses
+
+☐ Photos
+
+☐ Video
+
+☐ Audio
+
+☐ Medical Records
+
+☐ Police Reports
+
+☐ Body Camera Footage
+
+☐ Prior Related Incidents
+
+☐ Property Damage
+
+☐ Financial Loss
+
+☐ Emotional Harm
+
+☐ Filing Deadlines
+
+Selecting an item opens a small form.
+
+Users may complete these later.
+
+⸻
+
+Home Screen
+
+Replace the overwhelming dashboard.
+
+Instead display:
+
+Continue Your Case
+
+Hoskins Complaint
+
+Progress
+
+62% Complete
+
+Next Step
+
+➡ Add Parties
+
+or
+
+➡ Select Court
+
+or
+
+➡ Tell Your Story
+
+Only one obvious next action should be displayed.
+
+⸻
+
+Existing Bug Fixes
+
+Before implementing additional Tutor features:
+
+Fix the Tutor response failure.
+
+Current behavior:
+
+“I couldn’t generate a response.”
+
+Investigate:
+
+* AI API calls.
+* Error handling.
+* Conversation state.
+* Timeouts.
+* Prompt routing.
+* Retry logic.
+
+The Tutor should fail gracefully and provide a helpful message if the AI service is unavailable.
+
+⸻
+
+Additional Cleanup
+
+Remove or relocate anything that distracts from the primary workflow.
+
+Specifically:
+
+* Generated documents should not appear before a complaint exists.
+* Litigation motions should not appear before users have facts entered.
+* Deadlines should not appear until users intentionally open the deadline section.
+* AI analysis should not appear before intake is complete.
+* Tutor should not perform intake.
+* Learning Index should never become a chat interface.
+
+⸻
+
+Long-Term Product Philosophy
+
+HyperLaw is designed to help people organize and understand legal matters, not replace attorneys or provide individualized legal representation. Every feature should reduce cognitive load and guide users through a structured process.
+
+Whenever there is a choice between adding another feature or simplifying the workflow, choose simplicity. Users facing legal issues are often already overwhelmed. HyperLaw should feel like a calm guide that helps them move forward one step at a time, turning a complex legal process into a series of manageable tasks.
+
+⸻
+
+I think this is the clearest direction HyperLaw has had so far. One additional suggestion for the future (not for this build) would be to eventually add a “Case Health” indicator that shows things like Facts Complete, Parties Complete, Court Selected, Evidence Organized, Documents Ready. That would give users a reassuring sense of progress without overwhelming them, and it fits naturally with your vision of reducing stress through organization.
+
+Avoid words that sound similar.
+
+⸻
+
+Custom Nicknames
+
+Allow users to replace the assigned nickname with another simple word if desired.
+
+Encourage users to choose easy-to-pronounce words for better dictation accuracy.
+
+⸻
+
+Important Rule
+
+These nicknames are internal voice references only.
+
+They are never legal identities.
+
+Generated complaints, motions, affidavits, timelines, or other legal documents must always use the person’s legal name (or John/Jane Doe).
+
+⸻
+
+PHASE 2 — Court Selection
+
+Replace the free-text jurisdiction field.
+
+Workflow:
+
+Choose:
+
+* State
+* Federal
+
+↓
+
+Search
+
+↓
+
+Autocomplete
+
+↓
+
+Choose State
+
+↓
+
+Display only valid courts within that jurisdiction
+
+↓
+
+Select Court
+
+Jurisdiction should never be typed manually.
+
+⸻
+
+PHASE 3 — Tell Your Story
+
+Replace “Add Incident.”
+
+Rename this screen:
+
+Tell Your Story
+
+The page should be intentionally minimal.
+
+Display:
+
+* Large orange animated microphone.
+* Large text field.
+* Small instructions.
+
+The microphone should activate the device’s built-in keyboard dictation.
+
+Do not build a custom transcription service.
+
+No paid speech APIs.
+
+Use native speech-to-text.
+
+Users simply tell the story.
+
+Example:
+
+Pickle grabbed my wrist while Fish stood nearby. Monster walked over and told Pickle to place me in handcuffs.
+
+No AI processing occurs while speaking.
+
+No interruptions.
+
+No clarifying questions.
+
+The AI waits until the user presses Submit.
+
+⸻
+
+PHASE 4 — Timeline Builder
+
+After submission:
+
+AI automatically separates the narrative into chronological events.
+
+Example:
+
+Event 1
+
+Arrival
+
+⸻
+
+Event 2
+
+Conversation
+
+⸻
+
+Event 3
+
+Physical Contact
+
+⸻
+
+Event 4
+
+Detention
+
+Users can edit this timeline before continuing.
+
+Avoid storing one massive block of text.
+
+⸻
+
+PHASE 5 — AI Assembly
+
+Only after:
+
+* Parties
+* Court
+* Timeline
+* Facts
+
+have been completed.
+
+AI responsibilities:
+
+* Build complaint.
+* Match facts to legal claims.
+* Organize allegations.
+* Associate supporting evidence.
+* Detect factual gaps.
+* Organize the case logically.
+
+The AI should not conduct intake.
+
+The AI should assemble information.
+
+⸻
+
+PHASE 6 — Learning Index
+
+Automatically generated.
+
+Read-only.
+
+No chat.
+
+The AI should extract every legal allegation from the complaint.
+
+For each allegation display:
+
+* Applicable statute.
+* Constitutional provision (if applicable).
+* Relevant case precedent.
+* Plain-English explanation.
+* How that authority may relate to this specific fact pattern.
+
+Examples:
+
+* Excessive Force
+* False Arrest
+* Retaliation
+* First Amendment
+* Fourth Amendment
+
+This updates automatically as the complaint evolves.
+
+⸻
+
+PHASE 7 — Tutor
+
+Tutor has one responsibility:
+
+Conversation.
+
+Not legal research.
+
+Not document generation.
+
+Not intake.
+
+Not case law.
+
+Tutor should provide:
+
+* Encouragement.
+* Organization.
+* Practical guidance.
+* Plain-English explanations.
+* Emotional support while remaining professional.
+
+If the user reveals new facts during conversation:
+
+Prompt:
+
+“You mentioned something that isn’t currently in your case. Would you like to add it?”
+
+Never silently modify the case.
+
+Always ask permission first.
+
+⸻
+
+PHASE 8 — Documents
+
+After the complaint exists:
+
+Generate:
+
+* Complaint
+* Timeline
+* Motion
+* Declaration
+* Affidavit
+* Demand Letter
+* Other pleadings
+
+These should use the structured case database instead of repeatedly asking users the same questions.
+
+⸻
+
+PHASE 9 — Evidence Modules
+
+Move these outside the primary workflow.
+
+Examples:
+
+* Video Evidence
+* Audio Evidence
+* Medical Records
+* Police Reports
+* Exhibits
+* Photographs
+
+These are optional organizational tools.
+
+Do not force users through them during intake.
+
+⸻
+
+Upload Shortcut
+
+If the uploaded document is already a complaint or legal filing:
+
+Skip:
+
+* Parties
+* Court Selection
+* Story
+* Timeline
+
+Automatically:
+
+* Extract parties.
+* Detect the court.
+* Build timeline.
+* Detect legal claims.
+* Populate the case.
+* Build Learning Index.
+
+The uploaded complaint becomes the starting point.
+
+⸻
+
+Intake Checklist
+
+Replace conversational intake questions with a structured checklist.
+
+Examples:
+
+☐ Witnesses
+
+☐ Photos
+
+☐ Video
+
+☐ Audio
+
+☐ Medical Records
+
+☐ Police Reports
+
+☐ Body Camera Footage
+
+☐ Prior Related Incidents
+
+☐ Property Damage
+
+☐ Financial Loss
+
+☐ Emotional Harm
+
+☐ Filing Deadlines
+
+Selecting an item opens a small form.
+
+Users may complete these later.
+
+⸻
+
+Home Screen
+
+Replace the overwhelming dashboard.
+
+Instead display:
+
+Continue Your Case
+
+Hoskins Complaint
+
+Progress
+
+62% Complete
+
+Next Step
+
+➡ Add Parties
+
+or
+
+➡ Select Court
+
+or
+
+➡ Tell Your Story
+
+Only one obvious next action should be displayed.
+
+⸻
+
+Existing Bug Fixes
+
+Before implementing additional Tutor features:
+
+Fix the Tutor response failure.
+
+Current behavior:
+
+“I couldn’t generate a response.”
+
+Investigate:
+
+* AI API calls.
+* Error handling.
+* Conversation state.
+* Timeouts.
+* Prompt routing.
+* Retry logic.
+
+The Tutor should fail gracefully and provide a helpful message if the AI service is unavailable.
+
+⸻
+
+Additional Cleanup
+
+Remove or relocate anything that distracts from the primary workflow.
+
+Specifically:
+
+* Generated documents should not appear before a complaint exists.
+* Litigation motions should not appear before users have facts entered.
+* Deadlines should not appear until users intentionally open the deadline section.
+* AI analysis should not appear before intake is complete.
+* Tutor should not perform intake.
+* Learning Index should never become a chat interface.
+
+⸻
+
+Long-Term Product Philosophy
+
+HyperLaw is designed to help people organize and understand legal matters, not replace attorneys or provide individualized legal representation. Every feature should reduce cognitive load and guide users through a structured process.
+
+Whenever there is a choice between adding another feature or simplifying the workflow, choose simplicity. Users facing legal issues are often already overwhelmed. HyperLaw should feel like a calm guide that helps them move forward one step at a time, turning a complex legal process into a series of manageable tasks.
+
+Lastly I want you to add a “Case Health” indicator somwhere neat that shows things like Facts Complete, Parties Complete, Court Selected, Evidence Organized, Documents Ready. That would give users a reassuring sense of progress without overwhelming them, and it fits naturally with my vision of reducing stress through organization.

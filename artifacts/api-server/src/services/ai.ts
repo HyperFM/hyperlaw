@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 // ── Shared types (mirrored on frontend via aiApi.ts) ─────────────────────────
 
 export interface TutorInsight {
-  type: "summary" | "key_point" | "question" | "notice";
+  type: "gap" | "key_point" | "question" | "notice";
   text: string;
 }
 
@@ -161,8 +161,8 @@ Return JSON with this exact shape:
   "overview": "2-3 sentence overview of what happened and why it may be legally significant. Reference the specific facts described.",
   "insights": [
     { "type": "notice", "text": "specific legal right or protection that applies to this situation" },
-    { "type": "key_point", "text": "most important legally relevant detail from the description" },
-    { "type": "summary", "text": "assessment of the claim's strength based on what was described" }
+    { "type": "key_point", "text": "most important legally relevant fact already documented in the description" },
+    { "type": "gap", "text": "a specific factual detail that is missing, unclear, or not yet documented — something that would need to be established for any legal proceeding" }
   ],
   "guidingQuestions": [
     "Specific question about a detail that would strengthen or clarify the legal claim",
@@ -216,10 +216,10 @@ Return JSON with this exact shape:
 {
   "overview": "2-3 sentences covering the overall pattern of the case, what connects the incidents, and the combined legal significance.",
   "insights": [
-    { "type": "summary", "text": "the pattern or theme that connects incidents and makes this a stronger case" },
+    { "type": "gap", "text": "a factual detail or piece of documentation that is missing or unclear across these incidents — something undocumented, ambiguous, or not yet preserved" },
     { "type": "notice", "text": "most important combined legal issue across the incidents" },
-    { "type": "key_point", "text": "strongest strategic element of the combined case" },
-    { "type": "notice", "text": "evidence or documentation gap across the incidents" }
+    { "type": "key_point", "text": "the most significant legally relevant fact that is already documented across these incidents" },
+    { "type": "gap", "text": "another documentation gap — a specific item of evidence, date, name, or record that has not yet been captured in any of the incident descriptions" }
   ],
   "guidingQuestions": [
     "Strategic question about building the combined case",

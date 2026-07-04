@@ -79,7 +79,8 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
   };
 
   const userId = auth.userId;
-  const feature: AiFeature = type === "incident" ? "analyze_incident" : "analyze_case";
+  // v2 = factual-gap schema (summary insight type replaced by gap)
+  const feature: AiFeature = type === "incident" ? "analyze_incident_v2" : "analyze_case_v2";
 
   // Content used for cache key
   const cacheContent = type === "incident" ? incident : { hlCase, incidents };

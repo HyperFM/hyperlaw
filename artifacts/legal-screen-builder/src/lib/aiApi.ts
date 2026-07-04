@@ -2,7 +2,7 @@
 // Mirrors the shapes defined in artifacts/api-server/src/services/ai.ts
 
 export interface TutorInsight {
-  type: "summary" | "key_point" | "question" | "notice";
+  type: "gap" | "key_point" | "question" | "notice";
   text: string;
 }
 

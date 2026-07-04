@@ -3,7 +3,7 @@ import { Incident, HLCase } from "../types";
 // ─── Domain types (UI-stable — swap implementation without changing call sites) ─
 
 export interface TutorInsight {
-  type: "summary" | "key_point" | "question" | "notice";
+  type: "gap" | "key_point" | "question" | "notice";
   text: string;
 }
 
@@ -75,9 +75,9 @@ export const staticTutorService: TutorService = {
     if (wordCount < 80) {
       keyPoints.push({ type: "question", text: "Your description is brief. Try to add more detail — even small details like exact words said, exact sequence of events, or who else was present can matter significantly." });
     } else if (wordCount < 200) {
-      keyPoints.push({ type: "key_point", text: "Good start. Consider whether there are additional details — exact quotes, the order things happened, who made what decision — that you could add." });
+      keyPoints.push({ type: "gap", text: "Your description is a good start. Look for gaps: exact words spoken, the precise order of events, who gave which order, and any badge numbers or names you haven't yet recorded." });
     } else {
-      keyPoints.push({ type: "summary", text: "You have a detailed description. The more specific your account, the easier it is to understand what happened and identify what's important." });
+      keyPoints.push({ type: "gap", text: "Your description is detailed. Check for any remaining gaps: exact timestamps, full names and badge numbers, whether anything was recorded, and whether you reported this in writing." });
     }
 
     return {
@@ -108,8 +108,8 @@ export const staticTutorService: TutorService = {
       overview: `Case: "${hlCase.title}" — ${count} incident${count !== 1 ? "s" : ""}, approximately ${totalWords} words of description total. The Tutor reads across all incidents to help you find patterns.`,
       insights: [
         count > 1
-          ? { type: "summary", text: "Multiple incidents can establish a pattern of behavior — this is often more persuasive than a single event. Make sure each incident is described in enough detail to stand on its own." }
-          : { type: "question", text: "Only one incident in this case so far. Consider whether there are related events worth documenting as separate incidents." },
+          ? { type: "gap", text: "Review each incident for documentation gaps: every incident should have its own date, location, officer names or badge numbers, and a specific factual account. A gap in one incident can affect the whole case record." }
+          : { type: "gap", text: "Only one incident is documented so far. Are there related events — before or after — that should be recorded as separate incidents?" },
         ...notices.slice(0, 3),
       ],
       guidingQuestions: pickQuestions(combined),

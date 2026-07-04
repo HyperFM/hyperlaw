@@ -53,7 +53,7 @@ const plans = [
       { text: "<b>Unlimited cases</b> — build and track as many cases as your docket demands", tbd: false },
       { text: "<b>Priority tutor access</b> — no usage caps, full reasoning depth", tbd: false },
       { text: "<b>Document analysis</b> — upload evidence, get structured breakdowns", tbd: false },
-      { text: "<b>Readiness engine</b> — know your case strength before you file", tbd: false },
+      { text: "<b>Factual gap checklist</b> — know exactly what documentation is missing before you file", tbd: false },
       { text: "<b>Advanced reminders</b> — deadline tracking across all your cases", tbd: false },
     ],
     ctaLabel: "Select Pro-Say",

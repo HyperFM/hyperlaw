@@ -1506,8 +1506,8 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     }
   }
 
-  const insightBg: Record<string, string> = { summary: "#1a2a1a", key_point: "#121e2a", question: "#211e0e", notice: "#2a1212" };
-  const insightBorder: Record<string, string> = { summary: "#2a5a2a", key_point: "#2a4a6a", question: "#5a4a12", notice: "#6a2222" };
+  const insightBg: Record<string, string> = { gap: "#1c1600", key_point: "#121e2a", question: "#211e0e", notice: "#2a1212" };
+  const insightBorder: Record<string, string> = { gap: "#4a3800", key_point: "#2a4a6a", question: "#5a4a12", notice: "#6a2222" };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -1614,16 +1614,39 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
                 {analysis.overview}
               </div>
             </div>
-            {analysis.insights.length > 0 && (
+            {/* Backward-compat: old cached results may still carry type="summary" — remap to gap */}
+            {(() => { analysis.insights.forEach(ins => { if ((ins.type as string) === "summary") (ins as any).type = "gap"; }); })()}
+            {/* Non-gap insights — legal notices and key documented facts */}
+            {analysis.insights.filter(ins => ins.type !== "gap").length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>WHAT THE TUTOR SEES</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {analysis.insights.map((insight, i) => (
+                  {analysis.insights.filter(ins => ins.type !== "gap").map((insight, i) => (
                     <div key={i} style={{ background: insightBg[insight.type] || "#111", border: `1px solid ${insightBorder[insight.type] || "#2a2a2a"}`, borderRadius: 12, padding: "14px 16px" }}>
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: "#666", marginBottom: 6, textTransform: "uppercase" }}>{insight.type.replace("_", " ")}</div>
                       <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.6 }}>{insight.text}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+            {/* Factual gap checklist — what is missing or undocumented */}
+            {analysis.insights.filter(ins => ins.type === "gap").length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "#4a3800", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertCircle size={11} color="#f59e0b" />
+                  <span style={{ color: "#f59e0b" }}>FACTUAL GAP CHECKLIST</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {analysis.insights.filter(ins => ins.type === "gap").map((insight, i) => (
+                    <div key={i} style={{ background: "#1c1600", border: "1px solid #4a3800", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                      <div style={{ width: 16, height: 16, border: "1.5px solid #4a3800", borderRadius: 3, flexShrink: 0, marginTop: 2 }} />
+                      <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.6 }}>{insight.text}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: "#555", paddingLeft: 2 }}>
+                  Each unchecked item is a gap in your factual record. Address these before generating documents.
                 </div>
               </div>
             )}

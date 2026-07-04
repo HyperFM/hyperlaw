@@ -13,7 +13,9 @@ import { and, eq } from "drizzle-orm";
 
 export type AiFeature =
   | "analyze_incident"
+  | "analyze_incident_v2"
   | "analyze_case"
+  | "analyze_case_v2"
   | "chat"
   | "extract_document"
   | "ocr_image"

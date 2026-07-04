@@ -28,6 +28,13 @@ description: What was built in the Stops 5/6/7 pass — free-case gate, polish, 
 - **AdminPanel Errors tab**: AlertCircle icon, "errors" in AdminView type, loadErrorLogs useCallback, useEffect auto-loads on tab open (deps suppression intentional), refresh button wired, pagination, empty state.
 - **Response time chart**: In AI Inspector, between feature breakdown and logs table. Bars colored green/orange/red by threshold.
 
+## Factual Gap Checklist (post-Stop-7 change)
+- `TutorInsight.type` `"summary"` → `"gap"` everywhere (aiCache.ts, ai.ts, tutor.ts, aiApi.ts)
+- Cache key versioned: `analyze_incident_v2` / `analyze_case_v2` so old strength-indicator cache entries are naturally bypassed
+- Old cache entries that do slip through: backward-compat remap in App.tsx converts `type:"summary"` → `type:"gap"` at render time
+- UI: split into "WHAT THE TUTOR SEES" (notice/key_point) + "FACTUAL GAP CHECKLIST" (gap, amber checkbox cards)
+- Plans.tsx: "Readiness engine — know your case strength" → "Factual gap checklist — know what documentation is missing"
+
 ## Key Decisions
 - Fire-and-forget error insert uses `void (async () => { ... })()` pattern — not a detached promise; wraps await inside IIFE.
 - `eslint-disable react-hooks/exhaustive-deps` on errors tab useEffect is intentional: "load once on tab open" behavior.

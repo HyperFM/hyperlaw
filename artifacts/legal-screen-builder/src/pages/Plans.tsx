@@ -73,7 +73,7 @@ const plans = [
     features: [
       { text: "<b>Sink your teeth into the docket</b> — unlimited cases, zero throttle, zero apologies", tbd: false },
       { text: "<b>Built for attorneys & power litigants</b> — anyone going for the jugular", tbd: false },
-      { text: "<b>Full AI reasoning engine</b> — no guardrails, no cap on depth", tbd: false },
+      { text: "<b>Full AI reasoning engine</b> — unlimited depth, zero throttling", tbd: false },
       { text: "<b>Priority everything</b> — support, tutor, document analysis, front of the line", tbd: false },
       { text: "<b>Run your entire practice</b> — fight every battle at once, on your terms", tbd: false },
     ],
@@ -194,7 +194,7 @@ export default function Plans() {
               }}
             >
               {plans.map((plan, i) => (
-                <div key={plan.id} style={{ flex: "0 0 100%", maxWidth: "100%", padding: 6, display: "flex" }}>
+                <div key={plan.id} style={{ flex: "0 0 100%", maxWidth: "100%", padding: 6, paddingTop: 20, display: "flex" }}>
                   <PlanCard
                     plan={plan}
                     iconSrc={PLAN_ICONS[i]}

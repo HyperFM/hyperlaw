@@ -106,6 +106,8 @@ export const generatedDocumentsTable = pgTable("generated_documents", {
   paymentStatus: text("payment_status").notNull().default("free"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  /** Set when the user completes the TTS read-aloud pre-verification step. */
+  verifiedAt: timestamp("verified_at"),
 }, (table) => ({
   genDocsUserIdx: uniqueIndex("gen_docs_user_idx").on(table.userId, table.createdAt),
   genDocsCaseIdx: uniqueIndex("gen_docs_case_idx").on(table.userId, table.caseId),

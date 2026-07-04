@@ -15,6 +15,10 @@ import { storage } from "./storage.js";
 
 const app: Express = express();
 
+// Trust the first proxy hop so express-rate-limit resolves the real client IP
+// instead of collapsing all requests onto the reverse-proxy address.
+app.set("trust proxy", 1);
+
 // ── Stripe webhook — MUST be registered BEFORE express.json() ─────────────────
 // Stripe requires the raw Buffer body for signature verification.
 app.post(

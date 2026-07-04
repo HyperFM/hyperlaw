@@ -69,6 +69,39 @@ function downloadAsText(doc: ServerGeneratedDoc) {
 
 interface CheckItem { id: string; text: string; checked: boolean }
 
+// ── Word-by-word TTS highlight renderer ───────────────────────────────────────
+// Splits content into word/whitespace tokens and applies an orange glow to the
+// currently spoken word, identified by the SpeechSynthesisUtterance charIndex.
+function renderHighlightedText(text: string, charIndex: number) {
+  if (charIndex < 0) return <>{text}</>;
+  const tokens = text.split(/(\s+)/);
+  let offset = 0;
+  return (
+    <>
+      {tokens.map((token, i) => {
+        const start = offset;
+        offset += token.length;
+        const isWord = token.length > 0 && !/^\s+$/.test(token);
+        const isActive = isWord && charIndex >= start && charIndex < offset;
+        return (
+          <span
+            key={i}
+            style={isActive ? {
+              background: "rgba(217,113,31,0.22)",
+              color: "#f97316",
+              borderRadius: 3,
+              textShadow: "0 0 10px rgba(217,113,31,0.55)",
+              padding: "0 1px",
+            } : undefined}
+          >
+            {token}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 // ── WaveBar — animated waveform bar ───────────────────────────────────────────
 
 function WaveBar({ index, active }: { index: number; active: boolean }) {
@@ -117,6 +150,8 @@ export default function DocumentViewerModal({
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [ttsPaused, setTtsPaused] = useState(false);
   const [ttsReviewed, setTtsReviewed] = useState(false);
+  /** charIndex from SpeechSynthesisUtterance.onboundary — drives word-level highlight. -1 = inactive. */
+  const [ttsCharIndex, setTtsCharIndex] = useState(-1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // Download checklist
@@ -143,8 +178,13 @@ export default function DocumentViewerModal({
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(doc.content);
     u.rate = 0.9; u.pitch = 1;
-    u.onend = () => { setTtsPlaying(false); setTtsPaused(false); setTtsReviewed(true); };
-    u.onerror = () => { setTtsPlaying(false); setTtsPaused(false); };
+    // Word-by-word highlight: update on any boundary event since browsers vary —
+    // Chrome emits name="word", Safari sometimes emits name="sentence" or omits it.
+    u.onboundary = (e: SpeechSynthesisEvent) => {
+      if (e.charIndex !== undefined) setTtsCharIndex(e.charIndex);
+    };
+    u.onend = () => { setTtsPlaying(false); setTtsPaused(false); setTtsReviewed(true); setTtsCharIndex(-1); };
+    u.onerror = () => { setTtsPlaying(false); setTtsPaused(false); setTtsCharIndex(-1); };
     utteranceRef.current = u;
     window.speechSynthesis.speak(u);
     setTtsPlaying(true);
@@ -167,6 +207,7 @@ export default function DocumentViewerModal({
     window.speechSynthesis.cancel();
     setTtsPlaying(false);
     setTtsPaused(false);
+    setTtsCharIndex(-1);
     utteranceRef.current = null;
   }
 
@@ -292,7 +333,9 @@ export default function DocumentViewerModal({
                 color: "#c8c8c8", fontSize: 13, lineHeight: 1.85,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
               }}>
-                {doc.content}
+                {(ttsPlaying || ttsPaused)
+                  ? renderHighlightedText(doc.content, ttsCharIndex)
+                  : doc.content}
               </div>
               <div style={{
                 marginTop: 24, padding: "12px 14px",
@@ -461,7 +504,12 @@ export default function DocumentViewerModal({
 
               {ttsReviewed && (
                 <button
-                  onClick={() => { stopTts(); setFooterPanel("checklist"); }}
+                  onClick={() => {
+                    stopTts();
+                    setFooterPanel("checklist");
+                    // Record TTS verification server-side (fire-and-forget)
+                    aiApi.generatedDocs.verify(doc.id).catch(() => {});
+                  }}
                   style={{
                     background: ORANGE, border: "none", borderRadius: 8,
                     padding: "9px 14px", color: "#fff", fontWeight: 800, fontSize: 12,
@@ -522,12 +570,17 @@ export default function DocumentViewerModal({
                   <Download size={13} /> Download PDF
                 </button>
                 <button
-                  onClick={() => downloadAsText(doc)}
+                  disabled={!allChecked}
+                  onClick={() => { if (allChecked) downloadAsText(doc); }}
                   style={{
-                    background: "#111", border: "1px solid #2a2a2a",
+                    background: allChecked ? "#111" : "#0a0a0a",
+                    border: `1px solid ${allChecked ? "#2a2a2a" : "#1a1a1a"}`,
                     borderRadius: 8, padding: "9px 12px",
-                    color: "#666", fontSize: 12, cursor: "pointer",
+                    color: allChecked ? "#666" : "#2a2a2a",
+                    fontSize: 12,
+                    cursor: allChecked ? "pointer" : "not-allowed",
                     display: "flex", alignItems: "center", gap: 5,
+                    transition: "background 0.2s, color 0.2s",
                   }}
                 >
                   .TXT

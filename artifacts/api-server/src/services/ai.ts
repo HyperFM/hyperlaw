@@ -76,6 +76,31 @@ Language rules — ALWAYS follow:
 
 Tone: Direct, clear, empowering, respectful. Like a knowledgeable legal self-help resource — not a cautious institution, but not a guarantor of outcomes either.`;
 
+// ── Retry helper ──────────────────────────────────────────────────────────────
+// Retries Claude API calls on rate-limit (429) or server errors (5xx).
+// Three attempts with exponential back-off; fails fast on all other errors.
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastError = err;
+      const status = (err as { status?: number }).status;
+      // Only retry on explicit rate-limit (429) or server errors (5xx).
+      // Fail fast on all other cases: client errors, undefined status (unexpected throws), etc.
+      const isRetryable = status === 429 || (status !== undefined && status >= 500);
+      if (!isRetryable) throw err;
+      if (attempt < RETRY_DELAYS_MS.length) {
+        await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+      }
+    }
+  }
+  throw lastError;
+}
+
 // ── AI Service ────────────────────────────────────────────────────────────────
 
 export class AiService {
@@ -155,12 +180,12 @@ Guidelines:
 - Return only the JSON object`;
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
-    });
+    }));
 
     return {
       data: this.parseJsonResponse<TutorAnalysis>(response),
@@ -208,12 +233,12 @@ Return JSON with this exact shape:
 Return only the JSON object`;
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 2000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
-    });
+    }));
 
     return {
       data: this.parseJsonResponse<TutorAnalysis>(response),
@@ -266,12 +291,12 @@ Summary: ${cc.summary ?? "none"}`;
     ];
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 800,
       system: SYSTEM_PROMPT + contextBlock,
       messages,
-    });
+    }));
 
     const text = response.content[0].type === "text"
       ? response.content[0].text
@@ -306,12 +331,12 @@ Return JSON with this exact shape:
 Use null for missing string fields, [] for missing arrays. Return only the JSON.`;
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 1000,
       system: "You are a precise legal document parser. Extract structured information accurately from legal documents.",
       messages: [{ role: "user", content: prompt }],
-    });
+    }));
 
     return {
       data: this.parseJsonResponse<CaseExtraction>(response),
@@ -324,7 +349,7 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
     const mediaType = mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 4000,
       messages: [{
@@ -340,7 +365,7 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
           },
         ],
       }],
-    });
+    }));
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     return {
@@ -469,12 +494,12 @@ Important rules:
     }
 
     const start = Date.now();
-    const response = await this.client.messages.create({
+    const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
       max_tokens: 4000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
-    });
+    }));
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     return {

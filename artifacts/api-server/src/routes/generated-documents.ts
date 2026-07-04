@@ -201,6 +201,25 @@ router.post("/ai/generated-documents/:id/unlock", requireAuth, async (req: Reque
   }
 });
 
+// ── Mark a document as TTS-verified ──────────────────────────────────────────
+// Called after the user completes the read-aloud pre-verification step.
+router.post("/ai/generated-documents/:id/verify", requireAuth, async (req: Request, res: Response) => {
+  const userId = (req as any).userId as string;
+  const id = String(req.params.id);
+  try {
+    const [doc] = await db
+      .update(generatedDocumentsTable)
+      .set({ verifiedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(generatedDocumentsTable.id, id), eq(generatedDocumentsTable.userId, userId)))
+      .returning();
+    if (!doc) { res.status(404).json({ error: "Not found" }); return; }
+    const isAdmin = await checkIsAdmin(userId);
+    res.json(toClientDoc(doc, isAdmin));
+  } catch {
+    res.status(500).json({ error: "Failed to mark document as verified" });
+  }
+});
+
 // ── Delete a generated document ───────────────────────────────────────────────
 router.delete("/ai/generated-documents/:id", requireAuth, async (req: Request, res: Response) => {
   const userId = (req as any).userId as string;

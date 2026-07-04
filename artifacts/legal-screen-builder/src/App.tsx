@@ -414,12 +414,14 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident }: {
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onUploadForNewCase }: {
   data: AppData;
   onOpenIncident: (i: Incident) => void;
   onOpenCase: (c: HLCase) => void;
   onNewIncident: () => void;
+  onUploadForNewCase?: (file: File) => void;
 }) {
+  const uploadNewRef = useRef<HTMLInputElement>(null);
   const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
   const recentCases = [...data.cases].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
   const hasContent = data.incidents.length > 0 || data.cases.length > 0;
@@ -473,6 +475,32 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident }: {
           <TapBtn variant="orange" onClick={onNewIncident} style={{ fontSize: 16, padding: "14px 28px" }}>
             <Plus size={18} /> New Incident
           </TapBtn>
+          {onUploadForNewCase && (
+            <>
+              <input
+                ref={uploadNewRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png"
+                style={{ display: "none" }}
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) { onUploadForNewCase(f); e.target.value = ""; }
+                }}
+              />
+              <button
+                onClick={() => uploadNewRef.current?.click()}
+                style={{
+                  background: "none", border: "1px solid #2a2a2a", borderRadius: 10,
+                  padding: "11px 22px", color: "#555", fontSize: 14, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 8, marginTop: 12,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+              >
+                <Upload size={15} /> Start from a Document
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -831,6 +859,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [notes, setNotes] = useState(hlCase.notes);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadPct, setUploadPct] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ fileName: string; extraction: ReturnType<typeof Object.create> } | null>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
@@ -857,12 +886,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadState("uploading");
+    setUploadPct(0);
     setUploadError(null);
     try {
       const form = new FormData();
       form.append("file", file);
       form.append("caseId", hlCase.id);
-      const result = await aiApi.upload(form);
+      const result = await aiApi.uploadWithProgress(form, setUploadPct);
       setUploadResult({ fileName: file.name, extraction: result.extraction });
       setUploadState("done");
     } catch (err: unknown) {
@@ -1027,9 +1057,20 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             </button>
           )}
           {uploadState === "uploading" && (
-            <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
-              <div style={{ fontSize: 14, color: "#888" }}>Processing document…</div>
+            <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+                <div style={{ fontSize: 14, color: "#888", flex: 1 }}>
+                  {uploadPct < 100 ? `Uploading… ${uploadPct}%` : "Processing document…"}
+                </div>
+              </div>
+              <div style={{ background: "#1a1a1a", borderRadius: 4, height: 4, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 4, background: ORANGE,
+                  width: `${Math.min(uploadPct, 100)}%`,
+                  transition: "width 0.2s ease",
+                }} />
+              </div>
             </div>
           )}
           {uploadState === "done" && uploadResult && (
@@ -1150,7 +1191,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                 <button
                   key={docType}
                   disabled={anyGenerating}
-                  onClick={() => handleGenerateDoc(docType)}
+                  onClick={() => {
+                    if (!hlCase.jurisdiction?.trim()) {
+                      setGenerateError("Please add a jurisdiction first — enter it in the Jurisdiction field above.");
+                      return;
+                    }
+                    handleGenerateDoc(docType);
+                  }}
                   style={{
                     background: "#111", border: `1px solid ${isGenerating ? ORANGE : "#1e1e1e"}`,
                     borderRadius: 10, padding: "10px 14px", cursor: anyGenerating ? "not-allowed" : "pointer",
@@ -2406,6 +2453,8 @@ export default function App() {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [genDocsRefreshKey, setGenDocsRefreshKey] = useState(0);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [newCaseUploading, setNewCaseUploading] = useState(false);
+  const [newCaseUploadPct, setNewCaseUploadPct] = useState(0);
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
   const [showCreditShop, setShowCreditShop] = useState(false);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
@@ -2475,6 +2524,41 @@ export default function App() {
     setData(d2);
     setNavTab("cases");
     setView({ type: "case_detail", hlCase });
+  }
+
+  async function handleUploadForNewCase(file: File) {
+    setNewCaseUploading(true);
+    setNewCaseUploadPct(0);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const result = await aiApi.uploadWithProgress(form, pct => setNewCaseUploadPct(pct));
+      const ex = result.extraction;
+      let title = "New Case";
+      if (ex?.plaintiff && ex?.defendant) {
+        title = `${ex.plaintiff} v. ${ex.defendant}`;
+      } else if (ex?.plaintiff) {
+        title = `${ex.plaintiff} — Case`;
+      } else {
+        title = file.name.replace(/\.[^.]+$/, "") + " — Case";
+      }
+      const newCase: HLCase = {
+        id: crypto.randomUUID(),
+        title: title.slice(0, 100),
+        incidentIds: [],
+        notes: ex?.summary ?? "",
+        status: "open",
+        createdAt: Date.now(),
+      };
+      setData(addCase(data, newCase));
+      setNavTab("cases");
+      setView({ type: "case_detail", hlCase: newCase });
+    } catch {
+      // Silent failure — user stays on HomeView; non-critical path
+    } finally {
+      setNewCaseUploading(false);
+      setNewCaseUploadPct(0);
+    }
   }
 
   function handleOpenIncident(incident: Incident) {
@@ -2571,6 +2655,7 @@ export default function App() {
         onOpenIncident={handleOpenIncident}
         onOpenCase={handleOpenCase}
         onNewIncident={() => openNewIncident()}
+        onUploadForNewCase={handleUploadForNewCase}
       />
     );
   }

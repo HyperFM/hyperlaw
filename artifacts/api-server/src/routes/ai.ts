@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { getAuth } from "@clerk/express";
 import { searchLibrary, formatLibraryContext } from "../services/knowledgeLibrary.js";
 import multer from "multer";
@@ -20,6 +21,15 @@ import { getClerkUserEmail } from "./feedback.js";
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
 const router = Router();
+
+// Per-IP burst protection — supplements the per-user daily limit in aiCache.ts
+router.use(rateLimit({
+  windowMs: 60_000, // 1-minute window
+  max: 40,          // 40 AI requests per IP per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment before trying again." },
+}));
 
 // 20 MB limit; memory storage (no disk writes needed for text extraction)
 const upload = multer({

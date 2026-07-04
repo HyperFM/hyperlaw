@@ -146,6 +146,7 @@ export interface ServerGeneratedDoc {
   version: number;
   status: string;         // "draft" | "verified" | "filed"
   paymentStatus: string;  // "preview" (generated, not yet unlocked) | "paid" (credit spent, full access)
+  verifiedAt: string | null; // ISO timestamp set when TTS pre-verification is completed
   createdAt: string;      // ISO timestamp from server
   updatedAt: string;
 }
@@ -373,6 +374,48 @@ export const aiApi = {
     unlock(id: string): Promise<ServerGeneratedDoc> {
       return aiFetch(`/ai/generated-documents/${id}/unlock`, { method: "POST" });
     },
+
+    /**
+     * Record that the user completed the TTS read-aloud pre-verification step.
+     * Sets verifiedAt on the document server-side.
+     */
+    verify(id: string): Promise<ServerGeneratedDoc> {
+      return aiFetch(`/ai/generated-documents/${id}/verify`, { method: "POST" });
+    },
+  },
+
+  /**
+   * Upload a document file with real-time upload-progress reporting.
+   * Uses XMLHttpRequest so the browser's upload.onprogress event fires.
+   */
+  uploadWithProgress(
+    form: FormData,
+    onProgress: (pct: number) => void,
+  ): Promise<UploadResult> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${BASE}/ai/upload`);
+      xhr.withCredentials = true;
+      xhr.upload.addEventListener("progress", e => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText) as UploadResult); }
+          catch { reject(new Error("Invalid server response")); }
+        } else {
+          try {
+            const body = JSON.parse(xhr.responseText) as { error?: string };
+            reject(new Error(body.error ?? `Upload failed (${xhr.status})`));
+          } catch {
+            reject(new Error(`Upload failed (${xhr.status})`));
+          }
+        }
+      });
+      xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+      xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+      xhr.send(form);
+    });
   },
 
   // ── Admin-only endpoints ───────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "@clerk/express";
-import { db, aiLogsTable, aiAnalysisCacheTable } from "@workspace/db";
+import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
 
@@ -96,6 +96,7 @@ router.get("/admin/ai/stats", async (req: Request, res: Response): Promise<void>
         calls: sql<number>`cast(count(*) as int)`,
         costMicroUsd: sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)`,
         cacheHits: sql<number>`cast(sum(case when cache_hit then 1 else 0 end) as int)`,
+        avgResponseTimeMs: sql<number>`cast(coalesce(avg(case when cache_hit then null else response_time_ms end), 0) as int)`,
       }).from(aiLogsTable)
         .where(gte(aiLogsTable.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)))
         .groupBy(sql`to_char(created_at, 'YYYY-MM-DD')`)
@@ -120,6 +121,30 @@ router.get("/admin/ai/stats", async (req: Request, res: Response): Promise<void>
       byFeature,
       dailyStats: last30Days,
     });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── GET /admin/error-logs ──────────────────────────────────────────────────────
+// Returns paginated server-side error logs (upload failures, processing errors).
+router.get("/admin/error-logs", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+  const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const offset = (page - 1) * limit;
+
+  try {
+    const [logs, countRows] = await Promise.all([
+      db.select().from(errorLogsTable)
+        .orderBy(desc(errorLogsTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: sql<number>`cast(count(*) as int)` }).from(errorLogsTable),
+    ]);
+    res.json({ logs, total: countRows[0]?.count ?? 0, page, limit });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

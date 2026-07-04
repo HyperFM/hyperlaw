@@ -13,7 +13,7 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable, generatedDocumentsTable } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable } from "@workspace/db";
 import { storage } from "../storage.js";
 import { and, eq } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
@@ -301,6 +301,21 @@ router.post(
         fromCache: docExtractionFromCache,
       });
     } catch (err) {
+      // Log failure for admin visibility — truly fire-and-forget (no await)
+      void (async () => {
+        try {
+          const uid = (req as any).auth?.userId as string | undefined;
+          const fileName = ((req as any).file?.originalname) as string | undefined;
+          if (uid) {
+            await db.insert(errorLogsTable).values({
+              userId: uid,
+              context: "upload",
+              message: (err as Error).message || "Document processing failed",
+              metadata: fileName ? { fileName } : null,
+            });
+          }
+        } catch { /* swallow — never surface DB failures to the client */ }
+      })();
       res.status(422).json({ error: (err as Error).message || "Document processing failed" });
     }
   },

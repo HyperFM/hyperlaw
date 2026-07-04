@@ -3,16 +3,16 @@ import {
   Users, MessageSquare, X, Send, Clock, Infinity, ChevronLeft,
   RefreshCw, Shield, Calendar, Mail, Search, BarChart2, Zap, Copy, Check,
   BookOpen, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
-  DollarSign, FileText, Lock, Unlock,
+  DollarSign, FileText, Lock, Unlock, AlertCircle,
 } from "lucide-react";
 import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
-import { aiApi, AiLog, AiStats, KnowledgeEntry, formatMicroUsd, featureLabel } from "../lib/aiApi";
+import { aiApi, AiLog, AiStats, KnowledgeEntry, ErrorLog, formatMicroUsd, featureLabel } from "../lib/aiApi";
 
 const ORANGE = "#d9711f";
 const DIM = "#666";
 const LINE = "#1e1e1e";
 
-type AdminView = "users" | "chat" | "ai" | "knowledge" | "revenue";
+type AdminView = "users" | "chat" | "ai" | "knowledge" | "revenue" | "errors";
 
 interface PlatformStats {
   totalUsers: number;
@@ -73,6 +73,13 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [revenueLoading, setRevenueLoading] = useState(false);
 
+  // ── Error Logs state ──────────────────────────────────────────────────────
+  const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
+  const [errorLogsTotal, setErrorLogsTotal] = useState(0);
+  const [errorLogsPage, setErrorLogsPage] = useState(1);
+  const [errorLogsLoading, setErrorLogsLoading] = useState(false);
+  const ERROR_LOGS_PAGE_SIZE = 50;
+
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
@@ -128,6 +135,13 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       loadAiData(1);
     }
   }, [view, aiLogs.length, aiLoading, loadAiData]);
+
+  useEffect(() => {
+    if (view === "errors" && errorLogs.length === 0 && !errorLogsLoading) {
+      loadErrorLogs(1);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   async function openChatWithUser(user: ClerkUser) {
     const email = user.email_addresses?.[0]?.email_address ?? "";
@@ -307,12 +321,26 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     return e.title.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q) || e.category.includes(q);
   });
 
+  const loadErrorLogs = useCallback(async (page = 1) => {
+    setErrorLogsLoading(true);
+    try {
+      const resp = await aiApi.admin.errorLogs({ page, limit: ERROR_LOGS_PAGE_SIZE });
+      setErrorLogs(resp.logs);
+      setErrorLogsTotal(resp.total);
+      setErrorLogsPage(resp.page);
+    } catch {
+    } finally {
+      setErrorLogsLoading(false);
+    }
+  }, []);
+
   // ── Tab bar ──────────────────────────────────────────────────────────────────
   const tabs: { id: AdminView; icon: React.ElementType; label: string }[] = [
     { id: "users", icon: Users, label: "Users" },
     { id: "ai", icon: Zap, label: "AI Inspector" },
     { id: "knowledge", icon: BookOpen, label: "Knowledge" },
     { id: "revenue", icon: DollarSign, label: "Revenue" },
+    { id: "errors", icon: AlertCircle, label: "Errors" },
   ];
 
   return (
@@ -335,7 +363,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
-            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : view === "revenue" ? loadRevenue() : loadUsers()}
+            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : view === "revenue" ? loadRevenue() : view === "errors" ? loadErrorLogs(errorLogsPage) : loadUsers()}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 5, display: "flex" }}
             title="Refresh"
           >
@@ -612,6 +640,40 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
               </div>
             </div>
           )}
+
+          {/* Response time chart — last 14 days of live (non-cached) calls */}
+          {aiStats && aiStats.dailyStats.length > 1 && (() => {
+            const recent = aiStats.dailyStats.slice(-14);
+            const maxMs = Math.max(...recent.map(d => d.avgResponseTimeMs), 1);
+            return (
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${LINE}` }}>
+                <div style={{ fontSize: 10, color: "#555", fontWeight: 700, marginBottom: 8, letterSpacing: 0.5 }}>
+                  AVG RESPONSE TIME (ms) · LAST {recent.length} DAYS · Global avg: {aiStats.avgResponseTimeMs}ms
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 52 }}>
+                  {recent.map((d, i) => (
+                    <div key={i} title={`${d.day}: ${d.avgResponseTimeMs}ms`}
+                      style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, height: "100%", justifyContent: "flex-end" }}>
+                      <div style={{
+                        width: "100%", borderRadius: "2px 2px 0 0",
+                        // 0ms = cache-only day, show as neutral stub; non-zero = live call data
+                        background: d.avgResponseTimeMs === 0 ? "#1e1e1e" : d.avgResponseTimeMs > 3000 ? "#ef4444" : d.avgResponseTimeMs > 1500 ? ORANGE : "#22c55e",
+                        height: d.avgResponseTimeMs === 0 ? "4px" : `${Math.max(4, Math.round((d.avgResponseTimeMs / maxMs) * 42))}px`,
+                        opacity: d.avgResponseTimeMs === 0 ? 0.4 : 1,
+                        transition: "height 0.3s",
+                      }} />
+                      <div style={{ fontSize: 7, color: "#333", textAlign: "center", lineHeight: 1 }}>{d.day.slice(5)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#555" }}>
+                  <span><span style={{ color: "#22c55e" }}>■</span> {"<"}1.5s</span>
+                  <span><span style={{ color: ORANGE }}>■</span> 1.5–3s</span>
+                  <span><span style={{ color: "#ef4444" }}>■</span> {">"}3s</span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Logs table */}
           <div style={{ padding: "10px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1014,6 +1076,74 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
                 Load Stats
               </button>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Errors view ── */}
+      {view === "errors" && (
+        <div>
+          {errorLogsLoading ? (
+            <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>Loading error logs…</div>
+          ) : errorLogs.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>
+              No server errors logged yet.
+              <br />
+              <span style={{ fontSize: 11, color: "#3a3a3a" }}>Upload failures and processing errors appear here automatically.</span>
+            </div>
+          ) : (
+            <>
+              <div style={{ overflowX: "auto", maxHeight: 460 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${LINE}` }}>
+                      {["Time", "Context", "Message", "User"].map((h, i) => (
+                        <th key={i} style={{ padding: "6px 10px", textAlign: "left", color: "#555", fontWeight: 700, fontSize: 10, letterSpacing: 0.4, whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorLogs.map((log, i) => (
+                      <tr key={log.id} style={{ borderBottom: "1px solid #0e0e0e", background: i % 2 === 0 ? "transparent" : "#050505" }}>
+                        <td style={{ padding: "7px 10px", color: "#555", whiteSpace: "nowrap" }}>
+                          {new Date(log.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 9, background: "#2a1a1a", color: "#ef4444", padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>
+                            {log.context.toUpperCase()}
+                          </span>
+                        </td>
+                        <td style={{ padding: "7px 10px", color: "#aaa", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {log.message}
+                        </td>
+                        <td style={{ padding: "7px 10px", color: "#555", whiteSpace: "nowrap", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {log.userId ? `${log.userId.slice(0, 12)}…` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {errorLogsTotal > ERROR_LOGS_PAGE_SIZE && (
+                <div style={{ padding: "8px 14px", borderTop: `1px solid ${LINE}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: "#555" }}>
+                    Page {errorLogsPage} of {Math.ceil(errorLogsTotal / ERROR_LOGS_PAGE_SIZE)} · {errorLogsTotal} total
+                  </span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => { const p = errorLogsPage - 1; setErrorLogsPage(p); loadErrorLogs(p); }}
+                      disabled={errorLogsPage <= 1}
+                      style={{ background: "#111", border: "1px solid #222", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: errorLogsPage <= 1 ? "#333" : "#888", cursor: errorLogsPage <= 1 ? "not-allowed" : "pointer" }}>
+                      ← Prev
+                    </button>
+                    <button onClick={() => { const p = errorLogsPage + 1; setErrorLogsPage(p); loadErrorLogs(p); }}
+                      disabled={errorLogsPage >= Math.ceil(errorLogsTotal / ERROR_LOGS_PAGE_SIZE)}
+                      style={{ background: "#111", border: "1px solid #222", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: errorLogsPage >= Math.ceil(errorLogsTotal / ERROR_LOGS_PAGE_SIZE) ? "#333" : "#888", cursor: errorLogsPage >= Math.ceil(errorLogsTotal / ERROR_LOGS_PAGE_SIZE) ? "not-allowed" : "pointer" }}>
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -108,13 +108,16 @@ function WaveBar({ index, active }: { index: number; active: boolean }) {
   const animKey = `waveBar${index % 5}`;
   const baseHeight = 15 + (index % 7) * 8;
   return (
-    <div style={{
-      width: 4, borderRadius: 2, flexShrink: 0,
-      background: active ? ORANGE : "#2a2a2a",
-      height: active ? undefined : `${baseHeight}%`,
-      animation: active ? `${animKey} ${0.35 + (index % 5) * 0.07}s ease-in-out infinite alternate` : "none",
-      transition: "background 0.3s, height 0.3s",
-    }} />
+    <div
+      aria-hidden="true"
+      style={{
+        width: 4, borderRadius: 2, flexShrink: 0,
+        background: active ? ORANGE : "#2a2a2a",
+        height: active ? undefined : `${baseHeight}%`,
+        animation: active ? `${animKey} ${0.35 + (index % 5) * 0.07}s ease-in-out infinite alternate` : "none",
+        transition: "background 0.3s, height 0.3s",
+      }}
+    />
   );
 }
 
@@ -298,6 +301,7 @@ export default function DocumentViewerModal({
             </div>
           </div>
           <button
+            aria-label="Close document"
             onClick={() => { stopTts(); onClose(); }}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 4, flexShrink: 0 }}
           >

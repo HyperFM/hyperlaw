@@ -5,3 +5,4 @@
 - [HyperLaw Phase 4 Paywall](hyperlaw-phase4-paywall.md) — preview→unlock model, server-side truncation required, race-safe conditional UPDATE, DocumentViewerModal, Admin Revenue tab.
 - [Compliance Language Manager](compliance-language-manager.md) — centralized compliance.ts; getNotice() for future jurisdiction variants; all call sites wired.
 - [HyperLaw Stops 2-3-4](hyperlaw-stops234.md) — auto case from upload, progress bar, TTS word-highlight, verify endpoint, jurisdiction gate, withRetry, rate limiting.
+- [HyperLaw Stops 5-6-7](hyperlaw-stops567.md) — free-case gate (2 max), offline banner, generate retry, error logs table, admin Errors tab, response time chart.

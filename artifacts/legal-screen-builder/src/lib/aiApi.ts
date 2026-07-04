@@ -71,7 +71,16 @@ export interface AiStats {
   cacheHitRate: number;
   cachedEntries: number;
   byFeature: Array<{ feature: string; calls: number; costMicroUsd: number; cacheHits: number }>;
-  dailyStats: Array<{ day: string; calls: number; costMicroUsd: number; cacheHits: number }>;
+  dailyStats: Array<{ day: string; calls: number; costMicroUsd: number; cacheHits: number; avgResponseTimeMs: number }>;
+}
+
+export interface ErrorLog {
+  id: string;
+  userId: string | null;
+  context: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -446,6 +455,14 @@ export const aiApi = {
     /** Aggregated usage stats */
     stats(): Promise<AiStats> {
       return aiFetch("/admin/ai/stats");
+    },
+
+    /** Paginated server-side error logs (upload failures, processing errors) */
+    errorLogs(params?: { page?: number; limit?: number }): Promise<{ logs: ErrorLog[]; total: number; page: number; limit: number }> {
+      const q = new URLSearchParams();
+      if (params?.page) q.set("page", String(params.page));
+      if (params?.limit) q.set("limit", String(params.limit));
+      return aiFetch(`/admin/error-logs?${q.toString()}`);
     },
   },
 };

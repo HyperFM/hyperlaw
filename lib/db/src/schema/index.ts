@@ -154,6 +154,19 @@ export const usersTable = pgTable("users", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ── Error Logs ────────────────────────────────────────────────────────────────
+// Server-side audit trail of upload failures and AI processing errors visible
+// in the admin panel. User ID may be null for unauthenticated failures.
+
+export const errorLogsTable = pgTable("error_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id"),
+  context: text("context").notNull(), // "upload" | "ai_generate" | "analyze" etc.
+  message: text("message").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ── Insert schemas ────────────────────────────────────────────────────────────
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });

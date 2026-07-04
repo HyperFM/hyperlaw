@@ -5,7 +5,7 @@ import {
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
-  Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock,
+  Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
 } from "lucide-react";
 import { Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus } from "./types";
 import {
@@ -725,7 +725,14 @@ function CasesView({ data, onOpenCase }: {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
-      <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 16 }}>ALL CASES</div>
+      <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>ALL CASES</div>
+      {/* Free-case quota indicator so users aren't surprised by the paywall */}
+      <div style={{ marginBottom: 16, fontSize: 11, display: "flex", alignItems: "center", gap: 5,
+        color: sorted.length >= 2 ? "#f59e0b" : "#555" }}>
+        {sorted.length >= 2 && <AlertCircle size={11} />}
+        {sorted.length} / 2 free case{sorted.length !== 1 ? "s" : ""} used
+        {sorted.length >= 2 && " — additional cases require 1 credit"}
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sorted.map(c => {
           const incidents = data.incidents.filter(i => c.incidentIds.includes(i.id));
@@ -872,6 +879,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [generatingDocType, setGeneratingDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [lastGenerateDocType, setLastGenerateDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
   const [viewingDoc, setViewingDoc] = useState<ServerGeneratedDoc | null>(null);
 
   useEffect(() => {
@@ -905,6 +913,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 
   async function handleGenerateDoc(docType: "complaint" | "motion" | "timeline") {
     setGeneratingDocType(docType);
+    setLastGenerateDocType(docType);
     setGenerateError(null);
     const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
     try {
@@ -1218,8 +1227,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             })}
           </div>
           {generateError && (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px" }}>
-              {generateError}
+            <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ flex: 1 }}>{generateError}</span>
+              {lastGenerateDocType && (
+                <button
+                  onClick={() => { setGenerateError(null); handleGenerateDoc(lastGenerateDocType); }}
+                  style={{ background: "#2a1010", border: "1px solid #5a2020", borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: "#ef4444", fontSize: 11, fontWeight: 700, flexShrink: 0 }}
+                >
+                  Try again
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2455,6 +2472,7 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [newCaseUploading, setNewCaseUploading] = useState(false);
   const [newCaseUploadPct, setNewCaseUploadPct] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
   const [showCreditShop, setShowCreditShop] = useState(false);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
@@ -2467,6 +2485,18 @@ export default function App() {
       const { creditBalance: bal } = await aiApi.creditBalance();
       setCreditBalance(bal);
     } catch { /* silently ignore — user may not be signed in yet */ }
+  }, []);
+
+  // Offline / online detection
+  useEffect(() => {
+    const onOnline  = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -2511,6 +2541,11 @@ export default function App() {
   }
 
   function handleConvertToCase(incident: Incident) {
+    // After 2 free cases, require at least 1 credit to create more
+    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
+      setShowCreditShop(true);
+      return;
+    }
     const hlCase: HLCase = {
       id: crypto.randomUUID(),
       title: `${incident.title} — Case`,
@@ -2527,6 +2562,11 @@ export default function App() {
   }
 
   async function handleUploadForNewCase(file: File) {
+    // After 2 free cases, require at least 1 credit to create more
+    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
+      setShowCreditShop(true);
+      return;
+    }
     setNewCaseUploading(true);
     setNewCaseUploadPct(0);
     try {
@@ -2672,6 +2712,12 @@ export default function App() {
           <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={() => openNewIncident()} />
         )}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {!isOnline && (
+            <div style={{ background: "#1a1100", borderBottom: "1px solid #4a3500", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#f59e0b", flexShrink: 0 }}>
+              <WifiOff size={13} />
+              <span>You're offline — AI features are unavailable until your connection is restored.</span>
+            </div>
+          )}
           <ErrorBoundary onReset={() => { setNavTab("home"); setView({ type: "home" }); }}>
             {currentContent()}
           </ErrorBoundary>

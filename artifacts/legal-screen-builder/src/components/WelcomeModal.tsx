@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { COMPLIANCE } from "../lib/compliance";
 
 const WELCOME_KEY = "hl_welcomed_v1";
 const ORANGE = "#d9711f";
@@ -72,8 +73,7 @@ export default function WelcomeModal() {
           borderRadius: 12, padding: "14px 16px", marginBottom: 24,
         }}>
           <p style={{ fontSize: 12, color: "#666", lineHeight: 1.7, margin: 0 }}>
-            <strong style={{ color: "#888" }}>HyperLaw is not a law firm</strong> and does not provide legal representation or individualized legal advice.
-            Always review AI-generated documents carefully before relying upon or filing them with any court or agency.
+            {COMPLIANCE.WELCOME_DISCLAIMER}
           </p>
         </div>
 

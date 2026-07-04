@@ -15,6 +15,7 @@ import {
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct } from "./lib/aiApi";
+import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
@@ -1492,9 +1493,21 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               }}>
                 <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
                 <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
-                  <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — This analysis is AI-generated to help organize information and prepare for legal matters.
-                  Review all content carefully before relying on it or filing with any court or agency.
-                  HyperLaw provides legal information and drafting assistance — not legal representation or individualized legal advice.
+                  <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
+                </p>
+              </div>
+            )}
+            {/* Layer One disclaimer — shown when static / knowledge-library content is displayed.
+                Per spec: Layer One educational content is NOT exempt from disclaimer requirements. */}
+            {!aiAvailable && (
+              <div style={{
+                background: "#0d0d0d", border: "1px solid #1a1a1a",
+                borderRadius: 10, padding: "10px 14px", marginBottom: 20,
+                display: "flex", alignItems: "flex-start", gap: 10,
+              }}>
+                <div style={{ width: 4, height: 4, borderRadius: 2, background: "#555", flexShrink: 0, marginTop: 5 }} />
+                <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
+                  <strong style={{ color: "#666" }}>HyperLaw Legal Information</strong> — {COMPLIANCE.EDUCATIONAL_CONTENT}
                 </p>
               </div>
             )}
@@ -2587,7 +2600,7 @@ export default function App() {
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         <span style={{ fontSize: 9, color: "#252525", letterSpacing: "0.03em", textAlign: "center" }}>
-          HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · Not a Law Firm
+          HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · {COMPLIANCE.FOOTER_TAGLINE}
         </span>
       </div>
 

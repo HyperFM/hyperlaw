@@ -1,0 +1,192 @@
+/**
+ * HyperLaw — Compliance Language Manager
+ *
+ * Single source of truth for all legal notices, disclaimers, and compliance text.
+ * To update a notice application-wide, change it here — it propagates everywhere.
+ *
+ * Architecture note: getNotice() is designed so jurisdiction-specific variants
+ * can be added in the future without changing any call sites. Pass the jurisdiction
+ * string when available and state-specific overrides will be returned automatically
+ * once they are added to JURISDICTION_OVERRIDES below.
+ */
+
+// ── Core notice strings ────────────────────────────────────────────────────────
+
+export const COMPLIANCE = {
+  /** Primary identity statement — use whenever HyperLaw's legal status must be stated. */
+  NOT_A_LAW_FIRM:
+    "HyperLaw is not a law firm and does not provide legal representation or individualized legal advice.",
+
+  /** Attorney-client relationship notice — distinct from the identity statement. */
+  NO_ATTORNEY_CLIENT:
+    "Use of HyperLaw does not create an attorney-client relationship.",
+
+  /**
+   * No relationship of trust or reliance — spec requires this as a SEPARATE notice,
+   * not merged into the attorney-client statement.
+   */
+  NO_TRUST_OR_RELIANCE:
+    "HyperLaw's output does not create any relationship of trust or reliance regarding " +
+    "the accuracy or applicability of any information provided. You remain responsible for " +
+    "every legal decision and every document you submit.",
+
+  /** Shown after AI or static content — review before filing. */
+  REVIEW_BEFORE_FILING:
+    "Always review AI-generated documents carefully before relying upon or filing them with any court or agency.",
+
+  /** Short inline review reminder. */
+  REVIEW_ALL_CONTENT:
+    "Review all content carefully before relying on it or filing with any court or agency.",
+
+  /**
+   * Layer Two AI-generated content footer (short).
+   * Shown beneath generated document content.
+   */
+  AI_GENERATED_SHORT:
+    "AI-generated content — not legal advice. Verify all facts, dates, case numbers, and " +
+    "citations before filing. Consult a licensed attorney for your specific situation.",
+
+  /**
+   * Layer Two AI analysis banner (full).
+   * Shown at the top of the Tutor analysis pane when Claude produced the result.
+   */
+  AI_ANALYSIS_BANNER:
+    "This analysis is AI-generated to help organize information and prepare for legal matters. " +
+    "Review all content carefully before relying on it or filing with any court or agency. " +
+    "HyperLaw provides legal information and drafting assistance — not legal representation or individualized legal advice.",
+
+  /**
+   * Layer One educational content notice.
+   * Spec: Layer One (glossary, procedural explanations, definitions) is NOT exempt from
+   * disclaimer requirements. Show this wherever static / knowledge-library content is displayed.
+   */
+  EDUCATIONAL_CONTENT:
+    "This information is general legal education — not legal advice. Laws and procedures vary " +
+    "by jurisdiction. HyperLaw provides legal information and self-help tools, not legal representation " +
+    "or individualized legal advice. Review this content independently and consult a licensed attorney " +
+    "for guidance specific to your situation.",
+
+  /** Shown in the document-generation confirmation modal before the user proceeds. */
+  DOC_REVIEW_NOTICE:
+    "Please review every generated document for factual accuracy, legal citations, deadlines, " +
+    "formatting, and jurisdiction-specific requirements before filing.",
+
+  /** Acknowledgment text in the doc-generation confirmation modal. */
+  DRAFTING_ASSISTANT:
+    "By continuing, you acknowledge that HyperLaw assists with drafting and organization " +
+    "and does not replace the judgment of a licensed attorney.",
+
+  /** Combined notice shown in the Welcome / onboarding modal. */
+  WELCOME_DISCLAIMER:
+    "HyperLaw is not a law firm and does not provide legal representation or individualized legal advice. " +
+    "Always review AI-generated documents carefully before relying upon or filing them with any court or agency.",
+
+  /** Jurisdiction reminder — appended whenever jurisdiction is relevant. */
+  JURISDICTION_REMINDER:
+    "Laws and court procedures vary by jurisdiction — verify these details with your local court rules or a licensed attorney in your area.",
+
+  /** Legal self-help positioning notice. */
+  SELF_HELP_NOTICE:
+    "HyperLaw is a legal self-help tool. It helps you organize information, understand general " +
+    "legal concepts, and prepare documents. It does not make legal decisions for you.",
+
+  /** Payment and credit disclosure. */
+  PAYMENT_DISCLOSURE:
+    "Purchased documents remain permanently available in your case. Credit purchases are non-refundable after a document is unlocked.",
+
+  /** Shown at export / download time (also used as PDF print footer). */
+  EXPORT_NOTICE:
+    "This document was generated by AI as a drafting aid. You are responsible for reviewing it " +
+    "for accuracy, completeness, and compliance with applicable court rules before filing.",
+
+  /** TTS Pre-Verification Reader inline warning. */
+  TTS_WARNING:
+    "⚠️ AI can make mistakes. Listen carefully and verify every detail before relying on this document.",
+
+  /** TTS review acknowledgment checkbox label. */
+  TTS_REVIEW_ACKNOWLEDGMENT:
+    "I have carefully reviewed this document and understand it is AI-generated.",
+
+  /**
+   * Compact identity tagline for the app footer bar.
+   * Must be short enough to fit on one line at 9pt.
+   */
+  FOOTER_TAGLINE:
+    "Not a Law Firm · No Legal Representation · No Attorney-Client Relationship",
+
+  /**
+   * Data retention / confidentiality notice.
+   * NOTE: ZDR (Zero Data Retention) status on the Claude API must be confirmed by the founder
+   * before launch. Update this string to accurately reflect the actual setting in production.
+   * Do not publish language describing stronger protections than what is actually configured.
+   */
+  DATA_RETENTION:
+    "HyperLaw stores your case information and generated documents to provide its service. " +
+    "AI requests are processed through the Anthropic API. Please review our Privacy Policy " +
+    "for details on data handling and retention.",
+
+  /** Terms acknowledgment shown at sign-up or in settings. */
+  TERMS_ACKNOWLEDGMENT:
+    "By using HyperLaw, you agree to our Terms of Service and acknowledge our Privacy Policy.",
+} as const;
+
+// ── Verification checklist ─────────────────────────────────────────────────────
+//
+// Exact items required by the production specification.
+// These items gate document export — all must be checked before download is permitted.
+// Change text here and it updates the modal and any future export-blocking logic.
+
+export const VERIFICATION_CHECKLIST: ReadonlyArray<{ id: string; text: string }> = [
+  { id: "v1", text: "I reviewed all facts." },
+  { id: "v2", text: "I reviewed dates." },
+  { id: "v3", text: "I reviewed names." },
+  { id: "v4", text: "I reviewed formatting." },
+  { id: "v5", text: "I reviewed citations." },
+  { id: "v6", text: "I reviewed deadlines." },
+  { id: "v7", text: "I understand I am responsible for everything filed with a court." },
+];
+
+// ── Jurisdiction-specific overrides (future) ───────────────────────────────────
+//
+// Add state-specific notice variants here. The key is a jurisdiction string
+// (e.g. "California", "Texas") and the value is a partial override of COMPLIANCE.
+// getNotice() will merge these with the defaults automatically.
+
+type ComplianceKey = keyof typeof COMPLIANCE;
+type JurisdictionOverrides = Partial<Record<ComplianceKey, string>>;
+const JURISDICTION_OVERRIDES: Record<string, JurisdictionOverrides> = {
+  // Example (not yet active):
+  // "California": {
+  //   EDUCATIONAL_CONTENT: "California-specific version...",
+  // },
+};
+
+/**
+ * getNotice(key, jurisdiction?)
+ *
+ * Returns the compliance notice for the given key, using a jurisdiction-specific
+ * override if one exists, falling back to the default.
+ *
+ * Call sites should always pass jurisdiction when available so state-specific
+ * variants activate automatically once they are added to JURISDICTION_OVERRIDES.
+ *
+ * @example
+ *   getNotice("EDUCATIONAL_CONTENT", hlCase.jurisdiction)
+ */
+export function getNotice(key: ComplianceKey, jurisdiction?: string | null): string {
+  if (jurisdiction) {
+    const raw = jurisdiction.trim();
+    // 1. Exact match
+    const exact = JURISDICTION_OVERRIDES[raw]?.[key];
+    if (exact) return exact;
+    // 2. Case-insensitive match (iterate keys once — overrides table is small)
+    const lower = raw.toLowerCase();
+    for (const jKey of Object.keys(JURISDICTION_OVERRIDES)) {
+      if (jKey.toLowerCase() === lower) {
+        const ci = JURISDICTION_OVERRIDES[jKey]?.[key];
+        if (ci) return ci;
+      }
+    }
+  }
+  return COMPLIANCE[key];
+}

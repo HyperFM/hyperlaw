@@ -1,4 +1,5 @@
 import React from "react";
+import { COMPLIANCE } from "../lib/compliance";
 
 const ORANGE = "#d9711f";
 
@@ -27,13 +28,13 @@ export default function DocGenConfirmModal({ onConfirm, onClose }: Props) {
           BEFORE CONTINUING
         </div>
         <p style={{ fontSize: 14, color: "#ccc", lineHeight: 1.65, marginBottom: 20 }}>
-          Please review every generated document for <strong style={{ color: "#fff" }}>factual accuracy</strong>, legal citations, deadlines, formatting, and jurisdiction-specific requirements before filing.
+          {COMPLIANCE.DOC_REVIEW_NOTICE}
         </p>
         <div style={{
           background: "#0d0d0d", border: "1px solid #1e1e1e",
           borderRadius: 12, padding: "14px 16px", marginBottom: 20, fontSize: 12, color: "#666", lineHeight: 1.6,
         }}>
-          By continuing, you acknowledge that HyperLaw assists with drafting and organization and does not replace the judgment of a licensed attorney.
+          {COMPLIANCE.DRAFTING_ASSISTANT}
         </div>
 
         <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginBottom: 20 }}>

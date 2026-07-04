@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import { getAuth } from "@clerk/express";
 import { searchLibrary, formatLibraryContext } from "../services/knowledgeLibrary.js";
 import multer from "multer";
-import { aiService } from "../services/ai.js";
+import { aiService, MODEL } from "../services/ai.js";
 import { parseDocument } from "../services/documentParser.js";
 import {
   computeCacheKey,
@@ -96,7 +96,7 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
           userId,
           caseId: caseId ?? null,
           feature,
-          model: "claude-opus-4-5",
+          model: MODEL,
           inputTokens: 0,
           outputTokens: 0,
           estimatedCostMicroUsd: 0,
@@ -246,7 +246,7 @@ router.post(
           void logAiCall({
             userId,
             feature: "extract_document",
-            model: "claude-opus-4-5",
+            model: MODEL,
             inputTokens: 0, outputTokens: 0, estimatedCostMicroUsd: 0, responseTimeMs: 0,
             cacheHit: true, promptTemplate: "extract_document",
           });

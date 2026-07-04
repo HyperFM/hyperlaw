@@ -33,10 +33,10 @@ export interface CaseExtraction {
 
 // ── Usage / cost metadata returned with every AI call ─────────────────────────
 
-const MODEL = "claude-opus-4-5";
-// Pricing: $15/MTok input, $75/MTok output → expressed as micro-USD per token
-const INPUT_MICRO_USD_PER_TOKEN = 15;
-const OUTPUT_MICRO_USD_PER_TOKEN = 75;
+export const MODEL = "claude-sonnet-5";
+// Pricing: $3/MTok input, $15/MTok output → expressed as micro-USD per token
+const INPUT_MICRO_USD_PER_TOKEN = 3;
+const OUTPUT_MICRO_USD_PER_TOKEN = 15;
 
 export interface AiCallMeta {
   inputTokens: number;

@@ -2496,6 +2496,73 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 
+/** Old-fashioned barrel icon — bullet holes fill as cases are added; gentle rock animation */
+function BarrelIcon({ size = 22, caseCount = 0, isActive = false }: { size?: number; caseCount?: number; isActive?: boolean }) {
+  const MAX_BULLETS = 6;
+  const filled = Math.min(caseCount, MAX_BULLETS);
+  // 6 holes: 3 columns × 2 rows inside the barrel belly
+  const holes = [
+    { cx: 9.6,  cy: 10.2 },
+    { cx: 12,   cy: 10.2 },
+    { cx: 14.4, cy: 10.2 },
+    { cx: 9.6,  cy: 14.0 },
+    { cx: 12,   cy: 14.0 },
+    { cx: 14.4, cy: 14.0 },
+  ];
+  return (
+    <>
+      <style>{`
+        @keyframes barrel-rock {
+          0%   { transform: rotate(-5deg); }
+          50%  { transform: rotate(5deg); }
+          100% { transform: rotate(-5deg); }
+        }
+        @keyframes barrel-rock-active {
+          0%   { transform: rotate(-8deg); }
+          50%  { transform: rotate(8deg); }
+          100% { transform: rotate(-8deg); }
+        }
+        .hl-barrel { display:inline-flex; transform-origin:50% 80%;
+          animation: barrel-rock 3.8s ease-in-out infinite; }
+        .hl-barrel.hl-barrel--active {
+          animation: barrel-rock-active 2.2s ease-in-out infinite; }
+      `}</style>
+      <span className={`hl-barrel${isActive ? " hl-barrel--active" : ""}`}>
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* ── Barrel body fill (dark wood) ── */}
+          <path
+            d="M9,2.8 C6,4.5 4.4,8 4.4,12 C4.4,16 6,19.5 9,21.2 L15,21.2 C18,19.5 19.6,16 19.6,12 C19.6,8 18,4.5 15,2.8 Z"
+            fill="#1c1105" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"
+          />
+          {/* ── Top oval ── */}
+          <ellipse cx="12" cy="2.8" rx="3" ry="0.95"
+            fill="#261808" stroke="currentColor" strokeWidth="1.3" />
+          {/* ── Bottom oval ── */}
+          <ellipse cx="12" cy="21.2" rx="3" ry="0.95"
+            fill="#261808" stroke="currentColor" strokeWidth="1.3" />
+          {/* ── Stave lines (subtle vertical grain) ── */}
+          <line x1="9.8"  y1="3.2" x2="9.0"  y2="21.0" stroke="currentColor" strokeWidth="0.45" strokeOpacity="0.25" />
+          <line x1="14.2" y1="3.2" x2="15.0" y2="21.0" stroke="currentColor" strokeWidth="0.45" strokeOpacity="0.25" />
+          {/* ── Orange metal hoops ── */}
+          <path d="M5.2,8.2 Q12,9.8 18.8,8.2"
+            stroke={ORANGE} strokeWidth="1.7" strokeLinecap="round" fill="none" />
+          <path d="M5.2,15.8 Q12,17.4 18.8,15.8"
+            stroke={ORANGE} strokeWidth="1.7" strokeLinecap="round" fill="none" />
+          {/* ── Bullet holes ── */}
+          {holes.map((h, i) => (
+            <circle key={i} cx={h.cx} cy={h.cy} r={1.1}
+              fill={i < filled ? ORANGE : "none"}
+              stroke={i < filled ? ORANGE : "currentColor"}
+              strokeWidth={i < filled ? 0 : 0.8}
+              strokeOpacity={i < filled ? 1 : 0.4}
+            />
+          ))}
+        </svg>
+      </span>
+    </>
+  );
+}
+
 /** Box outline with a solid orange bar on the left side — the Builder tab icon */
 function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
   return (
@@ -2514,15 +2581,22 @@ type NavTab = "home" | "builder" | "tutor" | "profile";
 
 interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
-  { id: "home", icon: Home, label: "Home" },
+  { id: "home", icon: Home, label: "Barrel" },
   { id: "builder", icon: BuilderIcon, label: "Builder" },
   { id: "tutor", icon: GraduationCap, label: "Tutor" },
   { id: "profile", icon: User, label: "Profile" },
 ];
 
-function BottomNavBar({ active, onChange, onFab }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void }) {
+function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
   const left = [NAV_ITEMS[0], NAV_ITEMS[1]];
   const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
+  function renderIcon(item: NavItem) {
+    if (item.id === "home") {
+      return <BarrelIcon size={22} caseCount={caseCount} isActive={active === "home"} />;
+    }
+    const Icon = item.icon;
+    return <Icon size={22} />;
+  }
   return (
     <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -26, zIndex: 10 }}>
@@ -2532,31 +2606,27 @@ function BottomNavBar({ active, onChange, onFab }: { active: NavTab; onChange: (
         </button>
       </div>
       <div style={{ display: "flex" }}>
-        {left.map(item => {
-          const Icon = item.icon;
-          return (
-            <button key={item.id} onClick={() => onChange(item.id)}
-              style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-              <Icon size={22} /><span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
-            </button>
-          );
-        })}
+        {left.map(item => (
+          <button key={item.id} onClick={() => onChange(item.id)}
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+            {renderIcon(item)}
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+          </button>
+        ))}
         <div style={{ flex: 1 }} />
-        {right.map(item => {
-          const Icon = item.icon;
-          return (
-            <button key={item.id} onClick={() => onChange(item.id)}
-              style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-              <Icon size={22} /><span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
-            </button>
-          );
-        })}
+        {right.map(item => (
+          <button key={item.id} onClick={() => onChange(item.id)}
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+            {renderIcon(item)}
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-function DesktopSideNav({ active, onChange, onFab }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void }) {
+function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
   return (
     <div style={{ width: 200, flexShrink: 0, background: "#0a0a0a", borderRight: "1px solid #1e1e1e", display: "flex", flexDirection: "column", padding: "20px 12px", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 16 }}>
@@ -2568,14 +2638,16 @@ function DesktopSideNav({ active, onChange, onFab }: { active: NavTab; onChange:
         <Plus size={18} /> New Case
       </button>
       {NAV_ITEMS.map(item => {
-        const Icon = item.icon;
         const isActive = active === item.id;
+        const iconEl = item.id === "home"
+          ? <BarrelIcon size={18} caseCount={caseCount} isActive={isActive} />
+          : (() => { const Icon = item.icon; return <Icon size={18} />; })();
         return (
           <button key={item.id} onClick={() => onChange(item.id)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, background: isActive ? `${ORANGE}18` : "transparent", border: `1px solid ${isActive ? ORANGE + "44" : "transparent"}`, color: isActive ? ORANGE : "#666", cursor: "pointer", fontWeight: 700, fontSize: 14, textAlign: "left", transition: "all 0.15s" }}
             onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
             onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>
-            <Icon size={18} /> {item.label}
+            {iconEl} {item.label}
           </button>
         );
       })}
@@ -3015,7 +3087,7 @@ export default function App() {
 
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
-          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} />
+          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
         )}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {!isOnline && (
@@ -3044,7 +3116,7 @@ export default function App() {
       )}
 
       {isMobile && (
-        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} />
+        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
       )}
 
       {showNewIncident && (

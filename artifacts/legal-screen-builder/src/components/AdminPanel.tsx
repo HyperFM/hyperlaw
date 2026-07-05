@@ -56,6 +56,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [aiLogs, setAiLogs] = useState<AiLog[]>([]);
   const [aiStats, setAiStats] = useState<AiStats | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [aiPage, setAiPage] = useState(1);
   const [aiTotal, setAiTotal] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -64,6 +65,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   // ── Knowledge Library state ───────────────────────────────────────────────
   const [kbEntries, setKbEntries] = useState<KnowledgeEntry[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
+  const [kbError, setKbError] = useState<string | null>(null);
   const [kbSearch, setKbSearch] = useState("");
   const [kbForm, setKbForm] = useState<KbForm | null>(null);
   const [kbSaving, setKbSaving] = useState(false);
@@ -72,12 +74,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   // ── Revenue / Platform stats state ───────────────────────────────────────
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueError, setRevenueError] = useState<string | null>(null);
 
   // ── Error Logs state ──────────────────────────────────────────────────────
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [errorLogsTotal, setErrorLogsTotal] = useState(0);
   const [errorLogsPage, setErrorLogsPage] = useState(1);
   const [errorLogsLoading, setErrorLogsLoading] = useState(false);
+  const [errorLogsError, setErrorLogsError] = useState<string | null>(null);
   const ERROR_LOGS_PAGE_SIZE = 50;
 
   const loadUsers = useCallback(async () => {
@@ -115,6 +119,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
   const loadAiData = useCallback(async (page = 1) => {
     setAiLoading(true);
+    setAiError(null);
     try {
       const [logsResp, stats] = await Promise.all([
         aiApi.admin.logs({ page, limit: AI_PAGE_SIZE }),
@@ -124,7 +129,8 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setAiTotal(logsResp.total);
       setAiPage(logsResp.page);
       if (stats && "totalCalls" in stats) setAiStats(stats as AiStats);
-    } catch {
+    } catch (err) {
+      setAiError((err as Error).message ?? "Failed to load AI data");
     } finally {
       setAiLoading(false);
     }
@@ -212,10 +218,12 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
   const loadKbData = useCallback(async () => {
     setKbLoading(true);
+    setKbError(null);
     try {
       const entries = await aiApi.knowledge.list();
       setKbEntries(entries);
-    } catch {
+    } catch (err) {
+      setKbError((err as Error).message ?? "Failed to load knowledge library");
     } finally {
       setKbLoading(false);
     }
@@ -229,10 +237,12 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
   const loadRevenue = useCallback(async () => {
     setRevenueLoading(true);
+    setRevenueError(null);
     try {
       const stats = await aiApi.admin.platformStats();
       setPlatformStats(stats);
-    } catch {
+    } catch (err) {
+      setRevenueError((err as Error).message ?? "Failed to load platform stats");
     } finally {
       setRevenueLoading(false);
     }
@@ -323,12 +333,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
   const loadErrorLogs = useCallback(async (page = 1) => {
     setErrorLogsLoading(true);
+    setErrorLogsError(null);
     try {
       const resp = await aiApi.admin.errorLogs({ page, limit: ERROR_LOGS_PAGE_SIZE });
       setErrorLogs(resp.logs);
       setErrorLogsTotal(resp.total);
       setErrorLogsPage(resp.page);
-    } catch {
+    } catch (err) {
+      setErrorLogsError((err as Error).message ?? "Failed to load error logs");
     } finally {
       setErrorLogsLoading(false);
     }
@@ -695,9 +707,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
             </button>
           </div>
 
+          {aiError && (
+            <div style={{ margin: "12px 14px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertCircle size={13} /> {aiError}
+            </div>
+          )}
           {aiLoading ? (
             <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>Loading AI logs…</div>
-          ) : aiLogs.length === 0 ? (
+          ) : aiLogs.length === 0 && !aiError ? (
             <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>
               No AI calls logged yet.<br />
               <span style={{ fontSize: 11, color: "#3a3a3a" }}>Calls appear here once users interact with Claude.</span>
@@ -889,6 +906,11 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
           {/* Entry list */}
           <div style={{ maxHeight: kbForm ? 260 : 480, overflowY: "auto" }}>
+            {kbError && (
+              <div style={{ margin: "12px 14px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+                <AlertCircle size={13} /> {kbError}
+              </div>
+            )}
             {kbLoading ? (
               <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>Loading library…</div>
             ) : filteredKb.length === 0 ? (
@@ -970,6 +992,11 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       {/* ── Revenue / Platform Stats view ── */}
       {view === "revenue" && (
         <div>
+          {revenueError && (
+            <div style={{ margin: "12px 14px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertCircle size={13} /> {revenueError}
+            </div>
+          )}
           {revenueLoading && (
             <div style={{ padding: 24, textAlign: "center", color: "#444", fontSize: 13 }}>Loading platform stats…</div>
           )}
@@ -1083,9 +1110,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       {/* ── Errors view ── */}
       {view === "errors" && (
         <div>
+          {errorLogsError && (
+            <div style={{ margin: "12px 14px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertCircle size={13} /> {errorLogsError}
+            </div>
+          )}
           {errorLogsLoading ? (
             <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>Loading error logs…</div>
-          ) : errorLogs.length === 0 ? (
+          ) : errorLogs.length === 0 && !errorLogsError ? (
             <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>
               No server errors logged yet.
               <br />

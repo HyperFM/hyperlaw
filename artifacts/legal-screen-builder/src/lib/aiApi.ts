@@ -521,6 +521,8 @@ export function featureLabel(feature: string): string {
     chat: "AI Chat",
     extract_document: "Doc Extraction",
     ocr_image: "Image OCR",
+    assembly: "Case Assembly",
+    learning: "Learning Index",
   };
   return labels[feature] ?? feature;
 }

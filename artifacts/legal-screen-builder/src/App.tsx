@@ -2623,17 +2623,17 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 
 /** Index tab — cloud PNG */
 function IndexIcon({ size = 40 }: { size?: number }) {
+  /* Render notably larger than the slot so it fills edge-to-edge like the target mockup */
+  const rendered = Math.round(size * 1.45);
   return (
-    <img src="/index-cloud.png" alt="" draggable={false}
-      style={{
-        width: size * 1.13, height: size * 1.13,
-        display: "block", pointerEvents: "none", userSelect: "none",
-        transform: "translate(-4px, 4px)",
-      }} />
+    <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", flexShrink: 0 }}>
+      <img src="/index-cloud.png" alt="" draggable={false}
+        style={{ width: rendered, height: rendered, display: "block", pointerEvents: "none", userSelect: "none" }} />
+    </div>
   );
 }
 
-/** Profile tab — briefcase PNG with an orange fingerless hand that waves on press */
+/** Profile tab — briefcase PNG with an orange oval arm that waves from behind the upper-right of the case */
 function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: number }) {
   const [waving, setWaving] = useState(false);
   const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2650,41 +2650,47 @@ function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: numb
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
+  /*
+   * The arm oval sits behind the PNG (z-index 0) at the upper-right corner,
+   * peeking from behind the RIGHT edge of the briefcase — matching IMG_3216.
+   * Pivot is at the bottom of the oval (the shoulder/elbow junction).
+   * Resting = 18 ° clockwise (arm already raised & leaning outward).
+   * Wave swings further outward (clockwise) then rocks back.
+   */
   return (
     <>
       <style>{`
         @keyframes hl-hand-wave {
-          0%   { transform: rotate(22deg); }
-          22%  { transform: rotate(52deg); }
-          50%  { transform: rotate(10deg); }
-          72%  { transform: rotate(46deg); }
-          90%  { transform: rotate(18deg); }
-          100% { transform: rotate(22deg); }
+          0%   { transform: rotate(18deg); }
+          20%  { transform: rotate(48deg); }
+          48%  { transform: rotate(4deg);  }
+          70%  { transform: rotate(42deg); }
+          88%  { transform: rotate(14deg); }
+          100% { transform: rotate(18deg); }
         }
         .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
       `}</style>
       <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
-        {/* Orange fingerless nub — behind the PNG, peeking from lower-left of briefcase */}
+        {/* Orange arm oval — behind the PNG, upper-right corner */}
         <div
           className={waving ? "hl-hand-waving" : undefined}
           style={{
             position: "absolute",
-            left:   "22%",   /* left of the briefcase edge */
-            bottom: "10%",   /* near the base */
-            width:  "22%",
-            height: "40%",
-            transform: "rotate(22deg)",          /* resting tilt — angled outward */
-            transformOrigin: "50% 100%",         /* pivot at the wrist / bottom */
+            right:  "4%",    /* near the right edge of the icon */
+            top:    "6%",    /* near the top */
+            width:  "26%",
+            height: "44%",
+            transform:       "rotate(18deg)",  /* resting tilt */
+            transformOrigin: "50% 100%",       /* pivot at the shoulder/base */
             zIndex: 0,
           }}
         >
-          <svg viewBox="0 0 10 20" width="100%" height="100%">
-            {/* Rounded fingerless nub */}
-            <rect x="1.5" y="7" width="7" height="12" rx="3.5" fill={ORANGE} />
-            <ellipse cx="5" cy="7" rx="3.5" ry="3.5" fill={ORANGE} />
+          {/* Simple oval — matches the orange ellipse in IMG_3216 */}
+          <svg viewBox="0 0 10 18" width="100%" height="100%">
+            <ellipse cx="5" cy="9" rx="4.2" ry="8.5" fill={ORANGE} />
           </svg>
         </div>
-        {/* Briefcase + person PNG on top */}
+        {/* Briefcase + person PNG on top — briefcase opaque pixels hide the arm's overlap */}
         <img src="/profile-briefcase.png" alt="" draggable={false}
           style={{
             width: size, height: size,

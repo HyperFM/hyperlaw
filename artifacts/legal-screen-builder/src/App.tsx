@@ -2843,7 +2843,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
   }
 
   return (
-    <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
+    <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100 }}>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -22, zIndex: 10 }}>
         <button onClick={onFab}
           style={{ width: 46, height: 46, borderRadius: 23, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>

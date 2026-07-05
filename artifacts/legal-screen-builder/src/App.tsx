@@ -2206,6 +2206,101 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
   );
 }
 
+// ─── HOLD-TO-DELETE BUTTON ────────────────────────────────────────────────────
+// Uses a native touchstart listener (passive:false) so preventDefault() actually
+// blocks the parent scroll container from stealing the touch.
+function HoldToDeleteButton({ onComplete }: { onComplete: () => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const isHoldingRef = useRef(false);
+  const startTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [active, setActive] = useState(false);
+  const HOLD_MS = 5000;
+
+  function begin() {
+    if (isHoldingRef.current) return;
+    isHoldingRef.current = true;
+    setActive(true);
+    setProgress(0);
+    startTimeRef.current = performance.now();
+    function tick(now: number) {
+      if (!isHoldingRef.current) return;
+      const p = Math.min(1, (now - (startTimeRef.current ?? now)) / HOLD_MS);
+      setProgress(p);
+      if (p >= 1) { isHoldingRef.current = false; setActive(false); onComplete(); return; }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function cancel() {
+    if (!isHoldingRef.current) return;
+    isHoldingRef.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    startTimeRef.current = null;
+    setProgress(0);
+    setActive(false);
+  }
+
+  useEffect(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    function onTouchStart(e: TouchEvent) { e.preventDefault(); begin(); }
+    function onTouchEnd() { cancel(); }
+    function onTouchCancel() { cancel(); }
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const secsLeft = Math.max(0, Math.ceil((1 - progress) * (HOLD_MS / 1000)));
+  const circ = 2 * Math.PI * 30;
+
+  return (
+    <button
+      ref={btnRef}
+      onMouseDown={begin}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      style={{
+        width: "100%", padding: active ? "18px 14px" : "14px",
+        borderRadius: 10, background: active ? "#200a0a" : "#130606",
+        border: `1px solid ${active ? "#8a2a2a" : "#4a1a1a"}`,
+        color: active ? "#cc6666" : "#884444",
+        fontSize: 13, fontWeight: 700, cursor: "pointer",
+        userSelect: "none", WebkitUserSelect: "none",
+        touchAction: "none", display: "block",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+    >
+      {!active ? (
+        "Hold 5 seconds to permanently delete account"
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ position: "relative", width: 72, height: 72 }}>
+            <svg width={72} height={72} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+              <circle cx={36} cy={36} r={30} fill="none" stroke="#2a1a1a" strokeWidth={4} />
+              <circle cx={36} cy={36} r={30} fill="none" stroke="#d9711f" strokeWidth={4}
+                strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
+                strokeLinecap="round" style={{ filter: "drop-shadow(0 0 5px #d9711f)" }} />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#d9711f" }}>
+              {secsLeft}s
+            </div>
+          </div>
+          <span style={{ fontSize: 12, color: "#553333" }}>Keep holding…</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
 function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   data: AppData;
@@ -2225,65 +2320,23 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   // Account deletion
   const [showDeleteSection, setShowDeleteSection] = useState(false);
   const [scrolledToBottom, setScrolledToBottom] = useState(false);
-  type DeletePhase = "ready" | "holding" | "done";
-  const [deletePhase, setDeletePhase] = useState<DeletePhase>("ready");
-  const [deleteProgress, setDeleteProgress] = useState(0);
-  const deleteRafRef = useRef<number | null>(null);
-  const deleteHoldStartRef = useRef<number | null>(null);
-  const isHoldingRef = useRef(false); // ref-driven so RAF/cancel never hit stale closures
-  const DELETE_HOLD_MS = 5000;
+  const [deleteDone, setDeleteDone] = useState(false);
 
   function handleDeleteScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 30) setScrolledToBottom(true);
   }
 
-  function startDeleteHold(e: React.PointerEvent) {
-    if (isHoldingRef.current) return;
-    e.preventDefault();
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
-    isHoldingRef.current = true;
-    setDeletePhase("holding");
-    setDeleteProgress(0);
-    deleteHoldStartRef.current = performance.now();
-    function tick(now: number) {
-      if (!isHoldingRef.current) return; // lifted — stop immediately
-      const elapsed = now - (deleteHoldStartRef.current ?? now);
-      const p = Math.min(1, elapsed / DELETE_HOLD_MS);
-      setDeleteProgress(p);
-      if (p >= 1) {
-        isHoldingRef.current = false;
-        setDeletePhase("done");
-        return;
-      }
-      deleteRafRef.current = requestAnimationFrame(tick);
+  async function handleDeleteComplete() {
+    setDeleteDone(true);
+    try {
+      await aiApi.deleteUserData().catch(() => {});
+      await user?.delete();
+    } catch {
+      alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
+      setDeleteDone(false);
     }
-    deleteRafRef.current = requestAnimationFrame(tick);
   }
-
-  function cancelDeleteHold(e: React.PointerEvent) {
-    if (!isHoldingRef.current) return;
-    isHoldingRef.current = false;
-    if (deleteRafRef.current) { cancelAnimationFrame(deleteRafRef.current); deleteRafRef.current = null; }
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-    deleteHoldStartRef.current = null;
-    setDeleteProgress(0);
-    setDeletePhase("ready");
-  }
-
-  useEffect(() => {
-    if (deletePhase !== "done") return;
-    const t = setTimeout(async () => {
-      try {
-        await aiApi.deleteUserData().catch(() => {});
-        await user?.delete();
-      } catch {
-        alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
-        setDeletePhase("ready");
-      }
-    }, 700);
-    return () => clearTimeout(t);
-  }, [deletePhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [eggPressCount, setEggPressCount] = useState(0);
   const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2460,7 +2513,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
       <div style={{ marginTop: 24, marginBottom: 8 }}>
         {!showDeleteSection ? (
           <button
-            onClick={() => { setShowDeleteSection(true); setScrolledToBottom(false); setDeletePhase("ready"); }}
+            onClick={() => { setShowDeleteSection(true); setScrolledToBottom(false); setDeleteDone(false); }}
             style={{ background: "none", border: "none", color: "#3a3a3a", fontSize: 13, cursor: "pointer", padding: "4px 0", textDecoration: "underline", textUnderlineOffset: 3 }}
           >
             Want to close your account?
@@ -2508,22 +2561,9 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
                 <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center" }}>↓ Scroll down to continue</div>
               )}
 
-              {scrolledToBottom && deletePhase === "ready" && (
+              {scrolledToBottom && !deleteDone && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div
-                    onPointerDown={startDeleteHold}
-                    onPointerUp={cancelDeleteHold}
-                    onPointerCancel={cancelDeleteHold}
-                    style={{
-                      padding: "14px", borderRadius: 10, background: "#130606",
-                      border: "1px solid #4a1a1a", color: "#884444",
-                      fontSize: 13, fontWeight: 700, cursor: "pointer",
-                      userSelect: "none", WebkitUserSelect: "none",
-                      touchAction: "none", textAlign: "center",
-                    }}
-                  >
-                    Hold 5 seconds to permanently delete account
-                  </div>
+                  <HoldToDeleteButton onComplete={handleDeleteComplete} />
                   <button
                     onClick={() => setShowDeleteSection(false)}
                     style={{ background: "none", border: "none", color: "#333", fontSize: 12, cursor: "pointer", textAlign: "center" }}
@@ -2533,27 +2573,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
                 </div>
               )}
 
-              {scrolledToBottom && deletePhase === "holding" && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                  <div style={{ position: "relative", width: 72, height: 72 }}>
-                    <svg width={72} height={72} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
-                      <circle cx={36} cy={36} r={30} fill="none" stroke="#2a1a1a" strokeWidth={4} />
-                      <circle cx={36} cy={36} r={30} fill="none" stroke="#d9711f" strokeWidth={4}
-                        strokeDasharray={2 * Math.PI * 30}
-                        strokeDashoffset={2 * Math.PI * 30 * (1 - deleteProgress)}
-                        strokeLinecap="round"
-                        style={{ filter: "drop-shadow(0 0 5px #d9711f)" }}
-                      />
-                    </svg>
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#d9711f" }}>
-                      {Math.max(0, Math.ceil((1 - deleteProgress) * (DELETE_HOLD_MS / 1000)))}s
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 12, color: "#553333" }}>Keep holding…</div>
-                </div>
-              )}
-
-              {deletePhase === "done" && (
+              {deleteDone && (
                 <div style={{ textAlign: "center", padding: "8px 0" }}>
                   <div style={{ fontSize: 22, marginBottom: 6 }}>👋</div>
                   <div style={{ fontSize: 13, color: "#555" }}>Deleting your account…</div>

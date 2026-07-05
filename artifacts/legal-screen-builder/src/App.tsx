@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useClerk, useUser } from "@clerk/react";
 import {
-  Home, Folder, Plus, User, ChevronRight, ChevronLeft,
+  Home, Folder, Plus, User, Cloud, ChevronRight, ChevronLeft,
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
@@ -2641,7 +2641,7 @@ interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Barrel" },
   { id: "builder", icon: BuilderIcon, label: "Builder" },
-  { id: "tutor", icon: BookOpen, label: "Index" },
+  { id: "tutor", icon: Cloud, label: "Index" },
   { id: "profile", icon: User, label: "Profile" },
 ];
 

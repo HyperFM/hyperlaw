@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useClerk, useUser } from "@clerk/react";
 import {
-  Home, Folder, Plus, User, Cloud, ChevronRight, ChevronLeft,
+  Home, Folder, Plus, User, ChevronRight, ChevronLeft,
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
@@ -2621,6 +2621,76 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
   );
 }
 
+/** Index tab — cloud PNG */
+function IndexIcon({ size = 40 }: { size?: number }) {
+  return (
+    <img src="/index-cloud.png" alt="" draggable={false}
+      style={{ width: size, height: size, display: "block", pointerEvents: "none", userSelect: "none" }} />
+  );
+}
+
+/** Profile tab — briefcase PNG with an orange fingerless hand that waves on press */
+function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: number }) {
+  const [waving, setWaving] = useState(false);
+  const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (waveKey === 0) return;
+    setWaving(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setWaving(false), 950);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [waveKey]);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  return (
+    <>
+      <style>{`
+        @keyframes hl-hand-wave {
+          0%   { transform: rotate(0deg); }
+          18%  { transform: rotate(-32deg); }
+          45%  { transform: rotate(28deg); }
+          68%  { transform: rotate(-18deg); }
+          85%  { transform: rotate(12deg); }
+          100% { transform: rotate(0deg); }
+        }
+        .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
+      `}</style>
+      <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
+        {/* Orange fingerless nub — z-index 0 so it sits behind the PNG */}
+        <div
+          className={waving ? "hl-hand-waving" : undefined}
+          style={{
+            position: "absolute",
+            /* peek from the left side of the briefcase */
+            left:   "30%",
+            bottom: "14%",
+            width:  "20%",
+            height: "36%",
+            transformOrigin: "50% 100%",   /* pivot at the wrist */
+            zIndex: 0,
+          }}
+        >
+          <svg viewBox="0 0 10 18" width="100%" height="100%">
+            <rect x="1" y="6" width="8" height="11" rx="4" fill={ORANGE} />
+            <ellipse cx="5" cy="6" rx="4" ry="4" fill={ORANGE} />
+          </svg>
+        </div>
+        {/* Briefcase + person PNG on top */}
+        <img src="/profile-briefcase.png" alt="" draggable={false}
+          style={{
+            width: size, height: size,
+            position: "relative", zIndex: 1,
+            pointerEvents: "none", userSelect: "none", display: "block",
+          }} />
+      </div>
+    </>
+  );
+}
+
 /** Box outline with a solid orange bar on the left side — the Builder tab icon */
 function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
   return (
@@ -2641,24 +2711,27 @@ interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Barrel" },
   { id: "builder", icon: BuilderIcon, label: "Builder" },
-  { id: "tutor", icon: Cloud, label: "Index" },
+  { id: "tutor", icon: Home, label: "Index" },
   { id: "profile", icon: User, label: "Profile" },
 ];
 
 function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
-  const [barrelSpinKey, setBarrelSpinKey] = useState(0);
+  const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
+  const [profileWaveKey, setProfileWaveKey] = useState(0);
   const left  = [NAV_ITEMS[0], NAV_ITEMS[1]];
   const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
 
   function handleItemClick(id: NavTab) {
-    if (id === "home") setBarrelSpinKey(k => k + 1);
+    if (id === "home")    setBarrelSpinKey(k => k + 1);
+    if (id === "profile") setProfileWaveKey(k => k + 1);
     onChange(id);
   }
 
   function renderIcon(item: NavItem) {
-    if (item.id === "home") return <BarrelIcon size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    const Icon = item.icon;
-    return <Icon size={22} />;
+    if (item.id === "home")    return <BarrelIcon   size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon    size={40} />;
+    if (item.id === "profile") return <ProfileIcon  size={40} waveKey={profileWaveKey} />;
+    return <item.icon size={22} />;
   }
 
   return (
@@ -2691,11 +2764,20 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 }
 
 function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
-  const [barrelSpinKey, setBarrelSpinKey] = useState(0);
+  const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
+  const [profileWaveKey, setProfileWaveKey] = useState(0);
 
   function handleItemClick(id: NavTab) {
-    if (id === "home") setBarrelSpinKey(k => k + 1);
+    if (id === "home")    setBarrelSpinKey(k => k + 1);
+    if (id === "profile") setProfileWaveKey(k => k + 1);
     onChange(id);
+  }
+
+  function renderSideIcon(item: NavItem) {
+    if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon   size={28} />;
+    if (item.id === "profile") return <ProfileIcon size={28} waveKey={profileWaveKey} />;
+    return <item.icon size={18} />;
   }
 
   return (
@@ -2710,15 +2792,12 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
       </button>
       {NAV_ITEMS.map(item => {
         const isActive = active === item.id;
-        const iconEl = item.id === "home"
-          ? <BarrelIcon size={32} caseCount={caseCount} spinKey={barrelSpinKey} />
-          : (() => { const Icon = item.icon; return <Icon size={18} />; })();
         return (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, background: isActive ? `${ORANGE}18` : "transparent", border: `1px solid ${isActive ? ORANGE + "44" : "transparent"}`, color: isActive ? ORANGE : "#666", cursor: "pointer", fontWeight: 700, fontSize: 14, textAlign: "left", transition: "all 0.15s" }}
             onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
             onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>
-            {iconEl} {item.label}
+            {renderSideIcon(item)} {item.label}
           </button>
         );
       })}

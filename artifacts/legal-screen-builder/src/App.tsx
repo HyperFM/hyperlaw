@@ -2622,19 +2622,16 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 }
 
 /** Index tab — cloud PNG */
-function IndexIcon({ size = 40 }: { size?: number }) {
-  /* Wider than the slot, height auto so the cloud's natural aspect ratio is preserved */
-  const rendered = Math.round(size * 1.45);
+function IndexIcon({ size = 46 }: { size?: number }) {
+  /* Let the image keep its natural aspect ratio — no squishing */
   return (
-    <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", flexShrink: 0 }}>
-      <img src="/index-cloud.png" alt="" draggable={false}
-        style={{ width: rendered, height: "auto", display: "block", pointerEvents: "none", userSelect: "none" }} />
-    </div>
+    <img src="/index-cloud.png" alt="" draggable={false}
+      style={{ width: size, height: "auto", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0 }} />
   );
 }
 
 /** Profile tab — briefcase PNG with an orange oval arm that waves from behind the upper-right of the case */
-function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: number }) {
+function ProfileIcon({ size = 46, waveKey = 0 }: { size?: number; waveKey?: number }) {
   const [waving, setWaving] = useState(false);
   const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(false);
@@ -2651,49 +2648,54 @@ function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: numb
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   /*
-   * The arm oval sits behind the PNG (z-index 0) at the upper-right corner,
-   * peeking from behind the RIGHT edge of the briefcase — matching IMG_3216.
-   * Pivot is at the bottom of the oval (the shoulder/elbow junction).
-   * Resting = 18 ° clockwise (arm already raised & leaning outward).
-   * Wave swings further outward (clockwise) then rocks back.
+   * Layout (all % relative to the size×size container):
+   *   • The orange person body occupies roughly the left 60 % of the PNG.
+   *   • The briefcase top-right corner is at ≈ (82 %, 38 %).
+   *   • We place the arm so its BASE CENTER lands at (70 %, 40 %) —
+   *     exactly at the briefcase's upper edge, which masks the root
+   *     and makes the arm look like it's growing from the shoulder.
+   *   • The arm extends upward & slightly right into clear airspace.
+   *   • Resting tilt: 14 ° clockwise (leaning outward).
+   *   • Wave swings further outward then settles back.
    */
+  const armLeft   = "54%";  // left edge; center = 54 + 16 = 70 %
+  const armTop    = "3%";   // top of visible oval
+  const armW      = "32%";  // gives ample visible oval above the case
+  const armH      = "38%";  // bottom = 3 + 38 = 41 % ≈ briefcase top edge
+
   return (
     <>
       <style>{`
         @keyframes hl-hand-wave {
-          0%   { transform: rotate(18deg); }
-          20%  { transform: rotate(48deg); }
-          48%  { transform: rotate(4deg);  }
-          70%  { transform: rotate(42deg); }
-          88%  { transform: rotate(14deg); }
-          100% { transform: rotate(18deg); }
+          0%   { transform: rotate(14deg); }
+          20%  { transform: rotate(46deg); }
+          48%  { transform: rotate(2deg);  }
+          70%  { transform: rotate(40deg); }
+          88%  { transform: rotate(10deg); }
+          100% { transform: rotate(14deg); }
         }
         .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
       `}</style>
-      <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
-        {/* Orange arm oval — behind the PNG (z-index 0).
-            Positioned so its BASE sits at shoulder level (~42 % from top),
-            which the briefcase pixels in the PNG naturally mask — making the
-            arm look like it grows from the person's body. The top of the oval
-            sticks up into the clear space above/right of the briefcase. */}
+      <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0, overflow: "visible" }}>
+        {/* Arm oval — sits BEHIND the PNG so briefcase masks its base */}
         <div
           className={waving ? "hl-hand-waving" : undefined}
           style={{
             position: "absolute",
-            left:   "62%",   /* aligns with person's right-shoulder area */
-            top:    "4%",    /* top of oval visible above the briefcase */
-            width:  "26%",
-            height: "42%",   /* bottom ≈ 46 % — tucked behind briefcase top */
-            transform:       "rotate(16deg)",  /* resting lean outward */
-            transformOrigin: "50% 100%",       /* pivot at the base / shoulder */
+            left:            armLeft,
+            top:             armTop,
+            width:           armW,
+            height:          armH,
+            transform:       "rotate(14deg)",
+            transformOrigin: "50% 100%",  /* pivot = base of oval / shoulder */
             zIndex: 0,
           }}
         >
-          <svg viewBox="0 0 10 18" width="100%" height="100%">
-            <ellipse cx="5" cy="9" rx="4.4" ry="8.6" fill={ORANGE} />
+          <svg viewBox="0 0 12 22" width="100%" height="100%">
+            <ellipse cx="6" cy="11" rx="5.5" ry="10.5" fill={ORANGE} />
           </svg>
         </div>
-        {/* Briefcase + person PNG on top — briefcase opaque pixels hide the arm's overlap */}
+        {/* PNG on top — briefcase pixels naturally mask the arm's base */}
         <img src="/profile-briefcase.png" alt="" draggable={false}
           style={{
             width: size, height: size,
@@ -2742,10 +2744,10 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
   }
 
   function renderIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon   size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon    size={40} />;
-    if (item.id === "profile") return <ProfileIcon  size={40} waveKey={profileWaveKey} />;
-    return <item.icon size={22} />;
+    if (item.id === "home")    return <BarrelIcon   size={46} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon    size={46} />;
+    if (item.id === "profile") return <ProfileIcon  size={46} waveKey={profileWaveKey} />;
+    return <item.icon size={24} />;
   }
 
   return (
@@ -2760,7 +2762,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {left.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>{renderIcon(item)}</div>
+            <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
@@ -2768,7 +2770,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {right.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>{renderIcon(item)}</div>
+            <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
@@ -2788,9 +2790,9 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
   }
 
   function renderSideIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={28} />;
-    if (item.id === "profile") return <ProfileIcon size={28} waveKey={profileWaveKey} />;
+    if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon   size={34} />;
+    if (item.id === "profile") return <ProfileIcon size={34} waveKey={profileWaveKey} />;
     return <item.icon size={18} />;
   }
 

@@ -2495,12 +2495,27 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
-type NavTab = "home" | "cases" | "tutor" | "profile";
+
+/** Box outline with a solid orange bar on the left side — the Builder tab icon */
+function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Outer rectangle (screen / box) */}
+      <rect x="1.75" y="2.5" width="18.5" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      {/* Orange vertical bar on the left inside */}
+      <rect x="1.75" y="2.5" width="5.5" height="17" rx="2" fill={ORANGE} />
+      {/* Clip the right-side corners of the bar flush with the outer border */}
+      <rect x="5.5" y="2.5" width="1.75" height="17" fill={ORANGE} />
+    </svg>
+  );
+}
+
+type NavTab = "home" | "builder" | "tutor" | "profile";
 
 interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Home" },
-  { id: "cases", icon: Folder, label: "Cases" },
+  { id: "builder", icon: BuilderIcon, label: "Builder" },
   { id: "tutor", icon: GraduationCap, label: "Tutor" },
   { id: "profile", icon: User, label: "Profile" },
 ];
@@ -2660,7 +2675,7 @@ export default function App() {
     setPreLinkedCaseId(null);
     if (cid) {
       const hlCase = d.cases.find(c => c.id === cid) ?? null;
-      if (hlCase) { setNavTab("cases"); setView({ type: "case_detail", hlCase }); }
+      if (hlCase) { setNavTab("builder"); setView({ type: "case_detail", hlCase }); }
     } else {
       setNavTab("home");
       setView({ type: "incident_detail", incident });
@@ -2688,13 +2703,13 @@ export default function App() {
     };
     const d = addCase(data, newCase);
     setData(d);
-    setNavTab("cases");
+    setNavTab("builder");
     setView({ type: "case_parties", caseId: newCase.id });
   }
 
   function handleContinueCase(hlCase: HLCase, stage: WorkflowStage) {
     const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
-    setNavTab("cases");
+    setNavTab("builder");
     if (stage === "parties") setView({ type: "case_parties", caseId: fresh.id });
     else if (stage === "court") setView({ type: "case_court", caseId: fresh.id });
     else if (stage === "story") setView({ type: "case_story", caseId: fresh.id });
@@ -2728,7 +2743,7 @@ export default function App() {
     const d1 = addCase(data, hlCase);
     const d2 = addIncidentToCase(d1, incident.id, hlCase.id);
     setData(d2);
-    setNavTab("cases");
+    setNavTab("builder");
     setView({ type: "case_parties", caseId: hlCase.id });
   }
 
@@ -2769,7 +2784,7 @@ export default function App() {
         intakeChecklist: [],
       };
       setData(addCase(data, newCase));
-      setNavTab("cases");
+      setNavTab("builder");
       setView({ type: "case_detail", hlCase: newCase });
     } catch {
       // Silent failure — user stays on HomeView; non-critical path
@@ -2788,13 +2803,13 @@ export default function App() {
   function handleOpenCase(hlCase: HLCase) {
     const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
     setView({ type: "case_detail", hlCase: fresh });
-    setNavTab("cases");
+    setNavTab("builder");
   }
 
   function handleNavChange(tab: NavTab) {
     setNavTab(tab);
     if (tab === "home") setView({ type: "home" });
-    if (tab === "cases") setView({ type: "home" });
+    if (tab === "builder") setView({ type: "home" });
     if (tab === "tutor") setView({ type: "tutor" });
   }
 
@@ -2925,7 +2940,7 @@ export default function App() {
       );
     }
 
-    if (navTab === "cases" && view.type === "case_detail") {
+    if (navTab === "builder" && view.type === "case_detail") {
       const hlCase = data.cases.find(c => c.id === view.hlCase.id) ?? view.hlCase;
       return (
         <CaseDetailView
@@ -2972,7 +2987,7 @@ export default function App() {
       return <ProfileView data={data} onOpenCase={handleOpenCase} onEasterEgg={() => setShowEasterEgg(true)} onBuyCredits={() => setShowCreditShop(true)} />;
     }
 
-    if (navTab === "cases") {
+    if (navTab === "builder") {
       return <CasesView data={data} onOpenCase={handleOpenCase} onDeleteCase={id => { setData(deleteCase(data, id)); setView({ type: "home" }); }} />;
     }
 

@@ -232,6 +232,39 @@ export const aiApi = {
     });
   },
 
+  /** AI Case Assembly — organize facts, draft complaint, identify potential claims */
+  assembleCase(input: {
+    parties: Array<{ name: string; role: string; badge?: string }>;
+    court: { name: string; level: string; state: string } | null;
+    story: string;
+    timeline: Array<{ title: string; description: string }>;
+    caseId?: string;
+  }): Promise<{
+    organizedFacts: string;
+    draftComplaint: string;
+    potentialClaims: Array<{ claim: string; supportingFacts: string[]; missingFacts: string[] }>;
+  }> {
+    return aiFetch("/ai/assembly", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Learning Index — identify relevant statutes, case law, and constitutional provisions */
+  buildLearning(input: {
+    organizedFacts: string;
+    potentialClaims: Array<{ claim: string; supportingFacts: string[] }>;
+    court: { name: string; level: string; state: string } | null;
+    caseId?: string;
+  }): Promise<{
+    authorities: Array<{ type: "statute" | "case" | "constitution"; citation: string; plainEnglish: string; relevance: string }>;
+  }> {
+    return aiFetch("/ai/learning", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
   /** Upload a document for text extraction + AI case metadata extraction */
   upload(formData: FormData): Promise<UploadResult> {
     return aiFetch("/ai/upload", { method: "POST", body: formData });

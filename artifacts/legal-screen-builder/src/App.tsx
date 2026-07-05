@@ -35,6 +35,9 @@ import { CourtSelectionView } from "./pages/workflow/CourtSelectionView";
 import { StoryView } from "./pages/workflow/StoryView";
 import { TimelineView } from "./pages/workflow/TimelineView";
 import { CaseReviewView } from "./pages/workflow/CaseReviewView";
+import { AssemblyView } from "./pages/workflow/AssemblyView";
+import { LearningIndexView } from "./pages/workflow/LearningIndexView";
+import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
 
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
@@ -626,25 +629,49 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
 }
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
+
+const STAGE_LABELS: Record<import("./types").WorkflowStage, string> = {
+  parties: "Step 1 — Parties",
+  court: "Step 2 — Court",
+  story: "Step 3 — Story",
+  timeline: "Step 4 — Timeline",
+  assembly: "Step 5 — AI Assembly",
+  learning: "Step 6 — Learning",
+  documents: "Step 7 — Documents",
+};
+
 function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
   hlCase: HLCase;
   onOpen: () => void;
   onContinue: (stage: WorkflowStage) => void;
 }) {
   const health = computeCaseHealth(hlCase);
-  const pct = caseCompletionPct(health);
   const next = getNextStep(hlCase, health);
+
+  const miniChecks = [
+    { label: "Parties", done: health.parties },
+    { label: "Court", done: health.court },
+    { label: "Story", done: health.story },
+    { label: "Timeline", done: health.timeline },
+    { label: "Assembly", done: !!hlCase.assembly },
+  ];
+  const donePct = Math.round((miniChecks.filter(c => c.done).length / miniChecks.length) * 100);
 
   return (
     <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 16, padding: "20px" }}>
-      {/* Title + court + view all */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16 }}>
+      {/* Title + stage badge + view all */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
         <Folder size={20} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 17, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hlCase.title}</div>
-          <div style={{ fontSize: 12, color: "#555" }}>
-            {formatDate(hlCase.createdAt)}
-            {hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
+          <div style={{ fontWeight: 900, fontSize: 17, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hlCase.title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, color: "#555" }}>
+              {formatDate(hlCase.createdAt)}
+              {hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
+            </div>
+            <div style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 10, fontWeight: 800, color: ORANGE, flexShrink: 0 }}>
+              {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
+            </div>
           </div>
         </div>
         <button onClick={onOpen} style={{ background: "none", border: "1px solid #2a2521", borderRadius: 8, padding: "5px 10px", color: "#555", fontSize: 12, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -652,14 +679,27 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
         </button>
       </div>
 
-      {/* Case health bar */}
-      <CaseHealthBar hlCase={hlCase} />
+      {/* Mini 5-item health checklist */}
+      <div style={{ background: "#0d0d0d", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 10, color: "#444", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Case Progress</span>
+          <span style={{ fontSize: 11, color: donePct === 100 ? "#4ade80" : ORANGE, fontWeight: 800 }}>{donePct}%</span>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {miniChecks.map(c => (
+            <div key={c.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ width: "100%", height: 3, borderRadius: 2, background: c.done ? "#4ade80" : "#1e1e1e", transition: "background 0.3s" }} />
+              <span style={{ fontSize: 9, color: c.done ? "#4ade80" : "#333", fontWeight: 700, textAlign: "center", letterSpacing: 0.2 }}>{c.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Next step CTA */}
       <button
         onClick={() => onContinue(next.stage)}
         style={{
-          marginTop: 16, width: "100%",
+          width: "100%",
           background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`,
           border: "none", borderRadius: 12, padding: "14px",
           color: "#000", fontSize: 15, fontWeight: 900, cursor: "pointer",
@@ -990,6 +1030,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [lastGenerateDocType, setLastGenerateDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
   const [viewingDoc, setViewingDoc] = useState<ServerGeneratedDoc | null>(null);
+  const [caseDetailTab, setCaseDetailTab] = useState<"overview" | "checklist">("overview");
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -1175,7 +1216,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         })()}
 
         {/* Action buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
           <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>
             <GraduationCap size={15} /> Analyze in Tutor
           </TapBtn>
@@ -1183,6 +1224,32 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <Plus size={15} /> Add Incident
           </TapBtn>
         </div>
+
+        {/* Tab bar — Overview / Checklist */}
+        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #1a1a1a", marginBottom: 24 }}>
+          {(["overview", "checklist"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setCaseDetailTab(tab)}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                padding: "8px 16px 10px",
+                fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6,
+                color: caseDetailTab === tab ? ORANGE : "#444",
+                borderBottom: `2px solid ${caseDetailTab === tab ? ORANGE : "transparent"}`,
+                marginBottom: -1, transition: "all 0.15s",
+              }}
+            >
+              {tab === "overview" ? "Overview" : `Checklist (${hlCase.intakeChecklist.filter(i => i.completed).length}/${12})`}
+            </button>
+          ))}
+        </div>
+
+        {caseDetailTab === "checklist" && (
+          <IntakeChecklistView hlCase={hlCase} onUpdate={onUpdateCase} />
+        )}
+
+        {caseDetailTab === "overview" && (<>
 
         {/* Document Upload */}
         <div style={{ marginBottom: 28 }}>
@@ -1465,6 +1532,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <div style={{ fontSize: 11, color: "#333", marginTop: 8 }}>These are official sources only. HyperLaw does not auto-fill or generate any documents.</div>
           </div>
         )}
+
+        </>)}
       </div>
 
       {/* Document viewer / paywall / TTS / download */}
@@ -2633,6 +2702,8 @@ type AppView =
   | { type: "case_story"; caseId: string }
   | { type: "case_timeline"; caseId: string }
   | { type: "case_review"; caseId: string }
+  | { type: "case_assembly"; caseId: string }
+  | { type: "case_learning"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase };
 
 export default function App() {
@@ -2751,6 +2822,8 @@ export default function App() {
     else if (stage === "court") setView({ type: "case_court", caseId: fresh.id });
     else if (stage === "story") setView({ type: "case_story", caseId: fresh.id });
     else if (stage === "timeline") setView({ type: "case_timeline", caseId: fresh.id });
+    else if (stage === "assembly") setView({ type: "case_assembly", caseId: fresh.id });
+    else if (stage === "learning") setView({ type: "case_learning", caseId: fresh.id });
     else setView({ type: "case_detail", hlCase: fresh });
   }
 
@@ -2922,10 +2995,40 @@ export default function App() {
             else if (stage === "story") setView({ type: "case_story", caseId: hlCase.id });
             else setView({ type: "case_timeline", caseId: hlCase.id });
           }}
-          onContinue={() => {
+          onContinue={() => setView({ type: "case_assembly", caseId: view.caseId })}
+        />
+      );
+    }
+
+    if (view.type === "case_assembly") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <AssemblyView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => setView({ type: "case_learning", caseId: hlCase.id })}
+          onBack={() => setView({ type: "case_review", caseId: hlCase.id })}
+          onSkipToCase={() => {
             const updated = data.cases.find(c => c.id === view.caseId) ?? hlCase;
             setView({ type: "case_detail", hlCase: updated });
           }}
+        />
+      );
+    }
+
+    if (view.type === "case_learning") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <LearningIndexView
+          hlCase={hlCase}
+          onUpdate={c => setData(updateCase(data, c))}
+          onNext={() => {
+            const updated = data.cases.find(c => c.id === view.caseId) ?? hlCase;
+            setView({ type: "case_detail", hlCase: updated });
+          }}
+          onBack={() => setView({ type: "case_assembly", caseId: hlCase.id })}
         />
       );
     }

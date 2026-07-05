@@ -546,6 +546,139 @@ Rules:
     };
   }
 
+  // ── Case Assembly ─────────────────────────────────────────────────────────────
+  async assembleCase(input: {
+    parties: Array<{ name: string; role: string; badge?: string }>;
+    court: { name: string; level: string; state: string } | null;
+    story: string;
+    timeline: Array<{ title: string; description: string }>;
+  }): Promise<AiResult<{
+    organizedFacts: string;
+    draftComplaint: string;
+    potentialClaims: Array<{ claim: string; supportingFacts: string[]; missingFacts: string[] }>;
+  }>> {
+    const partiesBlock = input.parties.length
+      ? input.parties.map(p => `- ${p.name} (${p.role}${p.badge ? `, Badge ${p.badge}` : ""})`).join("\n")
+      : "No parties identified.";
+
+    const courtBlock = input.court
+      ? `${input.court.name}, ${input.court.state} (${input.court.level})`
+      : "No court selected.";
+
+    const timelineBlock = input.timeline.length
+      ? input.timeline.map((e, i) => `${i + 1}. ${e.title}${e.description ? `: ${e.description}` : ""}`).join("\n")
+      : "No timeline events.";
+
+    const prompt = `You are a civil rights legal assistant. Analyze the following case information and return ONLY valid JSON.
+
+CRITICAL RULES:
+- NEVER invent, assume, or extrapolate any fact not explicitly stated in the input below.
+- If information is missing, flag it under "missingFacts" — do not fill it in.
+- Potential claims are AI suggestions only — label them as such. Do not assert any claim will succeed.
+- Draft complaint must use ONLY facts from the input. Use [BRACKETED PLACEHOLDERS] for missing required fields.
+
+== CASE INPUT ==
+
+Parties:
+${partiesBlock}
+
+Court: ${courtBlock}
+
+Narrative (user's own words — may contain nicknames already substituted with legal names):
+${input.story.slice(0, 6000)}
+
+Timeline Events:
+${timelineBlock}
+
+== INSTRUCTIONS ==
+
+Return JSON with this exact shape:
+{
+  "organizedFacts": "A structured, objective restatement of the facts from the narrative and timeline. Use complete sentences. Reference parties by their full names. Do not add any facts not in the input. 2-4 paragraphs.",
+  "draftComplaint": "A complete pro se civil rights complaint draft. Sections: INTRODUCTION, PARTIES, JURISDICTION AND VENUE, STATEMENT OF FACTS (numbered paragraphs), POTENTIAL CAUSES OF ACTION (labeled as AI-identified possibilities — not legal conclusions), RELIEF REQUESTED, CERTIFICATION. Use [PLACEHOLDER] for any missing required field. Return full complaint text as a single string.",
+  "potentialClaims": [
+    {
+      "claim": "Specific legal basis (e.g. '42 U.S.C. § 1983 — Fourth Amendment Unlawful Seizure')",
+      "supportingFacts": ["Exact quoted or paraphrased fact from input that supports this claim"],
+      "missingFacts": ["Specific fact or evidence not present in input that would be needed to pursue this claim"]
+    }
+  ]
+}
+
+Include 2-5 potential claims. Each claim must have at least 1 supporting fact from the input and 1 missing fact (what would still need to be established). Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: "You are a precise civil rights legal document assistant. Return only valid JSON. Never invent facts.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  // ── Learning Index ────────────────────────────────────────────────────────────
+  async buildLearning(input: {
+    organizedFacts: string;
+    potentialClaims: Array<{ claim: string; supportingFacts: string[] }>;
+    court: { name: string; level: string; state: string } | null;
+  }): Promise<AiResult<{
+    authorities: Array<{ type: "statute" | "case" | "constitution"; citation: string; plainEnglish: string; relevance: string }>;
+  }>> {
+    const claimsBlock = input.potentialClaims.length
+      ? input.potentialClaims.map(c => `- ${c.claim}`).join("\n")
+      : "No specific claims identified.";
+
+    const prompt = `You are a civil rights legal research assistant. Identify relevant legal authorities for this pro se civil rights case. Return ONLY valid JSON.
+
+== CASE SUMMARY ==
+${input.organizedFacts.slice(0, 3000)}
+
+== POTENTIAL CLAIMS ==
+${claimsBlock}
+
+== COURT ==
+${input.court ? `${input.court.name} (${input.court.level}, ${input.court.state})` : "Court not specified."}
+
+== INSTRUCTIONS ==
+
+Return 5-10 legal authorities most directly relevant to the facts and claims above. Include a mix of:
+- Constitutional provisions implicated
+- Federal statutes (e.g. 42 U.S.C. § 1983, § 1985, Title VII, ADA, etc.)
+- Landmark or circuit-relevant case law
+
+Return JSON:
+{
+  "authorities": [
+    {
+      "type": "statute" | "case" | "constitution",
+      "citation": "Exact legal citation (e.g. '42 U.S.C. § 1983' or 'Monell v. Dept. of Social Services, 436 U.S. 658 (1978)')",
+      "plainEnglish": "1-2 sentence plain-English explanation of what this law or case establishes",
+      "relevance": "1 sentence specifically connecting this authority to the facts or claims in this case"
+    }
+  ]
+}
+
+Return only well-established authorities. Do not fabricate citations. Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      system: "You are a precise civil rights legal researcher. Return only valid JSON with accurate legal citations.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   private parseJsonResponse<T>(response: Anthropic.Message): T {
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

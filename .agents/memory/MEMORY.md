@@ -7,3 +7,4 @@
 - [HyperLaw Stops 2-3-4](hyperlaw-stops234.md) — auto case from upload, progress bar, TTS word-highlight, verify endpoint, jurisdiction gate, withRetry, rate limiting.
 - [HyperLaw Stops 5-6-7](hyperlaw-stops567.md) — free-case gate (2 max), offline banner, generate retry, error logs table, admin Errors tab, response time chart.
 - [HyperLaw Rebuild Phase 1](hyperlaw-rebuild-phase1.md) — workflow screens complete with stepper, sticky bottom, auto-save (ref pattern), version history, CaseReviewView; Phase 1 QA done.
+- [HyperLaw Phase 2 Core](hyperlaw-phase2-core.md) — Assembly/Learning/Checklist screens, getNextStep 7-stage chain, cache call signatures (critical arg order), CaseDetailView tabs, anti-fabrication prompt constraints.

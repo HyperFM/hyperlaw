@@ -18,6 +18,8 @@ export type AiFeature =
   | "analyze_case_v2"
   | "chat"
   | "timeline"
+  | "assembly"
+  | "learning"
   | "extract_document"
   | "ocr_image"
   | "generate_document";

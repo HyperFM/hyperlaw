@@ -482,4 +482,84 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
   }
 });
 
+// ── POST /ai/assembly ──────────────────────────────────────────────────────────
+router.post("/ai/assembly", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { parties, court, story, timeline, caseId } = req.body as {
+    parties?: Array<{ name: string; role: string; badge?: string }>;
+    court?: { name: string; level: string; state: string } | null;
+    story?: string;
+    timeline?: Array<{ title: string; description: string }>;
+    caseId?: string;
+  };
+
+  if (!story || !story.trim()) { res.status(400).json({ error: "story is required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  const cacheKey = computeCacheKey("assembly", { parties, court, story: story.slice(0, 2000), timeline });
+  const cached = await getFromCache(userId, cacheKey);
+  if (cached) {
+    await logAiCall({ userId, feature: "assembly", model: "cache", inputTokens: 0, outputTokens: 0, estimatedCostMicroUsd: 0, responseTimeMs: 0, cacheHit: true, caseId });
+    res.json({ ...(cached.result as object), fromCache: true, cachedAt: cached.createdAt.toISOString() });
+    return;
+  }
+
+  try {
+    const result = await aiService.assembleCase({
+      parties: parties ?? [],
+      court: court ?? null,
+      story,
+      timeline: timeline ?? [],
+    });
+    await setCache(userId, cacheKey, "assembly", result.data);
+    await logAiCall({ userId, feature: "assembly", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Assembly failed" });
+  }
+});
+
+// ── POST /ai/learning ──────────────────────────────────────────────────────────
+router.post("/ai/learning", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { organizedFacts, potentialClaims, court, caseId } = req.body as {
+    organizedFacts?: string;
+    potentialClaims?: Array<{ claim: string; supportingFacts: string[] }>;
+    court?: { name: string; level: string; state: string } | null;
+    caseId?: string;
+  };
+
+  if (!organizedFacts || !organizedFacts.trim()) { res.status(400).json({ error: "organizedFacts is required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  const cacheKey = computeCacheKey("learning", { organizedFacts: organizedFacts.slice(0, 1000), potentialClaims, court });
+  const cached = await getFromCache(userId, cacheKey);
+  if (cached) {
+    await logAiCall({ userId, feature: "learning", model: "cache", inputTokens: 0, outputTokens: 0, estimatedCostMicroUsd: 0, responseTimeMs: 0, cacheHit: true, caseId });
+    res.json({ ...(cached.result as object), fromCache: true, cachedAt: cached.createdAt.toISOString() });
+    return;
+  }
+
+  try {
+    const result = await aiService.buildLearning({
+      organizedFacts,
+      potentialClaims: potentialClaims ?? [],
+      court: court ?? null,
+    });
+    await setCache(userId, cacheKey, "learning", result.data);
+    await logAiCall({ userId, feature: "learning", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Learning index generation failed" });
+  }
+});
+
 export default router;

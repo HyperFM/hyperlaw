@@ -101,6 +101,44 @@ export interface TimelineSnapshot {
   savedAt: number; // Unix ms
 }
 
+// ─── Assembly ─────────────────────────────────────────────────────────────────
+
+export interface AssemblyPotentialClaim {
+  claim: string;
+  supportingFacts: string[];
+  missingFacts: string[];
+}
+
+export interface CaseAssembly {
+  organizedFacts: string;
+  draftComplaint: string;
+  potentialClaims: AssemblyPotentialClaim[];
+  assembledAt: number;
+}
+
+// ─── Learning Index ───────────────────────────────────────────────────────────
+
+export interface LearningAuthority {
+  type: "statute" | "case" | "constitution";
+  citation: string;
+  plainEnglish: string;
+  relevance: string;
+}
+
+// ─── Evidence ─────────────────────────────────────────────────────────────────
+
+export type EvidenceType = "photo" | "video" | "audio" | "medical" | "police" | "exhibit" | "other";
+
+export interface EvidenceItem {
+  id: string;
+  type: EvidenceType;
+  label: string;
+  notes: string;
+  fileName?: string;
+  docId?: string; // server document ID from /ai/upload
+  uploadedAt: number;
+}
+
 export interface HLCase {
   id: string;
   title: string;
@@ -118,6 +156,12 @@ export interface HLCase {
   timeline: TimelineEvent[];
   workflowStage: WorkflowStage;
   intakeChecklist: IntakeChecklistItem[];
+  // ── AI assembly & learning results ──────────────────────────────────────────
+  assembly?: CaseAssembly;
+  learningAuthorities?: LearningAuthority[];
+  learningGeneratedAt?: number;
+  // ── Evidence items ───────────────────────────────────────────────────────────
+  evidence?: EvidenceItem[];
   // ── Version history (optional — up to 10 snapshots each) ────────────────────
   storyHistory?: StorySnapshot[];
   timelineHistory?: TimelineSnapshot[];
@@ -185,6 +229,8 @@ export function getNextStep(c: HLCase, health: CaseHealth): { label: string; sta
   if (!health.court) return { label: "Select Court", stage: "court" };
   if (!health.story) return { label: "Tell Your Story", stage: "story" };
   if (!health.timeline) return { label: "Review Timeline", stage: "timeline" };
+  if (!c.assembly) return { label: "Assemble Case with AI", stage: "assembly" };
+  if (!c.learningAuthorities?.length) return { label: "Build Learning Index", stage: "learning" };
   return { label: "View Documents", stage: "documents" };
 }
 

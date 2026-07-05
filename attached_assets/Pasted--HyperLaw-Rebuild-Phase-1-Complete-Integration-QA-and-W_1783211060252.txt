@@ -1,0 +1,390 @@
+
+HyperLaw Rebuild — Phase 1: Complete Integration, QA, and Workflow Validation
+
+Objective: Before adding any new major features, make HyperLaw feel like one polished, unified application. Do not begin Phase 2 until every workflow is stable.
+
+1. Full Application Audit
+
+Perform a complete audit of the entire application.
+
+Test every workflow from beginning to end, including:
+
+* User registration and login
+* Subscription and billing
+* Case creation
+* Case editing
+* Case deletion
+* Parties workflow
+* Voice nickname assignment
+* Court selection
+* Tell Your Story (native device dictation)
+* Timeline Builder
+* Timeline editing
+* AI Timeline generation
+* Tutor conversations
+* Document uploads
+* Existing document generation
+* Reminder system
+* Notes
+* Saving and editing
+* Navigation between workflow stages
+* Returning to previous stages
+* Mobile and desktop layouts
+
+Fix every issue found before continuing.
+
+⸻
+
+2. Integrate the New Workflow
+
+The rebuild introduced new workflow screens.
+
+Integrate them naturally into the existing application.
+
+Do not simply add new pages.
+
+Instead:
+
+* Connect every stage together.
+* Preserve authentication.
+* Preserve billing.
+* Preserve user accounts.
+* Preserve AI services.
+* Preserve existing cases through safe migration.
+
+The workflow should feel like it has always been part of HyperLaw.
+
+⸻
+
+3. Simplify the Interface
+
+Every screen should have one clear purpose.
+
+No screen should overwhelm users with multiple unrelated tools.
+
+Workflow:
+
+Create Case
+
+↓
+
+Parties
+
+↓
+
+Court Selection
+
+↓
+
+Tell Your Story
+
+↓
+
+Timeline
+
+↓
+
+Case Review
+
+↓
+
+AI Assembly
+
+↓
+
+Learning Index
+
+↓
+
+Generate Documents
+
+↓
+
+Tutor
+
+↓
+
+Evidence
+
+Only show the tools relevant to the current stage.
+
+⸻
+
+4. Verify Data Flow
+
+The structured case file should become the single source of truth.
+
+Everything should read from and write back to the same structured case.
+
+Verify:
+
+* Parties flow into Timeline.
+* Timeline flows into AI Assembly.
+* AI Assembly updates the complaint.
+* Learning Index updates automatically.
+* Documents always pull from the latest structured data.
+* Tutor understands current case context without maintaining separate copies.
+
+Avoid duplicate storage or disconnected workflows.
+
+⸻
+
+5. Validate AI Responsibilities
+
+Every AI feature should have exactly one responsibility.
+
+Case Builder
+
+* Collect structured information.
+
+Timeline Builder
+
+* Organize events chronologically.
+
+AI Assembly
+
+* Draft legal documents from structured data.
+
+Learning Index
+
+* Research and explain legal authorities.
+
+Tutor
+
+* Conversation, organization, and guidance only.
+
+Prevent overlapping responsibilities.
+
+⸻
+
+6. Auto-Save and Version History
+
+Implement automatic saving after every meaningful change.
+
+Maintain version history for:
+
+* Story
+* Timeline
+* Complaint
+* AI Assembly
+
+Allow users to restore previous versions if needed.
+
+⸻
+
+7. Mobile Optimization
+
+Optimize specifically for mobile devices.
+
+Verify:
+
+* Native keyboard dictation works smoothly.
+* Keyboard never hides buttons.
+* Large touch targets.
+* Smooth animations.
+* Fast loading.
+* Resume exactly where the user left off.
+* Responsive layouts across supported devices.
+
+⸻
+
+8. Educational Learning Cards
+
+On every major workflow screen include a small:
+
+“Why does this matter?”
+
+button.
+
+These should explain:
+
+* Why identifying parties matters.
+* Why court selection matters.
+* Why chronology matters.
+* Why reviewing the timeline matters.
+
+Keep explanations short, educational, and separate from AI chat.
+
+⸻
+
+9. Performance and Stability
+
+Before Phase 2:
+
+* Zero TypeScript errors.
+* Zero console errors.
+* No broken routes.
+* No unnecessary API calls.
+* No crashes.
+* No memory leaks.
+* Fast navigation.
+* Reliable autosaving.
+* Graceful error handling throughout the application.
+
+Only begin Phase 2 after the application passes all testing.
+
+⸻
+
+HyperLaw Rebuild — Phase 2: Complete the Core Platform
+
+Once Phase 1 is complete, begin implementing the remaining core capabilities.
+
+⸻
+
+1. AI Assembly
+
+Complete the AI Assembly engine.
+
+Input:
+
+* Parties
+* Court
+* Timeline
+* Story
+* Evidence
+
+Output:
+
+* Organized facts
+* Draft complaint
+* Potential legal claims (clearly labeled as AI-generated suggestions, not legal conclusions)
+* Supporting facts linked to each claim
+* Identification of missing factual information without inventing facts
+
+The AI must never fabricate facts.
+
+⸻
+
+2. Learning Index
+
+Build a read-only Learning Index.
+
+Automatically organize:
+
+* Applicable statutes
+* Constitutional provisions (where applicable)
+* Relevant precedent
+* Plain-English explanations
+* How each authority may relate to the user’s facts
+
+Regenerate automatically whenever the case changes.
+
+This is a research tool, not a chat.
+
+⸻
+
+3. Case Review Screen
+
+Before document generation, present a comprehensive review page.
+
+Display:
+
+* Parties
+* Court
+* Timeline
+* Facts
+* Attached evidence
+* AI-generated potential claims (clearly labeled as suggestions)
+* Missing information
+
+Allow users to edit anything before generating documents.
+
+⸻
+
+4. Upload Shortcut
+
+If a completed complaint or legal filing is uploaded:
+
+Automatically:
+
+* Extract parties
+* Detect court
+* Build timeline
+* Populate the structured case file
+* Generate Learning Index
+
+Skip manual intake whenever sufficient information already exists.
+
+⸻
+
+5. Intake Checklist
+
+Replace conversational intake with a structured checklist.
+
+Examples:
+
+* Witnesses
+* Photos
+* Videos
+* Audio
+* Medical Records
+* Police Reports
+* Body Camera Footage
+* Property Damage
+* Financial Loss
+* Emotional Harm
+* Filing Deadlines
+
+Each item opens its own focused form and can be completed later.
+
+⸻
+
+6. Evidence Modules
+
+Keep evidence management outside the primary workflow.
+
+Examples:
+
+* Videos
+* Photos
+* Audio
+* Medical Records
+* Police Reports
+* Exhibits
+
+These remain optional organizational tools.
+
+⸻
+
+7. Continue Your Case Dashboard
+
+Expand the Home screen.
+
+Display:
+
+* Progress indicator
+* Current workflow stage
+* Next recommended action
+* Case Health checklist
+* Most recently edited case
+
+Users should always know what to do next.
+
+⸻
+
+8. Voice Reference System Refinement
+
+Continue improving the voice reference system.
+
+* Automatically assign simple voice-friendly nicknames such as Pickle, Fish, Peanut, Apple, Monster, Rocket, Tiger, Lemon, Cookie, Pumpkin, etc.
+* Allow users to replace the nickname with another simple word.
+* Encourage distinct words that improve speech recognition.
+* During dictation, users speak only the nickname.
+* AI automatically maps nicknames back to the correct legal names before analysis.
+* Generated legal documents must always use the person’s real legal name or Doe placeholder—never the nickname.
+
+⸻
+
+9. Final Product Goal
+
+HyperLaw should function as a guided legal workspace—not just a chatbot or document generator.
+
+Its purpose is to:
+
+* Reduce cognitive load.
+* Help users organize complex legal matters.
+* Teach users procedural concepts in plain English.
+* Produce structured, editable work product from the user’s own information.
+* Keep every feature connected through a single structured case file.
+
+Success Criteria: A first-time user should be able to create a case, identify the parties, select the court, tell their story using native dictation and voice-friendly nicknames, review an AI-generated timeline, review the assembled case, understand the legal research through the Learning Index, and generate editable documents—all without feeling overwhelmed or losing track of what comes next.

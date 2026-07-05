@@ -2672,7 +2672,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 
   function renderIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={85} />;
+    if (item.id === "tutor")   return <IndexIcon   size={55} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={28} />;
   }

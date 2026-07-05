@@ -2670,12 +2670,11 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
     onChange(id);
   }
 
-  const ICON = 28;
   function renderIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon  size={ICON} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={ICON} />;
-    if (item.id === "profile") return <ProfileIcon size={ICON} />;
-    return <item.icon size={ICON} />;
+    if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon   size={34} />;
+    if (item.id === "profile") return <ProfileIcon size={28} />;
+    return <item.icon size={28} />;
   }
 
   return (
@@ -2690,7 +2689,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {left.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ width: ICON, height: ICON, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
@@ -2698,7 +2697,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {right.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ width: ICON, height: ICON, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}

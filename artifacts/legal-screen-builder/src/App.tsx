@@ -2656,7 +2656,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
   }
 
   function renderIcon(item: NavItem) {
-    if (item.id === "home") return <BarrelIcon size={26} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "home") return <BarrelIcon size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
     const Icon = item.icon;
     return <Icon size={22} />;
   }
@@ -2711,7 +2711,7 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
       {NAV_ITEMS.map(item => {
         const isActive = active === item.id;
         const iconEl = item.id === "home"
-          ? <BarrelIcon size={20} caseCount={caseCount} spinKey={barrelSpinKey} />
+          ? <BarrelIcon size={32} caseCount={caseCount} spinKey={barrelSpinKey} />
           : (() => { const Icon = item.icon; return <Icon size={18} />; })();
         return (
           <button key={item.id} onClick={() => handleItemClick(item.id)}

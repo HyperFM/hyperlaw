@@ -2629,65 +2629,10 @@ function IndexIcon({ size = 40 }: { size?: number }) {
   );
 }
 
-/** Profile tab — briefcase PNG with an orange oval arm waving from upper-right */
-function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: number }) {
-  const [waving, setWaving] = useState(false);
-  const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (waveKey === 0) return;
-    setWaving(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setWaving(false), 950);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [waveKey]);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-
+function ProfileIcon({ size = 40 }: { size?: number }) {
   return (
-    <>
-      <style>{`
-        @keyframes hl-hand-wave {
-          0%   { transform: rotate(12deg); }
-          20%  { transform: rotate(44deg); }
-          48%  { transform: rotate(0deg);  }
-          70%  { transform: rotate(38deg); }
-          88%  { transform: rotate(8deg);  }
-          100% { transform: rotate(12deg); }
-        }
-        .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
-      `}</style>
-      {/*
-        Outer wrapper is overflow:visible so the arm can extend outside
-        the icon bounds without being clipped.
-        The arm div is rendered FIRST (behind), PNG rendered SECOND (on top).
-        No z-index needed — natural paint order puts PNG over arm.
-        Arm base lands at ~40 % from top, which is where the briefcase
-        top-right edge sits in the PNG, so it masks the arm root perfectly.
-      */}
-      <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0, overflow: "visible" }}>
-        <div
-          className={waving ? "hl-hand-waving" : undefined}
-          style={{
-            position:        "absolute",
-            left:            "58%",   /* arm left edge;  center X = 58+15 = 73 % */
-            top:             "2%",    /* arm top;        visible above briefcase  */
-            width:           "30%",   /* arm width                                */
-            height:          "38%",   /* arm height; bottom = 2+38 = 40 %        */
-            transform:       "rotate(12deg)",
-            transformOrigin: "50% 100%",  /* pivot at the base — the shoulder   */
-          }}
-        >
-          <svg viewBox="0 0 10 18" width="100%" height="100%">
-            <ellipse cx="5" cy="9" rx="4.8" ry="8.6" fill={ORANGE} />
-          </svg>
-        </div>
-        <img src="/profile-briefcase.png" alt="" draggable={false}
-          style={{ width: size, height: size, position: "relative", pointerEvents: "none", userSelect: "none", display: "block" }} />
-      </div>
-    </>
+    <img src="/profile-icon.jpeg" alt="" draggable={false}
+      style={{ width: size, height: size, display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0 }} />
   );
 }
 
@@ -2717,20 +2662,18 @@ const NAV_ITEMS: NavItem[] = [
 
 function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
   const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
-  const [profileWaveKey, setProfileWaveKey] = useState(0);
   const left  = [NAV_ITEMS[0], NAV_ITEMS[1]];
   const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
 
   function handleItemClick(id: NavTab) {
-    if (id === "home")    setBarrelSpinKey(k => k + 1);
-    if (id === "profile") setProfileWaveKey(k => k + 1);
+    if (id === "home") setBarrelSpinKey(k => k + 1);
     onChange(id);
   }
 
   function renderIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon   size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon    size={40} />;
-    if (item.id === "profile") return <ProfileIcon  size={40} waveKey={profileWaveKey} />;
+    if (item.id === "home")    return <BarrelIcon  size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon   size={40} />;
+    if (item.id === "profile") return <ProfileIcon size={40} />;
     return <item.icon size={22} />;
   }
 
@@ -2765,18 +2708,15 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 
 function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
   const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
-  const [profileWaveKey, setProfileWaveKey] = useState(0);
-
   function handleItemClick(id: NavTab) {
-    if (id === "home")    setBarrelSpinKey(k => k + 1);
-    if (id === "profile") setProfileWaveKey(k => k + 1);
+    if (id === "home") setBarrelSpinKey(k => k + 1);
     onChange(id);
   }
 
   function renderSideIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
     if (item.id === "tutor")   return <IndexIcon   size={28} />;
-    if (item.id === "profile") return <ProfileIcon size={28} waveKey={profileWaveKey} />;
+    if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={18} />;
   }
 

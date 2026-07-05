@@ -713,28 +713,17 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
 }
 
 // ─── INCIDENT DETAIL VIEW ─────────────────────────────────────────────────────
-function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCase, onAddToCase, onOpenInTutor, onBack }: {
+function IncidentDetailView({ incident, cases, onDelete, onConvertToCase, onAddToCase, onOpenInTutor, onBack }: {
   incident: Incident; cases: HLCase[];
-  onUpdate: (i: Incident) => void; onDelete: (id: string) => void;
+  onDelete: (id: string) => void;
   onConvertToCase: (i: Incident) => void; onAddToCase: (incidentId: string, caseId: string) => void;
   onOpenInTutor: (i: Incident) => void; onBack: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(incident.title);
-  const [editDesc, setEditDesc] = useState(incident.description);
-  const [editDate, setEditDate] = useState(incident.dateOfEvent);
-  const [editLocation, setEditLocation] = useState(incident.location);
-  const [editCategory, setEditCategory] = useState<IncidentCategory>(incident.category);
   const [showCasePicker, setShowCasePicker] = useState(false);
   const [showDocConfirm, setShowDocConfirm] = useState(false);
   const [pendingExport, setPendingExport] = useState<(() => void) | null>(null);
   const linkedCase = cases.find(c => c.id === incident.caseId);
   const availableCases = cases.filter(c => c.id !== incident.caseId);
-
-  function saveEdit() {
-    onUpdate({ ...incident, title: editTitle.trim() || incident.title, description: editDesc, dateOfEvent: editDate, location: editLocation.trim(), category: editCategory });
-    setEditing(false);
-  }
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -743,92 +732,55 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Back</span>
         </button>
         <div style={{ flex: 1 }} />
-        {!editing ? (
-          <>
-            <button onClick={() => { setPendingExport(() => () => exportIncidentPDF(incident).catch(() => {})); setShowDocConfirm(true); }} title="Export PDF"
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
-            <button onClick={() => { setEditTitle(incident.title); setEditDesc(incident.description); setEditDate(incident.dateOfEvent); setEditLocation(incident.location); setEditCategory(incident.category); setEditing(true); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Edit3 size={16} /></button>
-            <div style={{ width: 1, height: 18, background: "#2a2a2a", flexShrink: 0 }} />
-            <ConfirmDeleteButton onDelete={() => onDelete(incident.id)} iconSize={15} title="Delete incident" />
-          </>
-        ) : (
-          <>
-            <TapBtn variant="dim" onClick={() => setEditing(false)} style={{ padding: "8px 12px", fontSize: 12 }}>Cancel</TapBtn>
-            <TapBtn variant="orange" onClick={saveEdit} style={{ padding: "8px 12px", fontSize: 12 }}>Save</TapBtn>
-          </>
-        )}
+        <button onClick={() => { setPendingExport(() => () => exportIncidentPDF(incident).catch(() => {})); setShowDocConfirm(true); }} title="Export PDF"
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
+        <div style={{ width: 1, height: 18, background: "#2a2a2a", flexShrink: 0 }} />
+        <ConfirmDeleteButton onDelete={() => onDelete(incident.id)} iconSize={15} title="Delete incident" />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
-        {editing ? (
-          <>
-            {/* Category picker */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-              {(["employment", "police", "court", "other"] as IncidentCategory[]).map(cat => (
-                <button key={cat} onClick={() => setEditCategory(cat)}
-                  style={{ background: editCategory === cat ? `${CATEGORY_COLORS[cat]}22` : "#111", border: `1px solid ${editCategory === cat ? CATEGORY_COLORS[cat] : "#2a2a2a"}`, borderRadius: 10, padding: "9px 12px", color: editCategory === cat ? "#fff" : "#555", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                  {CATEGORY_LABELS[cat]}
-                </button>
-              ))}
+        {/* Category + metadata */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <div style={{ background: `${CATEGORY_COLORS[incident.category]}22`, border: `1px solid ${CATEGORY_COLORS[incident.category]}55`, borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700, color: CATEGORY_COLORS[incident.category] }}>
+            {CATEGORY_LABELS[incident.category]}
+          </div>
+          {incident.dateOfEvent && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#555", fontSize: 12 }}>
+              <Calendar size={11} color="#555" /> {formatEventDate(incident.dateOfEvent)}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-              <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                style={{ background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 13, outline: "none", colorScheme: "dark", width: "100%", boxSizing: "border-box" }} />
-              <input value={editLocation} onChange={e => setEditLocation(e.target.value)} placeholder="Location"
-                style={{ background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" }} />
+          )}
+          {incident.location && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#555", fontSize: 12 }}>
+              <MapPin size={11} color="#555" /> {incident.location}
             </div>
-            <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
-              style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 18, fontWeight: 800, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
-            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={14}
-              style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "14px", color: "#fff", fontSize: 15, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.75 }} />
-          </>
-        ) : (
-          <>
-            {/* Category + metadata */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-              <div style={{ background: `${CATEGORY_COLORS[incident.category]}22`, border: `1px solid ${CATEGORY_COLORS[incident.category]}55`, borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700, color: CATEGORY_COLORS[incident.category] }}>
-                {CATEGORY_LABELS[incident.category]}
-              </div>
-              {incident.dateOfEvent && (
-                <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#555", fontSize: 12 }}>
-                  <Calendar size={11} color="#555" /> {formatEventDate(incident.dateOfEvent)}
-                </div>
-              )}
-              {incident.location && (
-                <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#555", fontSize: 12 }}>
-                  <MapPin size={11} color="#555" /> {incident.location}
-                </div>
-              )}
-            </div>
+          )}
+        </div>
 
-            <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 6, letterSpacing: -0.3, lineHeight: 1.2 }}>{incident.title}</div>
-            <div style={{ color: "#444", fontSize: 13, marginBottom: 28, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Clock size={11} color="#444" /> Added {formatDate(incident.createdAt)}
-              {linkedCase && <><span style={{ color: "#2a2a2a" }}>·</span><span style={{ color: ORANGE }}>In: {linkedCase.title}</span></>}
-            </div>
-            <div style={{ fontSize: 16, lineHeight: 1.85, color: "#ccc", fontFamily: "Georgia, serif", whiteSpace: "pre-wrap" }}>{incident.description}</div>
+        <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 6, letterSpacing: -0.3, lineHeight: 1.2 }}>{incident.title}</div>
+        <div style={{ color: "#444", fontSize: 13, marginBottom: 28, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Clock size={11} color="#444" /> Added {formatDate(incident.createdAt)}
+          {linkedCase && <><span style={{ color: "#2a2a2a" }}>·</span><span style={{ color: ORANGE }}>In: {linkedCase.title}</span></>}
+        </div>
+        <div style={{ fontSize: 16, lineHeight: 1.85, color: "#ccc", fontFamily: "Georgia, serif", whiteSpace: "pre-wrap" }}>{incident.description}</div>
 
-            <div style={{ marginTop: 40, borderTop: "1px solid #1a1a1a", paddingTop: 24 }}>
-              <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>ACTIONS</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <TapBtn variant="orange" onClick={() => onOpenInTutor(incident)} style={{ justifyContent: "center" }}>
-                  <GraduationCap size={16} /> Open in Tutor
-                </TapBtn>
-                {!incident.caseId && (
-                  <TapBtn variant="ghost" onClick={() => onConvertToCase(incident)} style={{ justifyContent: "center" }}>
-                    <Folder size={16} /> Convert to New Case
-                  </TapBtn>
-                )}
-                {availableCases.length > 0 && (
-                  <TapBtn variant="ghost" onClick={() => setShowCasePicker(true)} style={{ justifyContent: "center" }}>
-                    <Plus size={16} /> Add to Existing Case
-                  </TapBtn>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+        <div style={{ marginTop: 40, borderTop: "1px solid #1a1a1a", paddingTop: 24 }}>
+          <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>ACTIONS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <TapBtn variant="orange" onClick={() => onOpenInTutor(incident)} style={{ justifyContent: "center" }}>
+              <GraduationCap size={16} /> Open in Tutor
+            </TapBtn>
+            {!incident.caseId && (
+              <TapBtn variant="ghost" onClick={() => onConvertToCase(incident)} style={{ justifyContent: "center" }}>
+                <Folder size={16} /> Convert to New Case
+              </TapBtn>
+            )}
+            {availableCases.length > 0 && (
+              <TapBtn variant="ghost" onClick={() => setShowCasePicker(true)} style={{ justifyContent: "center" }}>
+                <Plus size={16} /> Add to Existing Case
+              </TapBtn>
+            )}
+          </div>
+        </div>
       </div>
 
       {showCasePicker && (
@@ -3040,7 +2992,6 @@ export default function App() {
         <IncidentDetailView
           incident={incident}
           cases={data.cases}
-          onUpdate={i => setData(updateIncident(data, i))}
           onDelete={id => { setData(deleteIncident(data, id)); setNavTab("home"); setView({ type: "home" }); }}
           onConvertToCase={handleConvertToCase}
           onAddToCase={(incidentId, caseId) => setData(addIncidentToCase(data, incidentId, caseId))}
@@ -3115,11 +3066,13 @@ export default function App() {
   }
 
   return (
-    <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {/* Notification bell — fixed top-right */}
-      <div style={{ position: "fixed", top: 8, right: 8, zIndex: 300 }}>
-        <NotificationBell onOpenChat={sid => setChatSessionId(sid)} />
-      </div>
+    <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
+      {/* Notification bell — fixed top-right (hidden on Tutor tab) */}
+      {navTab !== "tutor" && (
+        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300 }}>
+          <NotificationBell onOpenChat={sid => setChatSessionId(sid)} />
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
@@ -3138,16 +3091,18 @@ export default function App() {
         </div>
       </div>
 
-      {/* Persistent footer */}
-      <div style={{
-        flexShrink: 0, padding: "4px 16px",
-        background: "#050505", borderTop: "1px solid #0e0e0e",
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <span style={{ fontSize: 9, color: "#252525", letterSpacing: "0.03em", textAlign: "center" }}>
-          HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · {COMPLIANCE.FOOTER_TAGLINE}
-        </span>
-      </div>
+      {/* Persistent footer — desktop only; on mobile the bottom nav fills this role */}
+      {!isMobile && (
+        <div style={{
+          flexShrink: 0, padding: "4px 16px",
+          background: "#050505", borderTop: "1px solid #0e0e0e",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <span style={{ fontSize: 9, color: "#252525", letterSpacing: "0.03em", textAlign: "center" }}>
+            HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · {COMPLIANCE.FOOTER_TAGLINE}
+          </span>
+        </div>
+      )}
 
       {isMobile && (
         <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} />

@@ -2670,35 +2670,36 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
     onChange(id);
   }
 
+  const ICON = 28;
   function renderIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon  size={40} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={40} />;
-    if (item.id === "profile") return <ProfileIcon size={40} />;
-    return <item.icon size={22} />;
+    if (item.id === "home")    return <BarrelIcon  size={ICON} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tutor")   return <IndexIcon   size={ICON} />;
+    if (item.id === "profile") return <ProfileIcon size={ICON} />;
+    return <item.icon size={ICON} />;
   }
 
   return (
     <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -26, zIndex: 10 }}>
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -22, zIndex: 10 }}>
         <button onClick={onFab}
-          style={{ width: 54, height: 54, borderRadius: 27, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-          <Plus size={26} color="#000" />
+          style={{ width: 46, height: 46, borderRadius: 23, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+          <Plus size={22} color="#000" />
         </button>
       </div>
       <div style={{ display: "flex" }}>
         {left.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+            <div style={{ width: ICON, height: ICON, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
         <div style={{ flex: 1 }} />
         {right.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+            <div style={{ width: ICON, height: ICON, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
       </div>

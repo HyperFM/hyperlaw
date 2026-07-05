@@ -2230,39 +2230,49 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   const [deleteProgress, setDeleteProgress] = useState(0);
   const deleteRafRef = useRef<number | null>(null);
   const deleteHoldStartRef = useRef<number | null>(null);
+  const isHoldingRef = useRef(false); // ref-driven so RAF/cancel never hit stale closures
   const DELETE_HOLD_MS = 5000;
 
   function handleDeleteScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 30) setScrolledToBottom(true);
   }
+
   function startDeleteHold(e: React.PointerEvent) {
-    if (deletePhase !== "ready") return;
+    if (isHoldingRef.current) return;
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    isHoldingRef.current = true;
     setDeletePhase("holding");
     setDeleteProgress(0);
     deleteHoldStartRef.current = performance.now();
     function tick(now: number) {
+      if (!isHoldingRef.current) return; // lifted — stop immediately
       const elapsed = now - (deleteHoldStartRef.current ?? now);
       const p = Math.min(1, elapsed / DELETE_HOLD_MS);
       setDeleteProgress(p);
-      if (p >= 1) { setDeletePhase("done"); return; }
+      if (p >= 1) {
+        isHoldingRef.current = false;
+        setDeletePhase("done");
+        return;
+      }
       deleteRafRef.current = requestAnimationFrame(tick);
     }
     deleteRafRef.current = requestAnimationFrame(tick);
   }
+
   function cancelDeleteHold(e: React.PointerEvent) {
-    if (deletePhase !== "holding") return;
+    if (!isHoldingRef.current) return;
+    isHoldingRef.current = false;
     if (deleteRafRef.current) { cancelAnimationFrame(deleteRafRef.current); deleteRafRef.current = null; }
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
     deleteHoldStartRef.current = null;
     setDeleteProgress(0);
     setDeletePhase("ready");
   }
+
   useEffect(() => {
     if (deletePhase !== "done") return;
-    if (deleteRafRef.current) { cancelAnimationFrame(deleteRafRef.current); deleteRafRef.current = null; }
     const t = setTimeout(async () => {
       try {
         await aiApi.deleteUserData().catch(() => {});

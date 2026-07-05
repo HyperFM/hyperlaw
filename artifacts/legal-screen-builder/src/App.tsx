@@ -2625,7 +2625,7 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 function IndexIcon({ size = 40 }: { size?: number }) {
   return (
     <img src="/index-cloud.png" alt="" draggable={false}
-      style={{ width: size, height: "auto", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0, transform: "translateY(3px)" }} />
+      style={{ width: size, height: "auto", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0, transform: "translateY(3px)", maxWidth: "none" }} />
   );
 }
 

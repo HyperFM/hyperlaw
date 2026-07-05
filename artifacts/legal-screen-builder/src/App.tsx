@@ -2625,7 +2625,11 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 function IndexIcon({ size = 40 }: { size?: number }) {
   return (
     <img src="/index-cloud.png" alt="" draggable={false}
-      style={{ width: size, height: size, display: "block", pointerEvents: "none", userSelect: "none" }} />
+      style={{
+        width: size * 1.13, height: size * 1.13,
+        display: "block", pointerEvents: "none", userSelect: "none",
+        transform: "translate(-4px, 4px)",
+      }} />
   );
 }
 
@@ -2650,33 +2654,34 @@ function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: numb
     <>
       <style>{`
         @keyframes hl-hand-wave {
-          0%   { transform: rotate(0deg); }
-          18%  { transform: rotate(-32deg); }
-          45%  { transform: rotate(28deg); }
-          68%  { transform: rotate(-18deg); }
-          85%  { transform: rotate(12deg); }
-          100% { transform: rotate(0deg); }
+          0%   { transform: rotate(22deg); }
+          22%  { transform: rotate(52deg); }
+          50%  { transform: rotate(10deg); }
+          72%  { transform: rotate(46deg); }
+          90%  { transform: rotate(18deg); }
+          100% { transform: rotate(22deg); }
         }
         .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
       `}</style>
       <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
-        {/* Orange fingerless nub — z-index 0 so it sits behind the PNG */}
+        {/* Orange fingerless nub — behind the PNG, peeking from lower-left of briefcase */}
         <div
           className={waving ? "hl-hand-waving" : undefined}
           style={{
             position: "absolute",
-            /* peek from the left side of the briefcase */
-            left:   "30%",
-            bottom: "14%",
-            width:  "20%",
-            height: "36%",
-            transformOrigin: "50% 100%",   /* pivot at the wrist */
+            left:   "22%",   /* left of the briefcase edge */
+            bottom: "10%",   /* near the base */
+            width:  "22%",
+            height: "40%",
+            transform: "rotate(22deg)",          /* resting tilt — angled outward */
+            transformOrigin: "50% 100%",         /* pivot at the wrist / bottom */
             zIndex: 0,
           }}
         >
-          <svg viewBox="0 0 10 18" width="100%" height="100%">
-            <rect x="1" y="6" width="8" height="11" rx="4" fill={ORANGE} />
-            <ellipse cx="5" cy="6" rx="4" ry="4" fill={ORANGE} />
+          <svg viewBox="0 0 10 20" width="100%" height="100%">
+            {/* Rounded fingerless nub */}
+            <rect x="1.5" y="7" width="7" height="12" rx="3.5" fill={ORANGE} />
+            <ellipse cx="5" cy="7" rx="3.5" ry="3.5" fill={ORANGE} />
           </svg>
         </div>
         {/* Briefcase + person PNG on top */}

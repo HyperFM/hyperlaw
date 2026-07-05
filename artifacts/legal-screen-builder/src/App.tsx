@@ -2672,32 +2672,32 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 
   function renderIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={65} />;
+    if (item.id === "tutor")   return <IndexIcon   size={150} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={28} />;
   }
 
   return (
-    <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
+    <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative", overflow: "visible" }}>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -22, zIndex: 10 }}>
         <button onClick={onFab}
           style={{ width: 46, height: 46, borderRadius: 23, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
           <Plus size={22} color="#000" />
         </button>
       </div>
-      <div style={{ display: "flex" }}>
+      <div style={{ display: "flex", overflow: "visible" }}>
         {left.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", overflow: "visible" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
         <div style={{ flex: 1 }} />
         {right.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", overflow: "visible" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
@@ -3167,7 +3167,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
+    <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "visible", paddingTop: "env(safe-area-inset-top)" }}>
       {/* Notification bell — fixed top-right (hidden on Tutor tab) */}
       {navTab !== "tutor" && (
         <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300 }}>
@@ -3175,7 +3175,7 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "visible" }}>
         {!isMobile && (
           <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
         )}

@@ -2625,7 +2625,7 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 function IndexIcon({ size = 40 }: { size?: number }) {
   return (
     <img src="/index-cloud.png" alt="" draggable={false}
-      style={{ width: size, height: "auto", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0 }} />
+      style={{ width: size, height: "auto", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0, transform: "translateY(3px)" }} />
   );
 }
 
@@ -2672,7 +2672,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 
   function renderIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tutor")   return <IndexIcon   size={34} />;
+    if (item.id === "tutor")   return <IndexIcon   size={38} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={28} />;
   }

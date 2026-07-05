@@ -39,7 +39,7 @@ import { AssemblyView } from "./pages/workflow/AssemblyView";
 import { LearningIndexView } from "./pages/workflow/LearningIndexView";
 import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
 
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -853,9 +853,10 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
 }
 
 // ─── CASES VIEW ───────────────────────────────────────────────────────────────
-function CasesView({ data, onOpenCase }: {
+function CasesView({ data, onOpenCase, onDeleteCase }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
+  onDeleteCase: (id: string) => void;
 }) {
   const sorted = [...data.cases].sort((a, b) => b.createdAt - a.createdAt);
 
@@ -874,43 +875,55 @@ function CasesView({ data, onOpenCase }: {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
       <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>ALL CASES</div>
-      {/* Free-case quota indicator so users aren't surprised by the paywall */}
+      {/* Free-case quota indicator */}
       <div style={{ marginBottom: 16, fontSize: 11, display: "flex", alignItems: "center", gap: 5,
         color: sorted.length >= 2 ? "#f59e0b" : "#555" }}>
         {sorted.length >= 2 && <AlertCircle size={11} />}
         {sorted.length} / 2 free case{sorted.length !== 1 ? "s" : ""} used
-        {sorted.length >= 2 && " — additional cases require 1 credit"}
+        {sorted.length >= 2 && " — upgrade to a plan for unlimited cases"}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sorted.map(c => {
           const incidents = data.incidents.filter(i => c.incidentIds.includes(i.id));
           const categories = [...new Set(incidents.map(i => i.category))];
           return (
-            <button key={c.id} onClick={() => onOpenCase(c)}
-              style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "18px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", gap: 14 }}
+            <div key={c.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, display: "flex", overflow: "hidden" }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-              <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 800, fontSize: 16 }}>{c.title}</span>
-                  <span style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, color: STATUS_COLORS[c.status] }}>
-                    {STATUS_LABELS[c.status]}
-                  </span>
-                </div>
-                <div style={{ color: "#555", fontSize: 13, marginBottom: 8 }}>
-                  {incidents.length} incident{incidents.length !== 1 ? "s" : ""} · {formatDate(c.createdAt)}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {categories.map(cat => (
-                    <span key={cat} style={{ background: `${CATEGORY_COLORS[cat]}18`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: CATEGORY_COLORS[cat] }}>
-                      {CATEGORY_LABELS[cat]}
+              {/* Main tap area — opens case */}
+              <button onClick={() => onOpenCase(c)}
+                style={{ flex: 1, background: "none", border: "none", padding: "18px 16px", textAlign: "left", cursor: "pointer", display: "flex", gap: 14, minWidth: 0 }}>
+                <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>{c.title}</span>
+                    <span style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, color: STATUS_COLORS[c.status] }}>
+                      {STATUS_LABELS[c.status]}
                     </span>
-                  ))}
+                  </div>
+                  <div style={{ color: "#555", fontSize: 13, marginBottom: 8 }}>
+                    {incidents.length} incident{incidents.length !== 1 ? "s" : ""} · {formatDate(c.createdAt)}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {categories.map(cat => (
+                      <span key={cat} style={{ background: `${CATEGORY_COLORS[cat]}18`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: CATEGORY_COLORS[cat] }}>
+                        {CATEGORY_LABELS[cat]}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
-            </button>
+                <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
+              </button>
+              {/* Delete button */}
+              <button
+                onClick={e => { e.stopPropagation(); if (window.confirm(`Delete "${c.title}"? This cannot be undone.`)) onDeleteCase(c.id); }}
+                title="Delete case"
+                style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", cursor: "pointer", padding: "0 18px", color: "#3a3a3a", flexShrink: 0, display: "flex", alignItems: "center", transition: "color 0.15s" }}
+                onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                onMouseLeave={e => (e.currentTarget.style.color = "#3a3a3a")}>
+                <Trash2 size={15} />
+              </button>
+            </div>
           );
         })}
       </div>
@@ -2725,6 +2738,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
   const [showCreditShop, setShowCreditShop] = useState(false);
+  const [showUpgradeGate, setShowUpgradeGate] = useState(false);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
   function setData(d: AppData) { setDataRaw(d); saveData(d); }
@@ -2791,8 +2805,8 @@ export default function App() {
   }
 
   function handleCreateNewCase() {
-    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
-      setShowCreditShop(true);
+    if (data.cases.length >= 2) {
+      setShowUpgradeGate(true);
       return;
     }
     const newCase: HLCase = {
@@ -2829,8 +2843,8 @@ export default function App() {
 
   function handleConvertToCase(incident: Incident) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
-      setShowCreditShop(true);
+    if (data.cases.length >= 2) {
+      setShowUpgradeGate(true);
       return;
     }
     const hlCase: HLCase = {
@@ -2857,8 +2871,8 @@ export default function App() {
 
   async function handleUploadForNewCase(file: File) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 2 && (creditBalance ?? 0) < 1) {
-      setShowCreditShop(true);
+    if (data.cases.length >= 2) {
+      setShowUpgradeGate(true);
       return;
     }
     setNewCaseUploading(true);
@@ -3097,7 +3111,7 @@ export default function App() {
     }
 
     if (navTab === "cases") {
-      return <CasesView data={data} onOpenCase={handleOpenCase} />;
+      return <CasesView data={data} onOpenCase={handleOpenCase} onDeleteCase={id => { setData(deleteCase(data, id)); setView({ type: "home" }); }} />;
     }
 
     return (
@@ -3167,6 +3181,42 @@ export default function App() {
           onClose={() => setShowCreditShop(false)}
           onPurchaseStarted={() => setShowCreditShop(false)}
         />
+      )}
+
+      {/* Upgrade gate — shown when free 2-case limit is hit */}
+      {showUpgradeGate && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 500, display: "flex", alignItems: "flex-end" }}
+          onClick={() => setShowUpgradeGate(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "28px 24px calc(28px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+            <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 24px" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: `${ORANGE}18`, border: `1px solid ${ORANGE}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertCircle size={20} color={ORANGE} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 2 }}>Free Plan Limit Reached</div>
+                <div style={{ color: "#555", fontSize: 13 }}>You've used both free cases</div>
+              </div>
+            </div>
+            <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
+              The free plan includes <strong style={{ color: "#ccc" }}>2 cases</strong>. Upgrade to Basic, Pro, or Apex for unlimited cases, priority AI processing, and advanced document generation.
+            </p>
+            <p style={{ color: "#555", fontSize: 12, lineHeight: 1.5, margin: "0 0 24px" }}>
+              💡 <strong style={{ color: "#666" }}>Tip:</strong> You can also delete an existing case to free up a slot.
+            </p>
+            <button
+              onClick={() => { setShowUpgradeGate(false); setNavTab("profile"); setView({ type: "home" }); }}
+              style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
+              View Plans &amp; Upgrade
+            </button>
+            <button
+              onClick={() => setShowUpgradeGate(false)}
+              style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>
+              Not Now
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Checkout success toast */}

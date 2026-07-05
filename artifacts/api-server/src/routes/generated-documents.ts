@@ -8,7 +8,7 @@ import { getClerkUserEmail } from "./feedback.js";
 
 const router = Router();
 
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 // ── Server-side paywall helper ────────────────────────────────────────────────
 // Preview docs are stored with full content but must NEVER be sent in full to

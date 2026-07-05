@@ -17,7 +17,7 @@ import { getClerkUserEmail } from "./feedback.js";
 
 const router = Router();
 
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 /** Returns userId if the requester is the admin; otherwise writes 401/403 and returns null. */
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {

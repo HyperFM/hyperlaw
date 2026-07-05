@@ -4,7 +4,7 @@ import { db, feedbackTable, notificationsTable } from "@workspace/db";
 
 const router = Router();
 
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 export async function getClerkUserEmail(userId: string): Promise<{ email: string; name: string } | null> {
   const secretKey = process.env.CLERK_SECRET_KEY;

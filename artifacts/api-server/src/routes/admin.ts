@@ -5,7 +5,7 @@ import { eq, desc, asc, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback";
 
 const router = Router();
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {
   const auth = getAuth(req);

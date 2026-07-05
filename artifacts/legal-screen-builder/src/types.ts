@@ -89,6 +89,18 @@ export interface IntakeChecklistItem {
 
 export type CaseStatus = "open" | "in_progress" | "closed";
 
+// ─── Version history ──────────────────────────────────────────────────────────
+
+export interface StorySnapshot {
+  snapshot: string;
+  savedAt: number; // Unix ms
+}
+
+export interface TimelineSnapshot {
+  snapshot: TimelineEvent[];
+  savedAt: number; // Unix ms
+}
+
 export interface HLCase {
   id: string;
   title: string;
@@ -106,6 +118,9 @@ export interface HLCase {
   timeline: TimelineEvent[];
   workflowStage: WorkflowStage;
   intakeChecklist: IntakeChecklistItem[];
+  // ── Version history (optional — up to 10 snapshots each) ────────────────────
+  storyHistory?: StorySnapshot[];
+  timelineHistory?: TimelineSnapshot[];
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────

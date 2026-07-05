@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { HLCase, Party, PartyType } from "../../types";
 import { assignNickname } from "../../lib/nicknames";
+import { WorkflowStepper } from "../../components/WorkflowStepper";
+import { WhyThisMatters } from "../../components/WhyThisMatters";
 import { ChevronRight, Plus, Trash2, User, Shield, Edit2, Check, X } from "lucide-react";
 
 const ORANGE = "#f45d01";
@@ -120,91 +122,114 @@ export function PartiesView({ hlCase, onUpdate, onNext, onBack }: Props) {
   }
 
   const hasDoe = hlCase.parties.some(isDoe);
+  const showContinue = !showForm && editingId === null && hlCase.parties.length > 0;
+  const showSkip = !showForm && editingId === null && hlCase.parties.length === 0;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", background: BG, color: PAPER }}>
-      <div style={{ maxWidth: 540, margin: "0 auto", padding: "28px 20px 120px" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: BG, color: PAPER, minHeight: 0 }}>
 
-        {/* Header */}
-        <button onClick={onBack} style={{ background: "none", border: "none", color: "#555", fontSize: 13, cursor: "pointer", padding: "0 0 20px", display: "flex", alignItems: "center", gap: 6 }}>
-          ← Back to Case
-        </button>
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 540, margin: "0 auto", padding: "28px 20px 16px" }}>
 
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.8, marginBottom: 8, textTransform: "uppercase" }}>Phase 1 of 4</div>
-          <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5, marginBottom: 8 }}>Who was involved?</div>
-          <div style={{ color: "#666", fontSize: 14, lineHeight: 1.65 }}>
-            Add everyone involved in this matter — officers, witnesses, defendants, or any civilian. Each person gets a voice-friendly nickname to make dictation easier.
+          {/* Back */}
+          <button onClick={onBack} style={{ background: "none", border: "none", color: "#555", fontSize: 13, cursor: "pointer", padding: "0 0 20px", display: "flex", alignItems: "center", gap: 6 }}>
+            ← Back to Case
+          </button>
+
+          {/* Progress stepper */}
+          <WorkflowStepper current="parties" />
+
+          {/* Header */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5, marginBottom: 8 }}>Who was involved?</div>
+            <div style={{ color: "#666", fontSize: 14, lineHeight: 1.65 }}>
+              Add everyone involved — officers, witnesses, defendants, or civilians. Each person gets a voice-friendly nickname to make dictation easier.
+            </div>
+          </div>
+
+          {/* Why this matters */}
+          <WhyThisMatters>
+            Courts require you to name specific parties in a complaint. Identifying everyone now means your AI-generated documents will use the correct legal names — and your voice nickname system lets you dictate naturally without memorizing full names.
+          </WhyThisMatters>
+
+          {/* Existing parties */}
+          {hlCase.parties.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              {hlCase.parties.map(p => (
+                editingId === p.id ? (
+                  <PartyForm
+                    key={p.id}
+                    form={editForm}
+                    onChange={setEditForm}
+                    error={formError}
+                    onSave={() => saveEdit(p.id)}
+                    onCancel={() => { setEditingId(null); setFormError(""); }}
+                    saveLabel="Save Changes"
+                  />
+                ) : (
+                  <PartyCard key={p.id} party={p} onEdit={() => startEdit(p)} onDelete={() => deleteParty(p.id)} />
+                )
+              ))}
+            </div>
+          )}
+
+          {/* Doe disclosure */}
+          {hasDoe && (
+            <div style={{ background: "#100e00", border: "1px solid #3a3000", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#9c8c00", lineHeight: 1.6 }}>
+              <strong>Note:</strong> Use Doe placeholders only when a person's identity is genuinely unknown. Officials can often be identified later through discovery. This is informational only and not legal advice.
+            </div>
+          )}
+
+          {/* Add party form */}
+          {showForm && editingId === null && (
+            <PartyForm
+              form={form}
+              onChange={setForm}
+              error={formError}
+              onSave={saveNewParty}
+              onCancel={hlCase.parties.length > 0 ? () => { setShowForm(false); setFormError(""); } : undefined}
+              saveLabel="Add Person"
+            />
+          )}
+
+          {/* Add person button */}
+          {!showForm && editingId === null && (
+            <button
+              onClick={() => { setShowForm(true); setForm(BLANK_FORM); setFormError(""); }}
+              style={{ width: "100%", border: `1px dashed ${ORANGE}55`, borderRadius: 14, padding: "16px", background: "transparent", color: ORANGE, fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
+              <Plus size={16} /> Add {hlCase.parties.length > 0 ? "Another" : "a"} Person
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky bottom buttons */}
+      {(showContinue || showSkip) && (
+        <div style={{
+          background: BG, borderTop: `1px solid ${LINE}`,
+          padding: "16px 20px",
+          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          flexShrink: 0,
+        }}>
+          <div style={{ maxWidth: 540, margin: "0 auto" }}>
+            {showContinue && (
+              <button
+                onClick={onNext}
+                style={{ width: "100%", background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none", borderRadius: 14, padding: "17px", color: "#000", fontSize: 16, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                Continue to Court Selection <ChevronRight size={18} />
+              </button>
+            )}
+            {showSkip && (
+              <button
+                onClick={onNext}
+                style={{ width: "100%", background: "none", border: `1px solid ${LINE}`, borderRadius: 14, padding: "14px", color: "#555", fontSize: 14, cursor: "pointer" }}>
+                Skip for now
+              </button>
+            )}
           </div>
         </div>
-
-        {/* Existing parties */}
-        {hlCase.parties.length > 0 && (
-          <div style={{ marginBottom: 24 }}>
-            {hlCase.parties.map(p => (
-              editingId === p.id ? (
-                <PartyForm
-                  key={p.id}
-                  form={editForm}
-                  onChange={setEditForm}
-                  error={formError}
-                  onSave={() => saveEdit(p.id)}
-                  onCancel={() => { setEditingId(null); setFormError(""); }}
-                  saveLabel="Save Changes"
-                />
-              ) : (
-                <PartyCard key={p.id} party={p} onEdit={() => startEdit(p)} onDelete={() => deleteParty(p.id)} />
-              )
-            ))}
-          </div>
-        )}
-
-        {/* Doe disclosure */}
-        {hasDoe && (
-          <div style={{ background: "#100e00", border: "1px solid #3a3000", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#9c8c00", lineHeight: 1.6 }}>
-            <strong>Note:</strong> Use Doe placeholders only when a person's identity is genuinely unknown. Officials can often be identified later through discovery. This is informational only and not legal advice.
-          </div>
-        )}
-
-        {/* Add party form */}
-        {showForm && editingId === null && (
-          <PartyForm
-            form={form}
-            onChange={setForm}
-            error={formError}
-            onSave={saveNewParty}
-            onCancel={hlCase.parties.length > 0 ? () => { setShowForm(false); setFormError(""); } : undefined}
-            saveLabel="Add Person"
-          />
-        )}
-
-        {/* Add person button */}
-        {!showForm && editingId === null && (
-          <button
-            onClick={() => { setShowForm(true); setForm(BLANK_FORM); setFormError(""); }}
-            style={{ width: "100%", border: `1px dashed ${ORANGE}55`, borderRadius: 14, padding: "16px", background: "transparent", color: ORANGE, fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 28 }}>
-            <Plus size={16} /> Add Another Person
-          </button>
-        )}
-
-        {/* Continue button */}
-        {!showForm && editingId === null && hlCase.parties.length > 0 && (
-          <button
-            onClick={onNext}
-            style={{ width: "100%", background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none", borderRadius: 14, padding: "17px", color: "#000", fontSize: 16, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            Continue to Court Selection <ChevronRight size={18} />
-          </button>
-        )}
-
-        {/* Skip for now */}
-        {!showForm && editingId === null && hlCase.parties.length === 0 && (
-          <button
-            onClick={onNext}
-            style={{ width: "100%", background: "none", border: `1px solid ${LINE}`, borderRadius: 14, padding: "14px", color: "#555", fontSize: 14, cursor: "pointer", marginTop: 12 }}>
-            Skip for now
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -255,7 +280,7 @@ function PartyForm({ form, onChange, error, onSave, onCancel, saveLabel }: {
   const labelStyle: React.CSSProperties = { fontSize: 12, color: "#666", fontWeight: 700, letterSpacing: 0.4, display: "block", marginBottom: 6, textTransform: "uppercase" };
 
   return (
-    <div style={{ background: "#0f0d0c", border: `1px solid ${ORANGE}44`, borderRadius: 16, padding: "20px", marginBottom: 20 }}>
+    <div style={{ background: "#0f0d0c", border: `1px solid ${ORANGE}44`, borderRadius: 16, padding: "20px", marginBottom: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, marginBottom: 18, letterSpacing: 0.3 }}>ADD PERSON</div>
 
       {/* Name row */}

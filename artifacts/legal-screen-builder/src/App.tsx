@@ -34,6 +34,7 @@ import { PartiesView } from "./pages/workflow/PartiesView";
 import { CourtSelectionView } from "./pages/workflow/CourtSelectionView";
 import { StoryView } from "./pages/workflow/StoryView";
 import { TimelineView } from "./pages/workflow/TimelineView";
+import { CaseReviewView } from "./pages/workflow/CaseReviewView";
 
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
 
@@ -956,7 +957,7 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 }
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, onGoToPhase }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
@@ -967,6 +968,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   onBuyCredits?: () => void;
   onDocGenerated?: () => void;
   isAdmin?: boolean;
+  onGoToPhase?: (stage: WorkflowStage) => void;
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1138,6 +1140,39 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             </button>
           )}
         </div>
+
+        {/* Workflow stage-awareness banner */}
+        {onGoToPhase && (() => {
+          const missing: { stage: WorkflowStage; label: string; hint: string }[] = [];
+          if (!hlCase.parties.length) missing.push({ stage: "parties", label: "Add Parties", hint: "Identify everyone involved" });
+          if (!hlCase.court) missing.push({ stage: "court", label: "Select Court", hint: "Choose the filing court" });
+          if (!(hlCase.story ?? "").trim()) missing.push({ stage: "story", label: "Tell Your Story", hint: "Describe what happened" });
+          if (!hlCase.timeline.length) missing.push({ stage: "timeline", label: "Build Timeline", hint: "Create the event sequence" });
+          if (!missing.length) return null;
+          return (
+            <div style={{ background: "#0f0d08", border: "1px solid #3a2a10", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: "#9c7a40", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
+                Complete Your Case Setup
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {missing.map(m => (
+                  <div key={m.stage} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: 3, background: "#9c7a40", flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, color: "#888" }}>{m.hint}</span>
+                    </div>
+                    <button
+                      onClick={() => onGoToPhase(m.stage)}
+                      style={{ background: "none", border: "1px solid #3a2a10", borderRadius: 8, padding: "5px 12px", color: "#9c7a40", fontSize: 12, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}
+                    >
+                      {m.label}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Action buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
@@ -2597,6 +2632,7 @@ type AppView =
   | { type: "case_court"; caseId: string }
   | { type: "case_story"; caseId: string }
   | { type: "case_timeline"; caseId: string }
+  | { type: "case_review"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase };
 
 export default function App() {
@@ -2867,11 +2903,29 @@ export default function App() {
         <TimelineView
           hlCase={hlCase}
           onUpdate={c => setData(updateCase(data, c))}
-          onNext={() => {
+          onNext={() => setView({ type: "case_review", caseId: hlCase.id })}
+          onBack={() => setView({ type: "case_story", caseId: hlCase.id })}
+        />
+      );
+    }
+
+    if (view.type === "case_review") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <CaseReviewView
+          hlCase={hlCase}
+          onBack={() => setView({ type: "case_timeline", caseId: hlCase.id })}
+          onEditPhase={(stage) => {
+            if (stage === "parties") setView({ type: "case_parties", caseId: hlCase.id });
+            else if (stage === "court") setView({ type: "case_court", caseId: hlCase.id });
+            else if (stage === "story") setView({ type: "case_story", caseId: hlCase.id });
+            else setView({ type: "case_timeline", caseId: hlCase.id });
+          }}
+          onContinue={() => {
             const updated = data.cases.find(c => c.id === view.caseId) ?? hlCase;
             setView({ type: "case_detail", hlCase: updated });
           }}
-          onBack={() => setView({ type: "case_story", caseId: hlCase.id })}
         />
       );
     }
@@ -2913,6 +2967,12 @@ export default function App() {
           onDocGenerated={() => {
             setGenDocsRefreshKey(k => k + 1);
             fetchCreditBalance();
+          }}
+          onGoToPhase={(stage) => {
+            if (stage === "parties") setView({ type: "case_parties", caseId: hlCase.id });
+            else if (stage === "court") setView({ type: "case_court", caseId: hlCase.id });
+            else if (stage === "story") setView({ type: "case_story", caseId: hlCase.id });
+            else if (stage === "timeline") setView({ type: "case_timeline", caseId: hlCase.id });
           }}
         />
       );

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useClerk, useUser } from "@clerk/react";
 import {
-  Home, Folder, Plus, GraduationCap, User, ChevronRight, ChevronLeft,
+  Home, Folder, Plus, User, ChevronRight, ChevronLeft,
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
@@ -767,7 +767,7 @@ function IncidentDetailView({ incident, cases, onDelete, onConvertToCase, onAddT
           <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>ACTIONS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <TapBtn variant="orange" onClick={() => onOpenInTutor(incident)} style={{ justifyContent: "center" }}>
-              <GraduationCap size={16} /> Open in Tutor
+              <BookOpen size={16} /> Open in Index
             </TapBtn>
             {!incident.caseId && (
               <TapBtn variant="ghost" onClick={() => onConvertToCase(incident)} style={{ justifyContent: "center" }}>
@@ -1179,7 +1179,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         {/* Action buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
           <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>
-            <GraduationCap size={15} /> Analyze in Tutor
+            <BookOpen size={15} /> Analyze in Index
           </TapBtn>
           <TapBtn variant="ghost" onClick={onAddIncident} style={{ justifyContent: "center" }}>
             <Plus size={15} /> Add Incident
@@ -1293,7 +1293,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
           {genDocs.length === 0 && !genDocsLoading ? (
             <div style={{ color: "#333", fontSize: 13, fontStyle: "italic", padding: "10px 0" }}>
-              No saved documents yet. Use the Tutor to analyze your case and save AI-generated content here.
+              No saved documents yet. Use the Index to analyze your case and save AI-generated content here.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1689,10 +1689,10 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 32px" }}>
         {!target ? (
           <div style={{ textAlign: "center", paddingTop: 60 }}>
-            <GraduationCap size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
-            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Tutor</div>
+            <BookOpen size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Index</div>
             <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
-              Select an incident or case above. The Tutor will read what you described and help you think through it.
+              Select an incident or case above. The Index will read what you described and help you think through it.
             </div>
           </div>
         ) : isAnalyzing ? (
@@ -2015,7 +2015,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
         { text: "<b>Cases, incidents & timelines — always free</b> — build and document everything at no cost", tbd: false },
         { text: "<b>AI document previews — always free</b> — generate any complaint, motion, or timeline and review it before spending a cent", tbd: false },
         { text: "<b>Unlock full documents à la carte</b> — spend 1 credit per document only when you're ready to download", tbd: false },
-        { text: "Guided case tutor included — plain-English answers to your legal questions", tbd: false },
+        { text: "Guided case Index included — plain-English answers to your legal questions", tbd: false },
       ],
       ctaLabel: "Start Building Your Case", ctaStyle: "secondary" as const,
     },
@@ -2026,7 +2026,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
       quote: '"The law rewards those who show up prepared. Pro-Say gives you every tool to make sure that person is you."',
       features: [
         { text: "<b>Unlimited cases</b> — build and track as many cases as your docket demands", tbd: false },
-        { text: "<b>Priority tutor access</b> — no usage caps, full reasoning depth", tbd: false },
+        { text: "<b>Priority Index access</b> — no usage caps, full reasoning depth", tbd: false },
         { text: "<b>Document analysis</b> — upload evidence, get structured breakdowns", tbd: false },
         { text: "<b>Readiness engine</b> — know your case strength before you file", tbd: false },
         { text: "<b>Advanced reminders</b> — deadline tracking across all your cases", tbd: false },
@@ -2042,7 +2042,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
         { text: "<b>Sink your teeth into the docket</b> — unlimited cases, zero throttle, zero apologies", tbd: false },
         { text: "<b>Built for attorneys & power litigants</b> — anyone going for the jugular", tbd: false },
         { text: "<b>Full AI reasoning engine</b> — no guardrails, no cap on depth", tbd: false },
-        { text: "<b>Priority everything</b> — support, tutor, document analysis, front of the line", tbd: false },
+        { text: "<b>Priority everything</b> — support, Index, document analysis, front of the line", tbd: false },
         { text: "<b>Run your entire practice</b> — fight every battle at once, on your terms", tbd: false },
       ],
       ctaLabel: "Select Apex Litigant", ctaStyle: "primary" as const,
@@ -2240,7 +2240,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   const past = allReminders.filter(r => daysUntil(r.dueDate) < -1);
 
   const settingRows = [
-    { label: "AI Preferences", icon: Brain, items: ["Tutor Style", "AI Engine (Coming)"] },
+    { label: "AI Preferences", icon: Brain, items: ["Index Style", "AI Engine (Coming)"] },
     { label: "Data & Backups", icon: Archive, items: ["Export Backup", "Restore from Backup"] },
     { label: "Settings", icon: Settings, items: ["Notifications"] },
   ];
@@ -2447,7 +2447,7 @@ const EASTER_ITEMS = [
   },
   {
     id: "vision", label: "WHERE THIS IS GOING",
-    content: `The screens were phase one.\n\nPhase two is organization — incidents, cases, evidence vaults, timelines.\n\nPhase three is understanding — the Tutor, learning mode, AI-assisted reasoning.\n\nPhase four is analysis — Claude reads your transcript, finds contradictions, flags admissions, suggests legal issues.\n\nSame interface. Different engine.`,
+    content: `The screens were phase one.\n\nPhase two is organization — incidents, cases, evidence vaults, timelines.\n\nPhase three is understanding — the Index, learning mode, AI-assisted reasoning.\n\nPhase four is analysis — Claude reads your transcript, finds contradictions, flags admissions, suggests legal issues.\n\nSame interface. Different engine.`,
   },
 ];
 
@@ -2496,70 +2496,128 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 
-/** Old-fashioned barrel icon — bullet holes fill as cases are added; gentle rock animation */
-function BarrelIcon({ size = 22, caseCount = 0, isActive = false }: { size?: number; caseCount?: number; isActive?: boolean }) {
-  const MAX_BULLETS = 6;
-  const filled = Math.min(caseCount, MAX_BULLETS);
-  // 6 holes: 3 columns × 2 rows inside the barrel belly
-  const holes = [
-    { cx: 9.6,  cy: 10.2 },
-    { cx: 12,   cy: 10.2 },
-    { cx: 14.4, cy: 10.2 },
-    { cx: 9.6,  cy: 14.0 },
-    { cx: 12,   cy: 14.0 },
-    { cx: 14.4, cy: 14.0 },
-  ];
+/**
+ * Revolver cylinder barrel icon.
+ * - Idle: completely static (no wasted resources).
+ * - On spin (spinKey changes): fast spin that eases to a stop like a physical
+ *   cylinder; chambers fill progressively as the rotation decelerates.
+ * - Uses the provided PNG asset + an SVG overlay for the filled chambers.
+ */
+function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
+  size?: number; caseCount?: number; spinKey?: number;
+}) {
+  const MAX_CHAMBERS = 6;
+  const [rotation, setRotation] = useState(0);
+  const [visibleFilled, setVisibleFilled] = useState(Math.min(caseCount, MAX_CHAMBERS));
+  const rafRef    = useRef<number | null>(null);
+  const startRef  = useRef<number>(0);
+  const didMountRef = useRef(false);
+
+  const TOTAL_DEG = 1800; // 5 full spins — satisfying physical feel
+  const DURATION  = 1600; // ms total
+
+  // Quartic ease-out: screams fast then smoothly coasts to a stop
+  function easeOut(t: number) { return 1 - Math.pow(1 - t, 4); }
+
+  useEffect(() => {
+    // Skip the very first mount so the icon starts in its resting state
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    if (spinKey === 0) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    setVisibleFilled(0);
+    startRef.current = performance.now();
+
+    function tick(now: number) {
+      const elapsed = now - startRef.current;
+      const t       = Math.min(elapsed / DURATION, 1);
+      const eased   = easeOut(t);
+
+      // Raw degrees (may exceed 360 during spin, CSS handles it)
+      setRotation(eased * TOTAL_DEG);
+
+      // Fill chambers only in the final 40% — matches visual deceleration
+      const fillT = t > 0.60 ? (t - 0.60) / 0.40 : 0;
+      setVisibleFilled(Math.round(fillT * Math.min(caseCount, MAX_CHAMBERS)));
+
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setRotation(0);
+        setVisibleFilled(Math.min(caseCount, MAX_CHAMBERS));
+        rafRef.current = null;
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [spinKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep chamber count fresh when cases change outside of a spin
+  useEffect(() => {
+    if (!rafRef.current) setVisibleFilled(Math.min(caseCount, MAX_CHAMBERS));
+  }, [caseCount]);
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  const excess = Math.max(0, caseCount - MAX_CHAMBERS);
+
+  // 6 chamber positions arranged in a circle (matching the PNG asset).
+  // Radius ≈ 31 % of the 100-unit viewBox from the centre at (50, 50).
+  const chambers = Array.from({ length: MAX_CHAMBERS }, (_, i) => {
+    const angle = (i * 60 - 90) * (Math.PI / 180); // start at 12 o'clock
+    return { cx: 50 + 31 * Math.cos(angle), cy: 50 + 31 * Math.sin(angle) };
+  });
+
+  const transform = `rotate(${rotation}deg)`;
+
   return (
-    <>
-      <style>{`
-        @keyframes barrel-rock {
-          0%   { transform: rotate(-5deg); }
-          50%  { transform: rotate(5deg); }
-          100% { transform: rotate(-5deg); }
-        }
-        @keyframes barrel-rock-active {
-          0%   { transform: rotate(-8deg); }
-          50%  { transform: rotate(8deg); }
-          100% { transform: rotate(-8deg); }
-        }
-        .hl-barrel { display:inline-flex; transform-origin:50% 80%;
-          animation: barrel-rock 3.8s ease-in-out infinite; }
-        .hl-barrel.hl-barrel--active {
-          animation: barrel-rock-active 2.2s ease-in-out infinite; }
-      `}</style>
-      <span className={`hl-barrel${isActive ? " hl-barrel--active" : ""}`}>
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          {/* ── Barrel body fill (dark wood) ── */}
-          <path
-            d="M9,2.8 C6,4.5 4.4,8 4.4,12 C4.4,16 6,19.5 9,21.2 L15,21.2 C18,19.5 19.6,16 19.6,12 C19.6,8 18,4.5 15,2.8 Z"
-            fill="#1c1105" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"
-          />
-          {/* ── Top oval ── */}
-          <ellipse cx="12" cy="2.8" rx="3" ry="0.95"
-            fill="#261808" stroke="currentColor" strokeWidth="1.3" />
-          {/* ── Bottom oval ── */}
-          <ellipse cx="12" cy="21.2" rx="3" ry="0.95"
-            fill="#261808" stroke="currentColor" strokeWidth="1.3" />
-          {/* ── Stave lines (subtle vertical grain) ── */}
-          <line x1="9.8"  y1="3.2" x2="9.0"  y2="21.0" stroke="currentColor" strokeWidth="0.45" strokeOpacity="0.25" />
-          <line x1="14.2" y1="3.2" x2="15.0" y2="21.0" stroke="currentColor" strokeWidth="0.45" strokeOpacity="0.25" />
-          {/* ── Orange metal hoops ── */}
-          <path d="M5.2,8.2 Q12,9.8 18.8,8.2"
-            stroke={ORANGE} strokeWidth="1.7" strokeLinecap="round" fill="none" />
-          <path d="M5.2,15.8 Q12,17.4 18.8,15.8"
-            stroke={ORANGE} strokeWidth="1.7" strokeLinecap="round" fill="none" />
-          {/* ── Bullet holes ── */}
-          {holes.map((h, i) => (
-            <circle key={i} cx={h.cx} cy={h.cy} r={1.1}
-              fill={i < filled ? ORANGE : "none"}
-              stroke={i < filled ? ORANGE : "currentColor"}
-              strokeWidth={i < filled ? 0 : 0.8}
-              strokeOpacity={i < filled ? 1 : 0.4}
+    <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
+      {/* PNG barrel image — spins with the rotation */}
+      <img
+        src="/barrel-cylinder.png"
+        alt=""
+        draggable={false}
+        style={{
+          width: size, height: size,
+          transform,
+          willChange: rafRef.current ? "transform" : "auto",
+          userSelect: "none",
+          pointerEvents: "none",
+          display: "block",
+        }}
+      />
+      {/* Filled-chamber overlay — rotates in sync so bullets stay inside chambers */}
+      <svg
+        viewBox="0 0 100 100"
+        style={{
+          position: "absolute", inset: 0,
+          width: size, height: size,
+          transform,
+          pointerEvents: "none",
+          overflow: "visible",
+        }}
+      >
+        {chambers.map((c, i) =>
+          i < visibleFilled ? (
+            <circle key={i} cx={c.cx} cy={c.cy} r={9}
+              fill="#fff" fillOpacity={0.92}
+              style={{ filter: "drop-shadow(0 0 2px #fff)" }}
             />
-          ))}
-        </svg>
-      </span>
-    </>
+          ) : null
+        )}
+      </svg>
+      {/* +N badge when user has more than 6 cases */}
+      {excess > 0 && (
+        <div style={{
+          position: "absolute", top: -4, right: -4,
+          background: ORANGE, color: "#000",
+          fontSize: 7, fontWeight: 900, lineHeight: 1,
+          borderRadius: 7, padding: "2px 4px",
+          pointerEvents: "none",
+          boxShadow: "0 1px 4px #0008",
+        }}>+{excess}</div>
+      )}
+    </div>
   );
 }
 
@@ -2583,20 +2641,26 @@ interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Barrel" },
   { id: "builder", icon: BuilderIcon, label: "Builder" },
-  { id: "tutor", icon: GraduationCap, label: "Tutor" },
+  { id: "tutor", icon: BookOpen, label: "Index" },
   { id: "profile", icon: User, label: "Profile" },
 ];
 
 function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
-  const left = [NAV_ITEMS[0], NAV_ITEMS[1]];
+  const [barrelSpinKey, setBarrelSpinKey] = useState(0);
+  const left  = [NAV_ITEMS[0], NAV_ITEMS[1]];
   const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
+
+  function handleItemClick(id: NavTab) {
+    if (id === "home") setBarrelSpinKey(k => k + 1);
+    onChange(id);
+  }
+
   function renderIcon(item: NavItem) {
-    if (item.id === "home") {
-      return <BarrelIcon size={22} caseCount={caseCount} isActive={active === "home"} />;
-    }
+    if (item.id === "home") return <BarrelIcon size={26} caseCount={caseCount} spinKey={barrelSpinKey} />;
     const Icon = item.icon;
     return <Icon size={22} />;
   }
+
   return (
     <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "relative" }}>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -26, zIndex: 10 }}>
@@ -2607,16 +2671,16 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
       </div>
       <div style={{ display: "flex" }}>
         {left.map(item => (
-          <button key={item.id} onClick={() => onChange(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+          <button key={item.id} onClick={() => handleItemClick(item.id)}
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
             {renderIcon(item)}
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
         <div style={{ flex: 1 }} />
         {right.map(item => (
-          <button key={item.id} onClick={() => onChange(item.id)}
-            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "12px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+          <button key={item.id} onClick={() => handleItemClick(item.id)}
+            style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
             {renderIcon(item)}
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
@@ -2627,6 +2691,13 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
 }
 
 function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
+  const [barrelSpinKey, setBarrelSpinKey] = useState(0);
+
+  function handleItemClick(id: NavTab) {
+    if (id === "home") setBarrelSpinKey(k => k + 1);
+    onChange(id);
+  }
+
   return (
     <div style={{ width: 200, flexShrink: 0, background: "#0a0a0a", borderRight: "1px solid #1e1e1e", display: "flex", flexDirection: "column", padding: "20px 12px", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 16 }}>
@@ -2640,10 +2711,10 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
       {NAV_ITEMS.map(item => {
         const isActive = active === item.id;
         const iconEl = item.id === "home"
-          ? <BarrelIcon size={18} caseCount={caseCount} isActive={isActive} />
+          ? <BarrelIcon size={20} caseCount={caseCount} spinKey={barrelSpinKey} />
           : (() => { const Icon = item.icon; return <Icon size={18} />; })();
         return (
-          <button key={item.id} onClick={() => onChange(item.id)}
+          <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, background: isActive ? `${ORANGE}18` : "transparent", border: `1px solid ${isActive ? ORANGE + "44" : "transparent"}`, color: isActive ? ORANGE : "#666", cursor: "pointer", fontWeight: 700, fontSize: 14, textAlign: "left", transition: "all 0.15s" }}
             onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
             onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>

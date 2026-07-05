@@ -2673,7 +2673,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {left.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            {renderIcon(item)}
+            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}
@@ -2681,7 +2681,7 @@ function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; 
         {right.map(item => (
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "10px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-            {renderIcon(item)}
+            <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>{renderIcon(item)}</div>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
           </button>
         ))}

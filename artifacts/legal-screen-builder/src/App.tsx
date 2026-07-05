@@ -2623,12 +2623,12 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
 
 /** Index tab — cloud PNG */
 function IndexIcon({ size = 40 }: { size?: number }) {
-  /* Render notably larger than the slot so it fills edge-to-edge like the target mockup */
+  /* Wider than the slot, height auto so the cloud's natural aspect ratio is preserved */
   const rendered = Math.round(size * 1.45);
   return (
     <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", flexShrink: 0 }}>
       <img src="/index-cloud.png" alt="" draggable={false}
-        style={{ width: rendered, height: rendered, display: "block", pointerEvents: "none", userSelect: "none" }} />
+        style={{ width: rendered, height: "auto", display: "block", pointerEvents: "none", userSelect: "none" }} />
     </div>
   );
 }
@@ -2671,23 +2671,26 @@ function ProfileIcon({ size = 40, waveKey = 0 }: { size?: number; waveKey?: numb
         .hl-hand-waving { animation: hl-hand-wave 0.95s cubic-bezier(0.36,0.07,0.19,0.97) forwards; }
       `}</style>
       <div style={{ position: "relative", width: size, height: size, display: "inline-flex", flexShrink: 0 }}>
-        {/* Orange arm oval — behind the PNG, upper-right corner */}
+        {/* Orange arm oval — behind the PNG (z-index 0).
+            Positioned so its BASE sits at shoulder level (~42 % from top),
+            which the briefcase pixels in the PNG naturally mask — making the
+            arm look like it grows from the person's body. The top of the oval
+            sticks up into the clear space above/right of the briefcase. */}
         <div
           className={waving ? "hl-hand-waving" : undefined}
           style={{
             position: "absolute",
-            right:  "4%",    /* near the right edge of the icon */
-            top:    "6%",    /* near the top */
+            left:   "62%",   /* aligns with person's right-shoulder area */
+            top:    "4%",    /* top of oval visible above the briefcase */
             width:  "26%",
-            height: "44%",
-            transform:       "rotate(18deg)",  /* resting tilt */
-            transformOrigin: "50% 100%",       /* pivot at the shoulder/base */
+            height: "42%",   /* bottom ≈ 46 % — tucked behind briefcase top */
+            transform:       "rotate(16deg)",  /* resting lean outward */
+            transformOrigin: "50% 100%",       /* pivot at the base / shoulder */
             zIndex: 0,
           }}
         >
-          {/* Simple oval — matches the orange ellipse in IMG_3216 */}
           <svg viewBox="0 0 10 18" width="100%" height="100%">
-            <ellipse cx="5" cy="9" rx="4.2" ry="8.5" fill={ORANGE} />
+            <ellipse cx="5" cy="9" rx="4.4" ry="8.6" fill={ORANGE} />
           </svg>
         </div>
         {/* Briefcase + person PNG on top — briefcase opaque pixels hide the arm's overlap */}

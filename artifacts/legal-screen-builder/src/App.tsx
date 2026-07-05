@@ -2222,6 +2222,51 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
   const [showPlans, setShowPlans] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
 
+  // Account deletion hold-to-confirm
+  type DeletePhase = "idle" | "confirming" | "holding" | "done";
+  const [deletePhase, setDeletePhase] = useState<DeletePhase>("idle");
+  const [deleteProgress, setDeleteProgress] = useState(0);
+  const deleteRafRef = useRef<number | null>(null);
+  const deleteHoldStartRef = useRef<number | null>(null);
+  const DELETE_HOLD_MS = 5000;
+
+  function startDeleteHold(e: React.PointerEvent) {
+    if (deletePhase !== "confirming") return;
+    e.preventDefault();
+    setDeletePhase("holding");
+    setDeleteProgress(0);
+    deleteHoldStartRef.current = performance.now();
+    function tick(now: number) {
+      const elapsed = now - (deleteHoldStartRef.current ?? now);
+      const p = Math.min(1, elapsed / DELETE_HOLD_MS);
+      setDeleteProgress(p);
+      if (p >= 1) { setDeletePhase("done"); return; }
+      deleteRafRef.current = requestAnimationFrame(tick);
+    }
+    deleteRafRef.current = requestAnimationFrame(tick);
+  }
+  function cancelDeleteHold() {
+    if (deletePhase !== "holding") return;
+    if (deleteRafRef.current) { cancelAnimationFrame(deleteRafRef.current); deleteRafRef.current = null; }
+    deleteHoldStartRef.current = null;
+    setDeleteProgress(0);
+    setDeletePhase("confirming");
+  }
+  useEffect(() => {
+    if (deletePhase !== "done") return;
+    if (deleteRafRef.current) { cancelAnimationFrame(deleteRafRef.current); deleteRafRef.current = null; }
+    const t = setTimeout(async () => {
+      try {
+        await aiApi.deleteUserData().catch(() => {});
+        await user?.delete();
+      } catch {
+        alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
+        setDeletePhase("idle");
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [deletePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [eggPressCount, setEggPressCount] = useState(0);
   const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -2255,7 +2300,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>{displayName}</div>
           {email && <div style={{ color: "#555", fontSize: 12, marginBottom: 2 }}>{email}</div>}
-          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {data.incidents.length} incidents · {data.cases.length} cases</div>
+          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {data.cases.length} cases</div>
         </div>
       </div>
 
@@ -2399,23 +2444,79 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
           <div style={{ width: 1, height: 12, background: "#2a1a1a" }} />
           <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5 }}>DANGER ZONE</div>
         </div>
-        <div style={{ border: "1px solid #2a1a1a", borderRadius: 12, padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>Delete Account</div>
-            <div style={{ fontSize: 11, color: "#333", marginTop: 3 }}>Permanently removes all your data. Cannot be undone.</div>
-          </div>
-          <ConfirmDeleteButton
-            onDelete={async () => {
-              try {
-                await aiApi.deleteUserData().catch(() => {});
-                await user?.delete();
-              } catch {
-                alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
-              }
-            }}
-            iconSize={16}
-            title="Delete account — tap to begin 10-second countdown"
-          />
+        <div style={{ border: "1px solid #2a1a1a", borderRadius: 12, padding: "16px" }}>
+          {deletePhase === "idle" && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>Delete Account</div>
+                <div style={{ fontSize: 11, color: "#333", marginTop: 3 }}>Permanently removes all your data. Cannot be undone.</div>
+              </div>
+              <button
+                onClick={() => setDeletePhase("confirming")}
+                style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 14px", color: "#553333", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
+
+          {deletePhase === "confirming" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+              <div style={{ fontSize: 22 }}>😔</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#888" }}>Sad to see you go.</div>
+              <div style={{ fontSize: 12, color: "#444", lineHeight: 1.5 }}>
+                Once deleted, your cases, documents, and history are gone forever.
+              </div>
+              <div
+                onPointerDown={startDeleteHold}
+                onPointerUp={cancelDeleteHold}
+                onPointerLeave={cancelDeleteHold}
+                onPointerCancel={cancelDeleteHold}
+                style={{
+                  width: "100%", padding: "13px", borderRadius: 10,
+                  background: "#1a0a0a", border: "1px solid #4a1a1a",
+                  color: "#884444", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", userSelect: "none", WebkitUserSelect: "none",
+                  touchAction: "none", textAlign: "center",
+                }}
+              >
+                Hold to permanently delete
+              </div>
+              <button
+                onClick={() => setDeletePhase("idle")}
+                style={{ background: "none", border: "none", color: "#444", fontSize: 12, cursor: "pointer", padding: "4px 8px" }}
+              >
+                Never mind
+              </button>
+            </div>
+          )}
+
+          {deletePhase === "holding" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
+              <div style={{ position: "relative", width: 72, height: 72 }}>
+                <svg width={72} height={72} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+                  <circle cx={36} cy={36} r={30} fill="none" stroke="#2a1a1a" strokeWidth={4} />
+                  <circle cx={36} cy={36} r={30} fill="none" stroke="#d9711f" strokeWidth={4}
+                    strokeDasharray={2 * Math.PI * 30}
+                    strokeDashoffset={2 * Math.PI * 30 * (1 - deleteProgress)}
+                    strokeLinecap="round"
+                    style={{ filter: "drop-shadow(0 0 5px #d9711f)" }}
+                  />
+                </svg>
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 900, color: "#d9711f" }}>
+                  {Math.max(0, Math.ceil((1 - deleteProgress) * (DELETE_HOLD_MS / 1000)))}s
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "#553333" }}>Keep holding…</div>
+            </div>
+          )}
+
+          {deletePhase === "done" && (
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{ fontSize: 22, marginBottom: 6 }}>👋</div>
+              <div style={{ fontSize: 13, color: "#555" }}>Deleting your account…</div>
+            </div>
+          )}
         </div>
       </div>
 

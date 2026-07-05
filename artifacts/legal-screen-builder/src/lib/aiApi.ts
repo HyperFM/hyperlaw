@@ -516,13 +516,17 @@ export function formatMicroUsd(microUsd: number): string {
 
 export function featureLabel(feature: string): string {
   const labels: Record<string, string> = {
-    analyze_incident: "Incident Analysis",
-    analyze_case: "Case Analysis",
-    chat: "AI Chat",
-    extract_document: "Doc Extraction",
-    ocr_image: "Image OCR",
-    assembly: "Case Assembly",
-    learning: "Learning Index",
+    analyze_incident:    "Incident Analysis",
+    analyze_incident_v2: "Incident Analysis",
+    analyze_case:        "Case Analysis",
+    analyze_case_v2:     "Case Analysis",
+    chat:                "AI Chat",
+    extract_document:    "Document Analysis",
+    generate_document:   "Generate Document",
+    ocr_image:           "Image OCR",
+    timeline:            "Timeline Generation",
+    assembly:            "Case Assembly",
+    learning:            "Learning Index",
   };
   return labels[feature] ?? feature;
 }

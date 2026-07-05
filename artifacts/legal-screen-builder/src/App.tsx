@@ -1550,7 +1550,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -1571,10 +1570,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     setSavedTargetKey(null);
   }, [currentTargetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check AI status once on mount
-  useEffect(() => {
-    aiApi.status().then(s => setAiAvailable(s.configured)).catch(() => setAiAvailable(false));
-  }, []);
 
   // Stable key representing the content of incidents relevant to the selected target.
   // Recalculated when target or incident descriptions change — avoids stale analysis
@@ -1592,10 +1587,9 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
       .join("|");
   })();
 
-  // Analyze whenever target, AI status, or relevant incident content changes
+  // Analyze whenever target or relevant incident content changes
   useEffect(() => {
     if (!target) { setAnalysis(null); setChatMessages([]); return; }
-    if (aiAvailable === null) return; // still loading status
 
     setChatMessages([]);
     setIsAnalyzing(true);
@@ -1607,27 +1601,18 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     async function run() {
       try {
         let result: TutorAnalysis;
-        if (aiAvailable) {
-          if (target!.kind === "incident") {
-            result = await aiApi.analyzeIncident(
-              target!.item as Parameters<typeof aiApi.analyzeIncident>[0],
-              { forceRefresh: isForceRefresh },
-            );
-          } else {
-            const hlCase = target!.item as HLCase;
-            const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
-            result = await aiApi.analyzeCase(hlCase, incs, {
-              forceRefresh: isForceRefresh,
-              caseId: hlCase.id,
-            });
-          }
+        if (target!.kind === "incident") {
+          result = await aiApi.analyzeIncident(
+            target!.item as Parameters<typeof aiApi.analyzeIncident>[0],
+            { forceRefresh: isForceRefresh },
+          );
         } else {
-          if (target!.kind === "incident") {
-            result = staticTutorService.analyzeIncident(target!.item as Incident);
-          } else {
-            const incs = data.incidents.filter(i => (target!.item as HLCase).incidentIds.includes(i.id));
-            result = staticTutorService.analyzeCase(target!.item as HLCase, incs);
-          }
+          const hlCase = target!.item as HLCase;
+          const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
+          result = await aiApi.analyzeCase(hlCase, incs, {
+            forceRefresh: isForceRefresh,
+            caseId: hlCase.id,
+          });
         }
         setAnalysis(result);
       } catch {
@@ -1645,7 +1630,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, aiAvailable, relevantIncidentKey, refreshTrigger]);
+  }, [target, relevantIncidentKey, refreshTrigger]);
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
@@ -1672,9 +1657,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     } catch (err: unknown) {
       const e = err as { code?: string; message?: string };
       let errMsg = "Couldn't get a response. Please try again.";
-      if (e?.code === "ai_not_configured") {
-        errMsg = "AI isn't configured yet. The API key needs to be set in project settings.";
-      } else if (e?.code === "rate_limited") {
+      if (e?.code === "rate_limited") {
         errMsg = "You've reached today's AI limit. Come back tomorrow, or upgrade your plan.";
       } else if (e?.code === "insufficient_credits" || (e?.message ?? "").includes("402")) {
         errMsg = "You're out of credits. Top up in Profile → Credits.";
@@ -1701,14 +1684,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
             ? <Loader2 size={14} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
             : <ChevronRight size={14} color="#555" />}
         </button>
-        {aiAvailable !== null && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 7, paddingLeft: 2 }}>
-            <div style={{ width: 6, height: 6, borderRadius: 3, background: aiAvailable ? "#22c55e" : "#444", flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: aiAvailable ? "#22c55e" : "#444", fontWeight: 600 }}>
-              {aiAvailable ? "Claude AI · Live Analysis" : "Pattern Analysis · Connect Claude in Profile for AI"}
-            </span>
-          </div>
-        )}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 32px" }}>
@@ -1723,71 +1698,53 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         ) : isAnalyzing ? (
           <div style={{ textAlign: "center", paddingTop: 60 }}>
             <Loader2 size={36} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 16 }} />
-            <div style={{ color: "#555", fontSize: 14 }}>{aiAvailable ? "Claude is reading your case…" : "Analyzing…"}</div>
+            <div style={{ color: "#555", fontSize: 14 }}>Analyzing…</div>
           </div>
         ) : analysis ? (
           <>
-            {/* AI Disclaimer Banner — shown whenever Claude generated this content */}
-            {aiAvailable && (
-              <div style={{
-                background: "#0d0d0d", border: "1px solid #1a1a1a",
-                borderRadius: 10, padding: "10px 14px", marginBottom: 20,
-                display: "flex", alignItems: "flex-start", gap: 10,
-              }}>
-                <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
-                <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
-                  <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
-                </p>
-              </div>
-            )}
-            {/* Layer One disclaimer — shown when static / knowledge-library content is displayed.
-                Per spec: Layer One educational content is NOT exempt from disclaimer requirements. */}
-            {!aiAvailable && (
-              <div style={{
-                background: "#0d0d0d", border: "1px solid #1a1a1a",
-                borderRadius: 10, padding: "10px 14px", marginBottom: 20,
-                display: "flex", alignItems: "flex-start", gap: 10,
-              }}>
-                <div style={{ width: 4, height: 4, borderRadius: 2, background: "#555", flexShrink: 0, marginTop: 5 }} />
-                <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
-                  <strong style={{ color: "#666" }}>HyperLaw Legal Information</strong> — {COMPLIANCE.EDUCATIONAL_CONTENT}
-                </p>
-              </div>
-            )}
+            {/* AI Disclaimer Banner */}
+            <div style={{
+              background: "#0d0d0d", border: "1px solid #1a1a1a",
+              borderRadius: 10, padding: "10px 14px", marginBottom: 20,
+              display: "flex", alignItems: "flex-start", gap: 10,
+            }}>
+              <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
+              <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
+                <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
+              </p>
+            </div>
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>OVERVIEW</div>
-                {aiAvailable && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {analysis.fromCache && (
-                      <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>
-                        Cached result
-                      </span>
-                    )}
-                    <button
-                      onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
-                      style={{
-                        background: "none", border: `1px solid #2a2a2a`, borderRadius: 6,
-                        padding: "3px 8px", cursor: "pointer", color: "#555",
-                        fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4,
-                      }}
-                      title="Run a fresh Claude analysis"
-                    >
-                      ↻ Regenerate
-                    </button>
-                    <button
-                      onClick={() => setShowPreVerify(true)}
-                      style={{
-                        background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6,
-                        padding: "3px 8px", cursor: "pointer", color: ORANGE,
-                        fontSize: 10, fontWeight: 700,
-                      }}
-                      title="Pre-verify this analysis before using it"
-                    >
-                      Pre-Verify
-                    </button>
-                  </div>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {analysis.fromCache && (
+                    <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>
+                      Cached result
+                    </span>
+                  )}
+                  <button
+                    onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
+                    style={{
+                      background: "none", border: `1px solid #2a2a2a`, borderRadius: 6,
+                      padding: "3px 8px", cursor: "pointer", color: "#555",
+                      fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4,
+                    }}
+                    title="Regenerate analysis"
+                  >
+                    ↻ Regenerate
+                  </button>
+                  <button
+                    onClick={() => setShowPreVerify(true)}
+                    style={{
+                      background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6,
+                      padding: "3px 8px", cursor: "pointer", color: ORANGE,
+                      fontSize: 10, fontWeight: 700,
+                    }}
+                    title="Pre-verify this analysis before using it"
+                  >
+                    Pre-Verify
+                  </button>
+                </div>
               </div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "16px 18px", fontSize: 15, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>
                 {analysis.overview}
@@ -1830,7 +1787,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               </div>
             )}
             {analysis.guidingQuestions.length > 0 && (
-              <div style={{ marginBottom: aiAvailable ? 28 : 0 }}>
+              <div style={{ marginBottom: 28 }}>
                 <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {analysis.guidingQuestions.map((q, i) => (
@@ -1844,7 +1801,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
             )}
 
             {/* Save Analysis to Case */}
-            {aiAvailable && analysis && (() => {
+            {analysis && (() => {
               const caseId = target?.kind === "case" ? target.item.id
                 : target?.kind === "incident" && target.item.caseId ? target.item.caseId
                 : null;
@@ -1897,8 +1854,8 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               );
             })()}
 
-            {/* AI Chat — only when Claude is active */}
-            {aiAvailable && (
+            {/* AI Chat */}
+            {(
               <div>
                 <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ASK THE TUTOR</div>
                 <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
@@ -2264,11 +2221,6 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
 
   const [showPlans, setShowPlans] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
-  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    aiApi.status().then(s => setAiConfigured(s.configured)).catch(() => setAiConfigured(false));
-  }, []);
 
   const [eggPressCount, setEggPressCount] = useState(0);
   const eggTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2326,34 +2278,6 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
         <ChevronRight size={15} color="#333" />
       </button>
 
-      {/* Claude AI status card */}
-      <div style={{ background: aiConfigured ? "#0d1a0d" : "#141414", border: `1px solid ${aiConfigured ? "#1a3a1a" : "#2a2a2a"}`, borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <Key size={18} color={aiConfigured ? "#22c55e" : ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Claude AI</div>
-              <div style={{
-                background: aiConfigured ? "#14532d" : "#1e1e1e",
-                borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700,
-                color: aiConfigured ? "#22c55e" : "#555",
-              }}>
-                {aiConfigured === null ? "Checking…" : aiConfigured ? "Connected" : "Not Connected"}
-              </div>
-            </div>
-            <div style={{ color: "#666", fontSize: 13, lineHeight: 1.5 }}>
-              {aiConfigured
-                ? "Live AI analysis is active. The Tutor uses Claude for intelligent case reasoning and chat."
-                : "Set ANTHROPIC_API_KEY in your Replit project Secrets to activate live AI analysis and chat in the Tutor."}
-            </div>
-            {!aiConfigured && aiConfigured !== null && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#555", background: "#1a1a1a", borderRadius: 8, padding: "8px 12px", fontFamily: "monospace" }}>
-                Replit → Secrets → ANTHROPIC_API_KEY → your key
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Reminders section */}
       {allReminders.length > 0 && (

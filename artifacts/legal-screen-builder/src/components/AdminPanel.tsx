@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
 import { aiApi, AiLog, AiStats, KnowledgeEntry, ErrorLog, formatMicroUsd, featureLabel } from "../lib/aiApi";
+import ConfirmDeleteButton from "./ConfirmDeleteButton";
 
 const ORANGE = "#d9711f";
 const DIM = "#666";
@@ -65,6 +66,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   // ── Knowledge Library state ───────────────────────────────────────────────
   const [kbEntries, setKbEntries] = useState<KnowledgeEntry[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
+  const [kbLoaded, setKbLoaded] = useState(false);
   const [kbError, setKbError] = useState<string | null>(null);
   const [kbSearch, setKbSearch] = useState("");
   const [kbForm, setKbForm] = useState<KbForm | null>(null);
@@ -226,14 +228,15 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setKbError((err as Error).message ?? "Failed to load knowledge library");
     } finally {
       setKbLoading(false);
+      setKbLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    if (view === "knowledge" && kbEntries.length === 0 && !kbLoading) {
+    if (view === "knowledge" && !kbLoaded && !kbLoading) {
       loadKbData();
     }
-  }, [view, kbEntries.length, kbLoading, loadKbData]);
+  }, [view, kbLoaded, kbLoading, loadKbData]);
 
   const loadRevenue = useCallback(async () => {
     setRevenueLoading(true);
@@ -296,7 +299,6 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   }
 
   async function deleteKbEntry(id: string) {
-    if (!window.confirm("Delete this knowledge entry? This cannot be undone.")) return;
     try {
       await aiApi.knowledge.remove(id);
       setKbEntries(prev => prev.filter(e => e.id !== id));
@@ -954,10 +956,12 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
                         style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 4 }}>
                         <Pencil size={13} />
                       </button>
-                      <button onClick={e => { e.stopPropagation(); deleteKbEntry(entry.id); }}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#4a1a1a", padding: 4 }}>
-                        <Trash2 size={13} />
-                      </button>
+                      <ConfirmDeleteButton
+                        onDelete={() => { deleteKbEntry(entry.id); }}
+                        iconSize={12}
+                        title="Delete entry"
+                        style={{ marginLeft: 2 }}
+                      />
                       {expanded ? <ChevronUp size={13} color="#555" /> : <ChevronDown size={13} color="#555" />}
                     </div>
                   </div>

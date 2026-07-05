@@ -38,6 +38,7 @@ import { CaseReviewView } from "./pages/workflow/CaseReviewView";
 import { AssemblyView } from "./pages/workflow/AssemblyView";
 import { LearningIndexView } from "./pages/workflow/LearningIndexView";
 import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
+import ConfirmDeleteButton from "./components/ConfirmDeleteButton";
 
 const ADMIN_EMAIL = "hypermodula@gmail.com";
 
@@ -737,7 +738,7 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      <div style={{ padding: "12px 16px 12px 16px", paddingRight: 52, borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Back</span>
         </button>
@@ -748,8 +749,8 @@ function IncidentDetailView({ incident, cases, onUpdate, onDelete, onConvertToCa
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
             <button onClick={() => { setEditTitle(incident.title); setEditDesc(incident.description); setEditDate(incident.dateOfEvent); setEditLocation(incident.location); setEditCategory(incident.category); setEditing(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Edit3 size={16} /></button>
-            <button onClick={() => { if (window.confirm("Delete this incident?")) onDelete(incident.id); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
+            <div style={{ width: 1, height: 18, background: "#2a2a2a", flexShrink: 0 }} />
+            <ConfirmDeleteButton onDelete={() => onDelete(incident.id)} iconSize={15} title="Delete incident" />
           </>
         ) : (
           <>
@@ -915,14 +916,9 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
                 <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
               </button>
               {/* Delete button */}
-              <button
-                onClick={e => { e.stopPropagation(); if (window.confirm(`Delete "${c.title}"? This cannot be undone.`)) onDeleteCase(c.id); }}
-                title="Delete case"
-                style={{ background: "none", border: "none", borderLeft: "1px solid #1a1a1a", cursor: "pointer", padding: "0 18px", color: "#3a3a3a", flexShrink: 0, display: "flex", alignItems: "center", transition: "color 0.15s" }}
-                onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
-                onMouseLeave={e => (e.currentTarget.style.color = "#3a3a3a")}>
-                <Trash2 size={15} />
-              </button>
+              <div style={{ borderLeft: "1px solid #1a1a1a", padding: "0 14px", display: "flex", alignItems: "center" }}>
+                <ConfirmDeleteButton onDelete={() => onDeleteCase(c.id)} iconSize={14} title={`Delete "${c.title}"`} />
+              </div>
             </div>
           );
         })}
@@ -999,7 +995,7 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
                     {days < 0 ? "Overdue" : days === 0 ? "Today" : days === 1 ? "Tomorrow" : `${days} days`}
                   </div>
                 </div>
-                <button onClick={() => onDelete(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#444", padding: 4 }}><Trash2 size={14} /></button>
+                <ConfirmDeleteButton onDelete={() => onDelete(r.id)} iconSize={13} title="Delete reminder" />
               </div>
             );
           })}
@@ -1124,15 +1120,15 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      <div style={{ padding: "12px 16px 12px 16px", paddingRight: 52, borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
         </button>
         <div style={{ flex: 1 }} />
         <button onClick={() => { setPendingCaseExport(() => () => exportCasePDF(hlCase, data.incidents).catch(() => {})); setShowCaseDocConfirm(true); }} title="Export PDF"
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
-        <button onClick={() => { if (window.confirm("Delete this case?")) onDeleteCase(hlCase.id); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Trash2 size={16} /></button>
+        <div style={{ width: 1, height: 18, background: "#2a2a2a", flexShrink: 0 }} />
+        <ConfirmDeleteButton onDelete={() => onDeleteCase(hlCase.id)} iconSize={15} title="Delete case" />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
@@ -1372,17 +1368,15 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                           onClick={() => setViewingDoc(doc)}
                           style={{ background: "none", border: `1px solid ${doc.paymentStatus === "paid" ? "#2a3a2a" : "#2a2a1a"}`, borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: doc.paymentStatus === "paid" ? "#22c55e" : ORANGE, display: "flex", alignItems: "center" }}
                         ><Eye size={13} /></button>
-                        <button
-                          title="Delete"
-                          disabled={deletingDocId === doc.id}
-                          onClick={async () => {
+                        <ConfirmDeleteButton
+                          onDelete={async () => {
                             setDeletingDocId(doc.id);
                             await aiApi.generatedDocs.remove(doc.id).catch(() => {});
                             setGenDocs(prev => prev.filter(d => d.id !== doc.id));
                             setDeletingDocId(null);
                           }}
-                          style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center" }}
-                        ><Trash2 size={13} /></button>
+                          iconSize={13} title="Delete document"
+                        />
                       </div>
                     </div>
                   </div>
@@ -2526,34 +2520,27 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
       {/* Danger Zone — Account Deletion */}
       <div style={{ marginTop: 24, marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Trash2 size={13} color="#555" />
+          <div style={{ width: 1, height: 12, background: "#2a1a1a" }} />
           <div style={{ fontSize: 11, color: "#333", fontWeight: 700, letterSpacing: 0.5 }}>DANGER ZONE</div>
         </div>
-        <button
-          onClick={async () => {
-            const confirmed = window.confirm(
-              "Permanently delete your account?\n\nThis cannot be undone. All your cases, incidents, and saved documents will be removed. Type OK to confirm."
-            );
-            if (!confirmed) return;
-            try {
-              // Purge all server-side user data first, then delete the Clerk account
-              await aiApi.deleteUserData().catch(() => {}); // best-effort
-              await user?.delete();
-            } catch (e) {
-              alert("Failed to delete account. Please contact support at Hyperlawcompliance@gmail.com");
-            }
-          }}
-          style={{
-            width: "100%", padding: "12px 16px", background: "transparent",
-            border: "1px solid #2a1a1a", borderRadius: 12, color: "#444",
-            fontSize: 13, fontWeight: 600, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "#ff444444"; e.currentTarget.style.color = "#ff4444"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a1a1a"; e.currentTarget.style.color = "#444"; }}
-        >
-          Delete Account
-        </button>
+        <div style={{ border: "1px solid #2a1a1a", borderRadius: 12, padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555" }}>Delete Account</div>
+            <div style={{ fontSize: 11, color: "#333", marginTop: 3 }}>Permanently removes all your data. Cannot be undone.</div>
+          </div>
+          <ConfirmDeleteButton
+            onDelete={async () => {
+              try {
+                await aiApi.deleteUserData().catch(() => {});
+                await user?.delete();
+              } catch {
+                alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
+              }
+            }}
+            iconSize={16}
+            title="Delete account — tap to begin 10-second countdown"
+          />
+        </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 40, gap: 6 }}>

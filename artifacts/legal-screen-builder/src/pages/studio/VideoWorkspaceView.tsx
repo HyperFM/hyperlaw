@@ -590,35 +590,33 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         </button>
       </div>
 
-      {/* ── Jurisdiction strip ───────────────────────────────────── */}
-      {court && (
-        <div style={{ flexShrink: 0, background: "#0d0d0d", borderBottom: "1px solid #131313", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
-            {verification ? (
-              <>
-                {verification.verdict === "permitted" && <CheckCircle2 size={13} color="#22c55e" />}
-                {verification.verdict === "limited"   && <AlertCircle  size={13} color="#f59e0b" />}
-                {verification.verdict === "not_accepted" && <XCircle   size={13} color="#ef4444" />}
-              </>
-            ) : (
-              <Shield size={13} color="#444" />
-            )}
-            <span style={{ fontSize: 12, color: "#555", fontWeight: 700 }}>Jurisdiction</span>
-            <span style={{ fontSize: 12, color: "#888" }}>
-              {court.state}{court.name ? ` · ${court.name}` : ""}
-            </span>
-          </div>
-          {/* Verify button — show result if already verified, hold-to-verify if not */}
+      {/* ── Jurisdiction strip — always visible ──────────────────── */}
+      <div style={{ flexShrink: 0, background: "#0d0d0d", borderBottom: "1px solid #131313", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
           {verification ? (
-            <button onClick={() => setShowVerifResult(true)}
-              style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: verification.verdict === "permitted" ? "#22c55e" : verification.verdict === "limited" ? "#f59e0b" : "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
-              <Eye size={11} /> View
-            </button>
+            <>
+              {verification.verdict === "permitted"    && <CheckCircle2 size={13} color="#22c55e" />}
+              {verification.verdict === "limited"      && <AlertCircle  size={13} color="#f59e0b" />}
+              {verification.verdict === "not_accepted" && <XCircle      size={13} color="#ef4444" />}
+            </>
           ) : (
-            <JurisdictionVerifyButton onVerify={handleVerify} disabled={verifying} />
+            <Shield size={13} color="#444" />
           )}
+          <span style={{ fontSize: 12, color: "#555", fontWeight: 700 }}>Jurisdiction</span>
+          <span style={{ fontSize: 12, color: court ? "#888" : "#3a3a3a", fontStyle: court ? "normal" : "italic" }}>
+            {court ? `${court.state}${court.name ? ` · ${court.name}` : ""}` : "not set — add court in Case Profile"}
+          </span>
         </div>
-      )}
+        {/* Verify button */}
+        {verification ? (
+          <button onClick={() => setShowVerifResult(true)}
+            style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: verification.verdict === "permitted" ? "#22c55e" : verification.verdict === "limited" ? "#f59e0b" : "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            <Eye size={11} /> View
+          </button>
+        ) : (
+          <JurisdictionVerifyButton onVerify={handleVerify} disabled={verifying || !court} />
+        )}
+      </div>
 
       {/* ── Evidence preservation reminder ──────────────────────── */}
       <div style={{ flexShrink: 0, background: "#0a0800", borderBottom: "1px solid #1a1500", padding: "6px 16px", fontSize: 11, color: "#6b5a00", display: "flex", alignItems: "center", gap: 6 }}>

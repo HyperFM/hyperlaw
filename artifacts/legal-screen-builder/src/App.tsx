@@ -2816,10 +2816,14 @@ function ProfileIcon({ size = 40 }: { size?: number }) {
 function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Orange filled square */}
-      <rect x="2" y="2" width="18" height="18" rx="3" fill={ORANGE} />
-      {/* White play triangle centered */}
-      <polygon points="8,6.5 16,11 8,15.5" fill="#fff" />
+      {/* Outer rectangle (screen / box) */}
+      <rect x="1.75" y="2.5" width="18.5" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      {/* Orange vertical bar on the left inside */}
+      <rect x="1.75" y="2.5" width="5.5" height="17" rx="2" fill={ORANGE} />
+      {/* Clip right-side corners of the bar flush with the outer border */}
+      <rect x="5.5" y="2.5" width="1.75" height="17" fill={ORANGE} />
+      {/* Small white play triangle centered in the right portion */}
+      <polygon points="10.5,9 15,11 10.5,13" fill="currentColor" opacity="0.75" />
     </svg>
   );
 }

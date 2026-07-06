@@ -273,6 +273,42 @@ export const aiApi = {
     });
   },
 
+  /** Builder Engine — extract structured data from dictation and generate exhibit draft */
+  builderExtract(input: {
+    timestamp: string;
+    dictation: string;
+    whyItMatters: string;
+    exhibitNumber: number;
+    caseTitle: string;
+    parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+    court: { name: string; level: string; state: string } | null;
+    caseId?: string;
+  }): Promise<{
+    extraction: {
+      directQuotations: string[]; timeline: string[]; contradictions: string[];
+      importantActions: string[]; evidenceReferences: string[]; peopleInvolved: string[];
+      policyReferences: string[]; statuteReferences: string[]; constitutionalReferences: string[];
+      keyFactualObservations: string[]; supportingContext: string[]; followUpQuestions?: string[];
+    };
+    draft: {
+      exhibitNumber: number; headline: string; supportingQuote: string;
+      keyObservations: string[]; timelineContext: string; relevantParties: string[];
+      evidenceReferences: string[]; legalAuthorities: string[]; whyItMatters: string;
+    };
+  }> {
+    return aiFetch("/ai/builder-extract", { method: "POST", body: JSON.stringify(input) });
+  },
+
+  /** Jurisdiction Verify — is this court/state permissive of illustrative exhibit slides? */
+  jurisdictionVerify(input: {
+    state: string;
+    county: string;
+    courtName: string;
+    caseId?: string;
+  }): Promise<{ verdict: "permitted" | "limited" | "not_accepted"; explanation: string }> {
+    return aiFetch("/ai/jurisdiction-verify", { method: "POST", body: JSON.stringify(input) });
+  },
+
   /** Gap Detection Engine — returns ALL missing-information questions in one batch */
   gapDetect(input: {
     hlCase: {

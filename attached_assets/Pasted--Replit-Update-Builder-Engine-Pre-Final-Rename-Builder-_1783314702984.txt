@@ -1,0 +1,276 @@
+
+
+Replit Update — Builder Engine (Pre-Final)
+
+Rename
+
+Builder → Studio
+
+Keep the Builder icon on the bottom navigation, but place a white ► play icon centered inside the orange square so users immediately associate it with video evidence.
+
+⸻
+
+Opening Screen
+
+At the top:
+
+Exhibit Studio
+
+Below it:
+
+Build courtroom-ready illustrative exhibit slides from video evidence.
+
+Below that:
+
+More Info
+
+Tapping “More Info” opens a permanent information panel explaining:
+
+* This tool is designed to help organize and present video evidence.
+* Rules regarding illustrative aids differ by jurisdiction.
+* Users are responsible for confirming admissibility in their court.
+* HyperLaw helps prepare exhibits but does not determine admissibility.
+
+The information panel should always be accessible.
+
+⸻
+
+Jurisdiction Verification
+
+The Builder should already know:
+
+* State
+* County
+* Court
+* Jurisdiction
+
+from the Case Profile.
+
+Display:
+
+✓ Jurisdiction
+
+Kentucky
+Jefferson County
+Jefferson Circuit Court
+
+Next to it place a Verification icon.
+
+Holding the icon for three seconds spends 0.5 credit the first time.
+
+Claude receives one focused question such as:
+
+Are text-based illustrative exhibit slides generally permitted in this court or jurisdiction? Provide a concise explanation and note any important limitations.
+
+Return only a short response.
+
+Examples:
+
+✅ Generally permitted.
+
+or
+
+⚠ Allowed with limitations.
+
+or
+
+❌ Not generally accepted.
+
+Save this verification to the case so future presses simply reopen the saved result without spending additional credits unless the user chooses to refresh it.
+
+⸻
+
+Video Workspace
+
+This screen should feel like a lightweight video editor.
+
+Components:
+
+Video Preview
+
+Timeline
+
+Scrubber
+
+Play/Pause
+
+Zoom Timeline
+
+Current Time
+
+Insert Exhibit Marker button
+
+Microphone button
+
+Undo
+
+Redo
+
+Autosave indicator
+
+⸻
+
+Upload Limits
+
+Allow videos up to one hour.
+
+Recommend trimming unnecessary portions before analysis.
+
+Display a reminder:
+
+Always preserve and retain the complete, unedited original recording for evidentiary purposes.
+
+⸻
+
+Insert Exhibit Marker
+
+The user scrubs to a moment.
+
+Presses:
+
+Insert Exhibit
+
+HyperLaw automatically:
+
+• places a marker
+
+• splits the timeline
+
+• creates a new Exhibit Draft
+
+⸻
+
+Dictation
+
+Immediately activate dictation.
+
+Prompt:
+
+Describe exactly what happened in this moment. Be as specific as possible. Include actions, statements, contradictions, important quotes, policy violations, timeline context, and anything a judge or jury should notice.
+
+Users may replay the same section as many times as needed.
+
+⸻
+
+Claude Builder Engine
+
+Claude should not ask random questions.
+
+Instead, use a structured Builder prompt.
+
+Claude extracts:
+
+Direct quotations
+
+Timeline
+
+Contradictions
+
+Important actions
+
+Evidence references
+
+People involved
+
+Policy references
+
+Potential statute references
+
+Potential constitutional references
+
+Key factual observations
+
+Supporting context
+
+⸻
+
+If critical information is still missing, Claude asks one grouped follow-up containing all remaining questions at once instead of many back-and-forth prompts.
+
+⸻
+
+Exhibit Generation
+
+After sufficient information is collected, Claude automatically builds an exhibit using the existing HyperLaw template.
+
+Each exhibit should contain structured sections similar to your examples, such as:
+
+* Headline
+* Supporting quote
+* Key observations
+* Timeline context
+* Relevant parties
+* Evidence references
+* User-selected legal authorities (where appropriate)
+* Footer with exhibit number and references
+
+The system should present factual observations and user-provided information without asserting legal conclusions or facts not supported by the record.
+
+⸻
+
+Navigation
+
+When an exhibit is complete:
+
+Save automatically.
+
+Return to timeline.
+
+Continue editing.
+
+Insert next exhibit marker.
+
+Repeat until finished.
+
+⸻
+
+Autosave
+
+Everything saves automatically.
+
+No Save button.
+
+Show:
+
+Saving…
+
+Saved ✓
+
+⸻
+
+Export
+
+Allow exporting:
+
+PDF Exhibit Packet
+
+PNG exhibits
+
+Presentation mode
+
+ZIP package
+
+Project backup
+
+⸻
+
+Storage Strategy (Important)
+
+I actually would not store everyone’s hour-long videos on your servers.
+
+Instead:
+
+* Store the project data (markers, transcripts, exhibit drafts, timestamps, settings, metadata).
+* Keep the original video on the user’s device by default.
+* Let the user relink the original video if needed.
+* Offer optional cloud storage later as a premium feature.
+
+This keeps your storage costs much lower while still preserving nearly all of the user’s work. The project file is relatively small; the video is what consumes significant storage.
+
+Let’s also include an optional field called “Why This Moment Matters.”
+Instead of reaching legal conclusions, it can summarize the user’s point in plain language, for example:
+
+“This exhibit highlights the sequence of events surrounding this statement and the surrounding context the user believes is significant.”
+
+That helps connect the exhibit to the larger presentation without overstating what the evidence proves.
+
+This entire thing focuses on organizing and presenting information clearly rather than replacing legal judgment.

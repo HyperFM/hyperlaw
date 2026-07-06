@@ -139,6 +139,66 @@ export interface EvidenceItem {
   uploadedAt: number;
 }
 
+// ── Studio / Exhibit Builder ──────────────────────────────────────────────────
+
+export interface ExhibitExtraction {
+  directQuotations: string[];
+  timeline: string[];
+  contradictions: string[];
+  importantActions: string[];
+  evidenceReferences: string[];
+  peopleInvolved: string[];
+  policyReferences: string[];
+  statuteReferences: string[];
+  constitutionalReferences: string[];
+  keyFactualObservations: string[];
+  supportingContext: string[];
+  followUpQuestions?: string[];
+}
+
+export interface ExhibitDraft {
+  exhibitNumber: number;
+  headline: string;
+  supportingQuote: string;
+  keyObservations: string[];
+  timelineContext: string;
+  relevantParties: string[];
+  evidenceReferences: string[];
+  legalAuthorities: string[];
+  whyItMatters: string;
+}
+
+export interface ExhibitMarker {
+  id: string;
+  /** Seconds from start of video */
+  timestamp: number;
+  label: string;
+  dictation: string;
+  whyItMatters: string;
+  extraction?: ExhibitExtraction;
+  draft?: ExhibitDraft;
+  status: "draft" | "extracting" | "ready" | "error";
+  createdAt: number;
+}
+
+export interface JurisdictionVerification {
+  verdict: "permitted" | "limited" | "not_accepted";
+  explanation: string;
+  verifiedAt: number;
+}
+
+export interface StudioProject {
+  id: string;
+  caseId: string;
+  /** Original file name — shown so user can relink after session */
+  videoFileName: string;
+  videoDurationSec?: number;
+  markers: ExhibitMarker[];
+  jurisdictionVerification?: JurisdictionVerification;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Structured Case (Organization Engine output) ──────────────────────────────
 
 /** A single concept in the interactive Index cloud map */
@@ -198,6 +258,8 @@ export interface HLCase {
   structuredCase?: StructuredCase;
   /** Unix ms when structuredCase was last generated */
   structuredCaseGeneratedAt?: number;
+  // ── Exhibit Studio ───────────────────────────────────────────────────────────
+  studioProject?: StudioProject;
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────

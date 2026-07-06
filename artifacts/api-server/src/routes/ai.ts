@@ -562,6 +562,62 @@ router.post("/ai/learning", requireAuth, async (req: Request, res: Response): Pr
   }
 });
 
+// ── POST /ai/builder-extract — Builder Engine ─────────────────────────────────
+router.post("/ai/builder-extract", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { timestamp, dictation, whyItMatters, exhibitNumber, caseTitle, parties, court, caseId } = req.body as {
+    timestamp: string; dictation: string; whyItMatters?: string; exhibitNumber: number;
+    caseTitle: string; parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+    court: { name: string; level: string; state: string } | null; caseId?: string;
+  };
+
+  if (!dictation?.trim() && !caseTitle) { res.status(400).json({ error: "dictation or caseTitle required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  try {
+    const result = await aiService.builderExtract({ timestamp, dictation, whyItMatters: whyItMatters ?? "", exhibitNumber, caseTitle, parties: parties ?? [], court: court ?? null });
+    await logAiCall({ userId, feature: "builder_extract", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Builder extraction failed" });
+  }
+});
+
+// ── POST /ai/jurisdiction-verify ───────────────────────────────────────────────
+router.post("/ai/jurisdiction-verify", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { state, county, courtName, caseId } = req.body as { state: string; county?: string; courtName: string; caseId?: string };
+
+  if (!state || !courtName) { res.status(400).json({ error: "state and courtName required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  // Cache check — jurisdiction rules don't change; cache for 7 days
+  const cacheKey = computeCacheKey("jurisdiction_verify", { state, county: county ?? "", courtName });
+  const cached = await getFromCache(userId, cacheKey);
+  if (cached) {
+    await logAiCall({ userId, feature: "jurisdiction_verify", model: "cache", inputTokens: 0, outputTokens: 0, estimatedCostMicroUsd: 0, responseTimeMs: 0, cacheHit: true, caseId });
+    res.json({ ...(cached.result as object), fromCache: true });
+    return;
+  }
+
+  try {
+    const result = await aiService.jurisdictionVerify({ state, county: county ?? "", courtName });
+    await setCache(userId, cacheKey, "jurisdiction_verify", result.data);
+    await logAiCall({ userId, feature: "jurisdiction_verify", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Jurisdiction verification failed" });
+  }
+});
+
 // ── POST /ai/organize — Organization Engine ────────────────────────────────────
 // Produces the full structured case Index. Auto-triggered after assembly.
 router.post("/ai/organize", requireAuth, async (req: Request, res: Response): Promise<void> => {

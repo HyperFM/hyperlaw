@@ -19,6 +19,8 @@ import {
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud } from "./lib/aiApi";
 import { api } from "./lib/api";
+import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
+import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
@@ -2810,16 +2812,14 @@ function ProfileIcon({ size = 40 }: { size?: number }) {
   );
 }
 
-/** Box outline with a solid orange bar on the left side — the Builder tab icon */
+/** Studio icon — orange square with a centered white ► play triangle */
 function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Outer rectangle (screen / box) */}
-      <rect x="1.75" y="2.5" width="18.5" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" fill="none" />
-      {/* Orange vertical bar on the left inside */}
-      <rect x="1.75" y="2.5" width="5.5" height="17" rx="2" fill={ORANGE} />
-      {/* Clip the right-side corners of the bar flush with the outer border */}
-      <rect x="5.5" y="2.5" width="1.75" height="17" fill={ORANGE} />
+      {/* Orange filled square */}
+      <rect x="2" y="2" width="18" height="18" rx="3" fill={ORANGE} />
+      {/* White play triangle centered */}
+      <polygon points="8,6.5 16,11 8,15.5" fill="#fff" />
     </svg>
   );
 }
@@ -2829,7 +2829,7 @@ type NavTab = "home" | "builder" | "tutor" | "profile";
 interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Barrel" },
-  { id: "builder", icon: BuilderIcon, label: "Builder" },
+  { id: "builder", icon: BuilderIcon, label: "Studio" },
   { id: "tutor", icon: Home, label: "Index" },
   { id: "profile", icon: User, label: "Profile" },
 ];
@@ -2982,7 +2982,8 @@ type AppView =
   | { type: "case_review"; caseId: string }
   | { type: "case_assembly"; caseId: string }
   | { type: "case_learning"; caseId: string }
-  | { type: "tutor"; incident?: Incident; hlCase?: HLCase };
+  | { type: "tutor"; incident?: Incident; hlCase?: HLCase }
+  | { type: "studio_workspace"; caseId: string };
 
 export default function App() {
   const w = useWindowWidth();
@@ -3460,7 +3461,18 @@ export default function App() {
     }
 
     if (navTab === "builder") {
-      return <CasesView data={data} onOpenCase={handleOpenCase} onDeleteCase={id => handleDeleteCaseWithSync(id)} />;
+      if (view.type === "studio_workspace") {
+        const studioCase = data.cases.find(c => c.id === view.caseId);
+        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} />;
+        return (
+          <VideoWorkspaceView
+            hlCase={studioCase}
+            onUpdateCase={c => setData(updateCase(data, c))}
+            onBack={() => setView({ type: "home" })}
+          />
+        );
+      }
+      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} />;
     }
 
     return (

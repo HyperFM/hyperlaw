@@ -719,6 +719,143 @@ Return only well-established authorities. Do not fabricate citations. Return onl
     };
   }
 
+  // ── Builder Engine ────────────────────────────────────────────────────────
+  // Extracts structured information from user dictation and generates an exhibit draft.
+
+  async builderExtract(input: {
+    timestamp: string;
+    dictation: string;
+    whyItMatters: string;
+    exhibitNumber: number;
+    caseTitle: string;
+    parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+    court: { name: string; level: string; state: string } | null;
+  }): Promise<AiResult<{
+    extraction: {
+      directQuotations: string[]; timeline: string[]; contradictions: string[];
+      importantActions: string[]; evidenceReferences: string[]; peopleInvolved: string[];
+      policyReferences: string[]; statuteReferences: string[]; constitutionalReferences: string[];
+      keyFactualObservations: string[]; supportingContext: string[]; followUpQuestions?: string[];
+    };
+    draft: {
+      exhibitNumber: number; headline: string; supportingQuote: string;
+      keyObservations: string[]; timelineContext: string; relevantParties: string[];
+      evidenceReferences: string[]; legalAuthorities: string[]; whyItMatters: string;
+    };
+  }>> {
+    const partiesText = input.parties.length
+      ? input.parties.map(p => `${p.firstName} ${p.lastName} (${p.type}${p.agency ? `, ${p.agency}` : ""})`).join(", ")
+      : "Not specified";
+
+    const prompt = `You are HyperLaw's Builder Engine. Analyze this user dictation about a specific moment in a video recording and produce a structured exhibit.
+
+=== CASE: ${input.caseTitle} ===
+COURT: ${input.court ? `${input.court.name} (${input.court.level}, ${input.court.state})` : "Not specified"}
+PARTIES: ${partiesText}
+VIDEO TIMESTAMP: ${input.timestamp}
+EXHIBIT NUMBER: ${input.exhibitNumber}
+
+=== USER DICTATION ===
+${input.dictation || "(No dictation provided — extract from context)"}
+
+${input.whyItMatters ? `=== WHY THIS MOMENT MATTERS (user's words) ===\n${input.whyItMatters}` : ""}
+
+=== INSTRUCTIONS ===
+
+Return a single JSON object (no markdown, no code fences):
+{
+  "extraction": {
+    "directQuotations": ["Exact words spoken or visible in the video at this moment"],
+    "timeline": ["Chronological event at this timestamp"],
+    "contradictions": ["Any contradiction between actions/statements and policy/law"],
+    "importantActions": ["Significant physical action or decision made at this moment"],
+    "evidenceReferences": ["Reference to physical evidence, document, or object visible/mentioned"],
+    "peopleInvolved": ["Name or description of person active in this moment"],
+    "policyReferences": ["Specific department policy, procedure, or rule implicated"],
+    "statuteReferences": ["Specific statute or regulation implicated — only cite if clearly suggested by facts"],
+    "constitutionalReferences": ["Constitutional provision implicated — only cite if clearly suggested by facts"],
+    "keyFactualObservations": ["Objective factual observation from this moment"],
+    "supportingContext": ["Background context that makes this moment significant"],
+    "followUpQuestions": ["Critical question whose answer would strengthen this exhibit"]
+  },
+  "draft": {
+    "exhibitNumber": ${input.exhibitNumber},
+    "headline": "Short, factual headline (max 10 words) describing this moment without legal conclusions",
+    "supportingQuote": "Most impactful direct quote or statement from this moment",
+    "keyObservations": ["2-4 key factual observations for the exhibit"],
+    "timelineContext": "One sentence placing this moment in the sequence of events",
+    "relevantParties": ["Names of people directly involved at this timestamp"],
+    "evidenceReferences": ["Evidence items visible or referenced at this moment"],
+    "legalAuthorities": ["Statute or constitutional provision — only include if clearly implicated"],
+    "whyItMatters": "${input.whyItMatters || "Summarize in one plain sentence why this moment may be significant, without asserting legal conclusions."}"
+  }
+}
+
+CRITICAL RULES:
+- Base EVERYTHING on the user's dictation and known case facts only. Do not fabricate events.
+- Do NOT assert legal conclusions. Use factual language: "the user reports", "appears to show", "according to the dictation".
+- Omit any field where the information is not clearly present — use empty arrays, not guesses.
+- The headline must be factual and neutral, not argumentative.
+- "whyItMatters" must be in plain language, not legal language.
+Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      system: "You are HyperLaw's Builder Engine. Extract structured exhibit information from user dictation. Return only valid JSON. Never fabricate facts or legal conclusions.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  // ── Jurisdiction Verify ────────────────────────────────────────────────────
+  // Checks whether illustrative exhibit slides are generally permitted in a given court.
+
+  async jurisdictionVerify(input: {
+    state: string;
+    county: string;
+    courtName: string;
+  }): Promise<AiResult<{ verdict: "permitted" | "limited" | "not_accepted"; explanation: string }>> {
+    const location = [input.courtName, input.county, input.state].filter(Boolean).join(", ");
+
+    const prompt = `You are a legal research assistant. Answer ONE focused question about illustrative evidence in a specific court.
+
+COURT / JURISDICTION: ${location}
+
+QUESTION: Are text-based illustrative exhibit slides generally permitted as illustrative aids in this court or jurisdiction? Provide a concise explanation and note any important limitations.
+
+Return JSON only (no markdown):
+{
+  "verdict": "permitted" | "limited" | "not_accepted",
+  "explanation": "2-3 sentences: general rule, any notable limitations, and one practical note for self-represented litigants"
+}
+
+Use:
+- "permitted" if generally allowed with standard foundation requirements
+- "limited" if allowed but with significant restrictions or case-by-case judicial discretion
+- "not_accepted" if generally discouraged or prohibited in this court type
+
+Be concise. Do not give legal advice. Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 300,
+      system: "You are a legal research assistant. Answer only the question asked. Return only valid JSON.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   // ── Organization Engine ────────────────────────────────────────────────────
   // Produces the full structured case Index from all available case data.
   // Called automatically after assembly completes.

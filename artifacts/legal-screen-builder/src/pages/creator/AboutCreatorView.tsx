@@ -73,18 +73,18 @@ const CAROUSEL_IMAGES: CarouselImage[] = [
   },
   {
     src: "/timeline-13.jpeg",
-    title: "Toodles — Nose Ring Thief",
-    description: "Caught in the act, chewing on my nose ring. She thought it was hers.",
-  },
-  {
-    src: "/timeline-14.jpeg",
     title: "Toodles — Chaos Mode",
     description: "Scaring my little brother just by existing. She was fearless.",
   },
   {
+    src: "/timeline-14.jpeg",
+    title: "Toodles — Nose Ring Thief",
+    description: "Caught in the act, chewing on my nose ring. She thought it was hers.",
+  },
+  {
     src: "/timeline-15.png",
-    title: "Toodles — Forever",
-    description: "She deserved stability and care. Rehoming her was the hardest decision I've ever made.",
+    title: "Toodles — Chicken Nugget",
+    description: "Her holding her chicken nugget. She earned it.",
   },
 ];
 

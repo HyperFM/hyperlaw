@@ -2727,9 +2727,7 @@ function EasterEggScreen({ onClose }: { onClose: () => void }) {
 function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
   size?: number; caseCount?: number; spinKey?: number;
 }) {
-  const MAX_CHAMBERS = 6;
   const [rotation, setRotation] = useState(0);
-  const [visibleFilled, setVisibleFilled] = useState(Math.min(caseCount, MAX_CHAMBERS));
   const rafRef    = useRef<number | null>(null);
   const startRef  = useRef<number>(0);
   const didMountRef = useRef(false);
@@ -2746,7 +2744,6 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
     if (spinKey === 0) return;
 
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    setVisibleFilled(0);
     startRef.current = performance.now();
 
     function tick(now: number) {
@@ -2754,18 +2751,12 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
       const t       = Math.min(elapsed / DURATION, 1);
       const eased   = easeOut(t);
 
-      // Raw degrees (may exceed 360 during spin, CSS handles it)
       setRotation(eased * TOTAL_DEG);
-
-      // Fill chambers only in the final 40% — matches visual deceleration
-      const fillT = t > 0.60 ? (t - 0.60) / 0.40 : 0;
-      setVisibleFilled(Math.round(fillT * Math.min(caseCount, MAX_CHAMBERS)));
 
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
         setRotation(0);
-        setVisibleFilled(Math.min(caseCount, MAX_CHAMBERS));
         rafRef.current = null;
       }
     }
@@ -2773,21 +2764,9 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [spinKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep chamber count fresh when cases change outside of a spin
-  useEffect(() => {
-    if (!rafRef.current) setVisibleFilled(Math.min(caseCount, MAX_CHAMBERS));
-  }, [caseCount]);
-
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  const excess = Math.max(0, caseCount - MAX_CHAMBERS);
-
-  // 6 chamber positions arranged in a circle (matching the PNG asset).
-  // Radius ≈ 31 % of the 100-unit viewBox from the centre at (50, 50).
-  const chambers = Array.from({ length: MAX_CHAMBERS }, (_, i) => {
-    const angle = (i * 60 - 90) * (Math.PI / 180); // start at 12 o'clock
-    return { cx: 50 + 31 * Math.cos(angle), cy: 50 + 31 * Math.sin(angle) };
-  });
+  const excess = Math.max(0, caseCount - 6);
 
   const transform = `rotate(${rotation}deg)`;
 
@@ -2807,26 +2786,6 @@ function BarrelIcon({ size = 28, caseCount = 0, spinKey = 0 }: {
           display: "block",
         }}
       />
-      {/* Filled-chamber overlay — rotates in sync so bullets stay inside chambers */}
-      <svg
-        viewBox="0 0 100 100"
-        style={{
-          position: "absolute", inset: 0,
-          width: size, height: size,
-          transform,
-          pointerEvents: "none",
-          overflow: "visible",
-        }}
-      >
-        {chambers.map((c, i) =>
-          i < visibleFilled ? (
-            <circle key={i} cx={c.cx} cy={c.cy} r={9}
-              fill="#fff" fillOpacity={0.92}
-              style={{ filter: "drop-shadow(0 0 2px #fff)" }}
-            />
-          ) : null
-        )}
-      </svg>
       {/* +N badge when user has more than 6 cases */}
       {excess > 0 && (
         <div style={{

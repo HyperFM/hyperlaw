@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { COMPLIANCE, VERIFICATION_CHECKLIST } from "../lib/compliance";
 import {
-  X, Lock, Unlock, Volume2, Download, Check, Loader2,
+  X, Lock, Trash2, Volume2, Download, Check, Loader2,
   Pause, Play, Square, AlertCircle,
 } from "lucide-react";
 import { aiApi, ServerGeneratedDoc } from "../lib/aiApi";
@@ -221,7 +221,7 @@ function HoldToUnlockButton({ onComplete, disabled }: { onComplete: () => void; 
     >
       {!active ? (
         <>
-          <Unlock size={15} />
+          <Trash2 size={15} color="#999" />
           Hold to Unlock (1 credit)
         </>
       ) : (

@@ -3994,10 +3994,15 @@ export default function App() {
     setNavTab("builder");
   }
 
+  function goHome() {
+    setView({ type: "home" });
+    setNavTab("home");
+  }
+
   function handleDeleteCaseWithSync(id: string) {
     setData(deleteCase(data, id));
     api.cases.delete(id).catch(() => {});
-    setView({ type: "home" });
+    goHome();
   }
 
   function handleNavChange(tab: NavTab) {
@@ -4018,7 +4023,7 @@ export default function App() {
     // ── New workflow phase screens ─────────────────────────────────────────────
     if (view.type === "case_parties") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <PartiesView
           hlCase={hlCase}
@@ -4031,7 +4036,7 @@ export default function App() {
 
     if (view.type === "case_court") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <CourtSelectionView
           hlCase={hlCase}
@@ -4044,7 +4049,7 @@ export default function App() {
 
     if (view.type === "case_story") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <StoryView
           hlCase={hlCase}
@@ -4057,7 +4062,7 @@ export default function App() {
 
     if (view.type === "case_timeline") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <TimelineView
           hlCase={hlCase}
@@ -4070,7 +4075,7 @@ export default function App() {
 
     if (view.type === "case_review") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <CaseReviewView
           hlCase={hlCase}
@@ -4088,7 +4093,7 @@ export default function App() {
 
     if (view.type === "case_assembly") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <AssemblyView
           hlCase={hlCase}
@@ -4105,7 +4110,7 @@ export default function App() {
 
     if (view.type === "case_learning") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <LearningIndexView
           hlCase={hlCase}
@@ -4121,7 +4126,7 @@ export default function App() {
 
     if (view.type === "document_intake") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
-      if (!hlCase) { setView({ type: "home" }); return null; }
+      if (!hlCase) { goHome(); return null; }
       return (
         <DocumentIntakeView
           docId={view.docId}
@@ -4173,7 +4178,7 @@ export default function App() {
           onAddIncident={() => openNewIncident(hlCase.id)}
           onAddReminder={r => setData(addReminder(data, r))}
           onDeleteReminder={id => setData(deleteReminder(data, id))}
-          onBack={() => setView({ type: "home" })}
+          onBack={() => { setView({ type: "home" }); setNavTab("home"); }}
           genDocsRefreshKey={genDocsRefreshKey}
           creditBalance={creditBalance}
           isAdmin={isAdmin}

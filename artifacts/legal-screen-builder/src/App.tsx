@@ -18,7 +18,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, DocumentIntakeAnalysis } from "./lib/aiApi";
 import { api } from "./lib/api";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
@@ -974,14 +974,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [editingTitle, setEditingTitle] = useState(false);
   const [notes, setNotes] = useState(hlCase.notes);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
-  const [uploadState, setUploadState] = useState<"idle" | "confirm" | "uploading" | "done" | "error">("idle");
+  const [uploadState, setUploadState] = useState<"idle" | "receiving" | "received" | "intake" | "gate" | "analyzing" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
-  const [uploadResult, setUploadResult] = useState<{ fileName: string; extraction: ReturnType<typeof Object.create> } | null>(null);
+  const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: DocumentIntakeAnalysis } | null>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [additionalContext, setAdditionalContext] = useState("");
+  const [pendingDocId, setPendingDocId] = useState<string | null>(null);
+  const [intakeStep, setIntakeStep] = useState(0);
+  const [intakeAnswers, setIntakeAnswers] = useState({ docType: "", preparedBy: "", hasParties: "", hasDates: "", additionalContext: "" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [jurisdiction, setJurisdiction] = useState(hlCase.jurisdiction ?? "");
   const [editingJurisdiction, setEditingJurisdiction] = useState(false);
@@ -1002,36 +1004,53 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       .finally(() => setGenDocsLoading(false));
   }, [hlCase.id, genDocsRefreshKey]); // genDocsRefreshKey increments when Tutor saves a doc
 
-  // Phase 1 — file selected → show confirmation screen
+  // Step 1 — file selected → store immediately (no AI), show received screen
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (fileInputRef.current) fileInputRef.current.value = "";
     setPendingFile(file);
-    setAdditionalContext("");
+    setPendingDocId(null);
     setUploadError(null);
-    setUploadState("confirm");
+    setIntakeStep(0);
+    setIntakeAnswers({ docType: "", preparedBy: "", hasParties: "", hasDates: "", additionalContext: "" });
+    setUploadState("receiving");
+    setUploadPct(0);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("caseId", hlCase.id);
+    aiApi.uploadWithProgress(form, setUploadPct)
+      .then(result => {
+        if (!result.docId) {
+          setUploadError("Document could not be stored. Please try again.");
+          setUploadState("error");
+          return;
+        }
+        setPendingDocId(result.docId);
+        setUploadState("received");
+      })
+      .catch(err => { setUploadError((err as Error).message || "Upload failed"); setUploadState("error"); });
   }
 
-  // Phase 2 — user held the analyze button → do the actual upload
-  async function handleConfirmAndUpload() {
-    if (!pendingFile) return;
-    setUploadState("uploading");
-    setUploadPct(0);
-    setUploadError(null);
+  // Step 4 — user completed hold-to-analyze → deduct credit + deep Claude analysis
+  async function handleAnalyzeDocument() {
+    if (!pendingDocId) {
+      setUploadError("Document was not stored — please upload the file again.");
+      setUploadState("error");
+      return;
+    }
+    setUploadState("analyzing");
     try {
-      const form = new FormData();
-      form.append("file", pendingFile);
-      form.append("caseId", hlCase.id);
-      if (additionalContext.trim()) form.append("additionalContext", additionalContext.trim());
-      const result = await aiApi.uploadWithProgress(form, setUploadPct);
-      setUploadResult({ fileName: pendingFile.name, extraction: result.extraction });
+      const result = await aiApi.analyzeDocumentWithIntake({ docId: pendingDocId, caseId: hlCase.id, intakeAnswers });
+      // Merge the AI summary into case notes — parties/timeline are available in
+      // the analysis result for the user to review and add manually via the workflow.
+      const updatedNotes = [hlCase.notes, result.analysis.summary].filter(Boolean).join("\n\n");
+      onUpdateCase({ ...hlCase, notes: updatedNotes });
+      setUploadResult({ fileName: result.fileName, analysis: result.analysis });
       setUploadState("done");
     } catch (err: unknown) {
-      setUploadError((err as Error).message || "Upload failed");
+      setUploadError((err as Error).message || "Analysis failed");
       setUploadState("error");
-    } finally {
-      setPendingFile(null);
     }
   }
 
@@ -1225,122 +1244,297 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 
         {caseDetailTab === "overview" && (<>
 
-        {/* Document Upload */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>DOCUMENTS</div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.heic,image/*"
-            style={{ display: "none" }}
-            onChange={handleFileSelect}
-          />
-          {(uploadState === "idle" || uploadState === "error") && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{ width: "100%", background: "#111", border: "1px dashed #2a2a2a", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}>
-              <Upload size={16} color={ORANGE} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Upload Document</div>
-                <div style={{ fontSize: 12, color: "#444", marginTop: 2 }}>PDF, DOCX, TXT, images · AI extracts case data</div>
-              </div>
-            </button>
-          )}
+        {/* ── Document Intake Workflow ───────────────────────────────── */}
+        {(() => {
+          const INTAKE_QUESTIONS = [
+            {
+              label: "What type of document is this?",
+              key: "docType" as const,
+              options: ["Draft Complaint", "Motion", "Court Order", "Police Report", "Medical Record", "Correspondence", "Evidence", "Other"],
+              cols: 2,
+            },
+            {
+              label: "Was this prepared by an attorney or by yourself?",
+              key: "preparedBy" as const,
+              options: ["Attorney", "Self Prepared", "Not Sure"],
+              cols: 3,
+            },
+            {
+              label: "Does this document identify the people involved?",
+              key: "hasParties" as const,
+              options: ["Yes", "No", "Partially"],
+              cols: 3,
+            },
+            {
+              label: "Does this document contain dates, times, and event details?",
+              key: "hasDates" as const,
+              options: ["Yes", "No", "Partially"],
+              cols: 3,
+            },
+          ];
+          const TOTAL_STEPS = 5;
+          const currentQ = INTAKE_QUESTIONS[intakeStep];
+          const canAdvanceIntake = intakeStep < 4
+            ? !!intakeAnswers[currentQ?.key as keyof typeof intakeAnswers]
+            : true; // step 4 (textarea) always allows continue
 
-          {/* ── Pre-analysis confirmation screen ── */}
-          {uploadState === "confirm" && pendingFile && (
-            <div style={{ background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "18px 16px" }}>
-              {/* File name */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                <FileText size={16} color={ORANGE} style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pendingFile.name}</div>
-                  <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>Ready to analyze</div>
+          return (
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>DOCUMENTS</div>
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.heic,image/*" style={{ display: "none" }} onChange={handleFileSelect} />
+
+              {/* ── IDLE / ERROR — Upload button ── */}
+              {(uploadState === "idle" || uploadState === "error") && (
+                <>
+                  <button onClick={() => fileInputRef.current?.click()}
+                    style={{ width: "100%", background: "#111", border: "1px dashed #2a2a2a", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}>
+                    <Upload size={16} color={ORANGE} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Upload Document</div>
+                      <div style={{ fontSize: 12, color: "#444", marginTop: 2 }}>PDF, DOCX, TXT, images · Guided intake before AI analysis</div>
+                    </div>
+                  </button>
+                  {uploadState === "error" && uploadError && (
+                    <div style={{ marginTop: 8, padding: "8px 12px", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>{uploadError}</div>
+                  )}
+                </>
+              )}
+
+              {/* ── RECEIVING — File uploading (store only) ── */}
+              {uploadState === "receiving" && (
+                <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+                    <div style={{ fontSize: 14, color: "#888", flex: 1 }}>
+                      {uploadPct < 100 ? `Receiving document… ${uploadPct}%` : "Storing document…"}
+                    </div>
+                  </div>
+                  <div style={{ background: "#1a1a1a", borderRadius: 4, height: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 4, background: ORANGE, width: `${Math.min(uploadPct, 100)}%`, transition: "width 0.2s ease" }} />
+                  </div>
                 </div>
-                <button onClick={() => { setPendingFile(null); setUploadState("idle"); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#444", padding: 4 }}>
-                  <X size={14} />
-                </button>
-              </div>
+              )}
 
-              {/* Optional context */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 8 }}>
-                  Any additional information to include with this document?
+              {/* ── RECEIVED — Success, start intake ── */}
+              {uploadState === "received" && pendingFile && (
+                <div style={{ background: "#0a120a", border: "1px solid #1a3a1a", borderRadius: 14, padding: "18px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                    <CheckCircle2 size={18} color="#22c55e" style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#22c55e" }}>Document received successfully.</div>
+                      <div style={{ fontSize: 12, color: "#444", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pendingFile.name}</div>
+                    </div>
+                    <button onClick={() => { setPendingFile(null); setPendingDocId(null); setUploadState("idle"); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#444", padding: 4 }}><X size={14} /></button>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#555", lineHeight: 1.6, marginBottom: 16 }}>
+                    No AI analysis has run yet. Before HyperLaw analyzes this document, answer a few quick questions so the AI has the full picture.
+                  </div>
+                  <button onClick={() => setUploadState("intake")}
+                    style={{ width: "100%", background: `linear-gradient(135deg, ${ORANGE}22, ${ORANGE}0d)`, border: `1.5px solid ${ORANGE}55`, borderRadius: 10, padding: "12px 16px", cursor: "pointer", color: ORANGE, fontWeight: 800, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    Start Intake Questions <ChevronRight size={16} />
+                  </button>
                 </div>
-                <textarea
-                  value={additionalContext}
-                  onChange={e => setAdditionalContext(e.target.value)}
-                  placeholder="e.g. This is a transcript from my arrest on March 4th — the officer's name is misspelled throughout…"
-                  rows={3}
-                  style={{
-                    width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a",
-                    borderRadius: 10, padding: "10px 12px", color: "#ccc", fontSize: 13,
-                    resize: "vertical", outline: "none", fontFamily: "inherit",
-                    lineHeight: 1.5, boxSizing: "border-box",
-                  }}
-                  onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
-                  onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
-                />
-                <div style={{ fontSize: 11, color: "#333", marginTop: 4 }}>Optional — leave blank to analyze as-is</div>
-              </div>
+              )}
 
-              {/* Hold-to-analyze button */}
-              <HoldToAnalyzeButton onComplete={handleConfirmAndUpload} />
-            </div>
-          )}
+              {/* ── INTAKE — 5-step wizard ── */}
+              {uploadState === "intake" && (
+                <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "20px 16px" }}>
+                  {/* Step dots */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 22 }}>
+                    {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+                      <div key={i} style={{
+                        width: i === intakeStep ? 20 : 7, height: 7, borderRadius: 4,
+                        background: i < intakeStep ? "#22c55e" : i === intakeStep ? ORANGE : "#2a2a2a",
+                        transition: "all 0.2s",
+                      }} />
+                    ))}
+                  </div>
 
-          {uploadState === "uploading" && (
-            <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
-                <div style={{ fontSize: 14, color: "#888", flex: 1 }}>
-                  {uploadPct < 100 ? `Uploading… ${uploadPct}%` : "Processing document…"}
+                  {/* Question */}
+                  {intakeStep < 4 && currentQ ? (
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", marginBottom: 16, lineHeight: 1.4 }}>
+                        {currentQ.label}
+                      </div>
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(${currentQ.cols}, 1fr)`,
+                        gap: 8, marginBottom: 20,
+                      }}>
+                        {currentQ.options.map(opt => {
+                          const selected = intakeAnswers[currentQ.key] === opt;
+                          return (
+                            <button key={opt}
+                              onClick={() => setIntakeAnswers(a => ({ ...a, [currentQ.key]: opt }))}
+                              style={{
+                                padding: "10px 8px", borderRadius: 10, cursor: "pointer",
+                                border: `1.5px solid ${selected ? ORANGE : "#2a2a2a"}`,
+                                background: selected ? `${ORANGE}22` : "#0d0d0d",
+                                color: selected ? ORANGE : "#666",
+                                fontSize: 12, fontWeight: 700, textAlign: "center",
+                                transition: "all 0.15s",
+                              }}>
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    /* Step 4 — textarea */
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", marginBottom: 6, lineHeight: 1.4 }}>
+                        Is there anything else HyperLaw should know before analyzing?
+                      </div>
+                      <div style={{ fontSize: 12, color: "#444", marginBottom: 12 }}>
+                        Additional facts, missing context, witness info, evidence details — anything important.
+                      </div>
+                      <textarea
+                        value={intakeAnswers.additionalContext}
+                        onChange={e => setIntakeAnswers(a => ({ ...a, additionalContext: e.target.value }))}
+                        placeholder="e.g. The officer's name is misspelled throughout. There were two witnesses present: Maria Santos and James Lee. The report omits what happened after I was handcuffed…"
+                        rows={5}
+                        style={{
+                          width: "100%", background: "#0a0a0a", border: "1px solid #2a2a2a",
+                          borderRadius: 10, padding: "12px 14px", color: "#ccc", fontSize: 13,
+                          resize: "vertical", outline: "none", fontFamily: "inherit",
+                          lineHeight: 1.6, boxSizing: "border-box", marginBottom: 4,
+                        }}
+                        onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+                        onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+                      />
+                      <div style={{ fontSize: 11, color: "#333", marginBottom: 16 }}>Optional — leave blank if nothing to add</div>
+                    </>
+                  )}
+
+                  {/* Nav buttons */}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => intakeStep === 0 ? setUploadState("received") : setIntakeStep(s => s - 1)}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: "1px solid #2a2a2a", background: "none", color: "#555", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                      ← Back
+                    </button>
+                    <button
+                      disabled={!canAdvanceIntake}
+                      onClick={() => {
+                        if (intakeStep < 4) setIntakeStep(s => s + 1);
+                        else setUploadState("gate");
+                      }}
+                      style={{
+                        flex: 2, padding: "10px", borderRadius: 10, cursor: canAdvanceIntake ? "pointer" : "not-allowed",
+                        border: `1.5px solid ${canAdvanceIntake ? ORANGE : "#2a2a2a"}`,
+                        background: canAdvanceIntake ? `${ORANGE}22` : "transparent",
+                        color: canAdvanceIntake ? ORANGE : "#333",
+                        fontSize: 13, fontWeight: 800, transition: "all 0.15s",
+                      }}>
+                      {intakeStep < 4 ? "Next →" : "Continue to Analysis →"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div style={{ background: "#1a1a1a", borderRadius: 4, height: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 4, background: ORANGE,
-                  width: `${Math.min(uploadPct, 100)}%`,
-                  transition: "width 0.2s ease",
-                }} />
-              </div>
-            </div>
-          )}
-          {uploadState === "done" && uploadResult && (
-            <div style={{ background: "#0d1a0d", border: "1px solid #1a3a1a", borderRadius: 12, padding: "14px 16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <CheckCircle2 size={16} color="#22c55e" />
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#22c55e", flex: 1 }}>Document processed</div>
-                <button onClick={() => { setUploadState("idle"); setUploadResult(null); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#444" }}><X size={14} /></button>
-              </div>
-              <div style={{ fontSize: 12, color: "#555", marginBottom: uploadResult.extraction ? 10 : 0 }}>{uploadResult.fileName}</div>
-              {uploadResult.extraction && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {uploadResult.extraction.plaintiff && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Plaintiff: </span>{uploadResult.extraction.plaintiff}</div>}
-                  {uploadResult.extraction.defendant && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Defendant: </span>{uploadResult.extraction.defendant}</div>}
-                  {uploadResult.extraction.court && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Court: </span>{uploadResult.extraction.court}</div>}
-                  {uploadResult.extraction.caseNumber && <div style={{ fontSize: 13, color: "#ccc" }}><span style={{ color: "#555" }}>Case No.: </span>{uploadResult.extraction.caseNumber}</div>}
-                  {uploadResult.extraction.claims?.length > 0 && (
-                    <div style={{ fontSize: 13, color: "#ccc" }}>
-                      <span style={{ color: "#555" }}>Claims: </span>
-                      {(uploadResult.extraction.claims as string[]).slice(0, 3).join(", ")}
+              )}
+
+              {/* ── GATE — Premium analysis screen ── */}
+              {uploadState === "gate" && (
+                <div style={{ background: "#0a0a0a", border: `1.5px solid ${ORANGE}55`, borderRadius: 16, padding: "22px 18px" }}>
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: `${ORANGE}22`, border: `1.5px solid ${ORANGE}44`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Brain size={18} color={ORANGE} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 900, fontSize: 15, color: "#fff" }}>This document is ready for analysis.</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>HyperLaw AI · Deep Case Intake</div>
+                    </div>
+                  </div>
+
+                  {/* What Claude will do */}
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#444", letterSpacing: 0.5, marginBottom: 10 }}>HYPERLAW WILL:</div>
+                    {[
+                      "Review the full uploaded document",
+                      "Combine your intake answers as context",
+                      "Extract all parties and their roles",
+                      "Build a complete event timeline",
+                      "Identify legal issues and violations",
+                      "Detect missing information and gaps",
+                      "Organize your case file automatically",
+                    ].map(item => (
+                      <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7 }}>
+                        <div style={{ width: 5, height: 5, borderRadius: "50%", background: ORANGE, flexShrink: 0, marginTop: 5 }} />
+                        <div style={{ fontSize: 13, color: "#bbb" }}>{item}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Credit cost */}
+                  <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ fontSize: 13, color: "#666" }}>Credit cost</div>
+                    <div style={{ fontWeight: 900, fontSize: 15, color: ORANGE }}>1 credit</div>
+                  </div>
+
+                  {/* Back link */}
+                  <button onClick={() => { setIntakeStep(4); setUploadState("intake"); }}
+                    style={{ background: "none", border: "none", color: "#444", fontSize: 12, cursor: "pointer", marginBottom: 12, padding: 0 }}>
+                    ← Edit intake answers
+                  </button>
+
+                  {/* Hold-to-analyze */}
+                  <HoldToAnalyzeButton onComplete={handleAnalyzeDocument} />
+                </div>
+              )}
+
+              {/* ── ANALYZING — Claude working ── */}
+              {uploadState === "analyzing" && (
+                <div style={{ background: "#0a0a0a", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "28px 20px", textAlign: "center" }}>
+                  <div style={{ width: 56, height: 56, borderRadius: "50%", background: `${ORANGE}18`, border: `2px solid ${ORANGE}44`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                    <Brain size={24} color={ORANGE} style={{ filter: `drop-shadow(0 0 8px ${ORANGE})` }} />
+                  </div>
+                  <Loader2 size={20} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 12 }} />
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#ccc", marginBottom: 6 }}>HyperLaw is analyzing your case…</div>
+                  <div style={{ fontSize: 12, color: "#444" }}>Reading document · Combining your answers · Building case memory</div>
+                </div>
+              )}
+
+              {/* ── DONE — Analysis complete ── */}
+              {uploadState === "done" && uploadResult && (
+                <div style={{ background: "#0a120a", border: "1px solid #1a3a1a", borderRadius: 14, padding: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                    <CheckCircle2 size={16} color="#22c55e" />
+                    <div style={{ fontWeight: 800, fontSize: 14, color: "#22c55e", flex: 1 }}>Case memory updated</div>
+                    <button onClick={() => { setUploadState("idle"); setUploadResult(null); setPendingDocId(null); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#444" }}><X size={14} /></button>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#555", marginBottom: 12 }}>{uploadResult.fileName}</div>
+                  {uploadResult.analysis.summary && (
+                    <div style={{ fontSize: 13, color: "#bbb", lineHeight: 1.65, fontFamily: "Georgia, serif", marginBottom: 12, padding: "10px 12px", background: "#111", borderRadius: 8, borderLeft: `3px solid ${ORANGE}` }}>
+                      {uploadResult.analysis.summary}
                     </div>
                   )}
-                  {uploadResult.extraction.summary && (
-                    <div style={{ fontSize: 12, color: "#666", fontStyle: "italic", marginTop: 4, lineHeight: 1.5 }}>{uploadResult.extraction.summary}</div>
-                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {uploadResult.analysis.parties?.length > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6", background: "#8b5cf611", border: "1px solid #8b5cf633", borderRadius: 6, padding: "2px 8px" }}>
+                        {uploadResult.analysis.parties.length} parties extracted
+                      </span>
+                    )}
+                    {uploadResult.analysis.timeline?.length > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", background: "#22c55e11", border: "1px solid #22c55e33", borderRadius: 6, padding: "2px 8px" }}>
+                        {uploadResult.analysis.timeline.length} timeline events
+                      </span>
+                    )}
+                    {uploadResult.analysis.legalIssues?.length > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: ORANGE, background: `${ORANGE}11`, border: `1px solid ${ORANGE}33`, borderRadius: 6, padding: "2px 8px" }}>
+                        {uploadResult.analysis.legalIssues.length} legal issues
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          )}
-          {uploadState === "error" && uploadError && (
-            <div style={{ marginTop: 6, padding: "8px 12px", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>{uploadError}</div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Generated Documents */}
         <div style={{ marginBottom: 28 }}>

@@ -29,6 +29,17 @@ export interface AiChatMessage {
   content: string;
 }
 
+export interface DocumentIntakeAnalysis {
+  title: string;
+  summary: string;
+  parties: Array<{ name: string; role: string; details?: string }>;
+  timeline: Array<{ date: string; description: string; significance?: string }>;
+  evidence: Array<{ description: string; type: string; strength?: string }>;
+  legalIssues: string[];
+  openQuestions: string[];
+  notes?: string;
+}
+
 export interface CaseExtraction {
   plaintiff?: string | null;
   defendant?: string | null;
@@ -1041,6 +1052,69 @@ Return only the JSON object.`;
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("AI returned invalid JSON format");
     return JSON.parse(jsonMatch[0]) as T;
+  }
+
+  // ── Deep document intake analysis ─────────────────────────────────────────
+  async analyzeDocumentWithIntake(
+    documentText: string,
+    intakeAnswers: {
+      docType: string;
+      preparedBy: string;
+      hasParties: string;
+      hasDates: string;
+      additionalContext: string;
+    },
+  ): Promise<AiResult<DocumentIntakeAnalysis>> {
+    const prompt = `You are HyperLaw AI — a legal case management assistant helping a pro se litigant understand their uploaded document.
+
+INTAKE ANSWERS PROVIDED BY USER:
+- Document type: ${intakeAnswers.docType}
+- Prepared by: ${intakeAnswers.preparedBy}
+- Parties identified in document: ${intakeAnswers.hasParties}
+- Dates/times/events present: ${intakeAnswers.hasDates}
+- Additional context from user: ${intakeAnswers.additionalContext || "None provided"}
+
+FULL DOCUMENT TEXT:
+${documentText.slice(0, 15000)}
+
+Analyze this document thoroughly using both its content and the intake answers above. Return ONLY valid JSON:
+
+{
+  "title": "Short descriptive case title based on document content (e.g. 'Smith v. City of Denver — Police Misconduct')",
+  "summary": "3-4 sentence plain-language executive summary: what this document is, what it establishes, and why it matters to the case",
+  "parties": [
+    { "name": "Full name exactly as written", "role": "plaintiff|defendant|witness|judge|attorney|officer|other", "details": "position or relevant detail" }
+  ],
+  "timeline": [
+    { "date": "Date or time reference as written in document", "description": "What happened — specific factual description", "significance": "Why this moment matters legally" }
+  ],
+  "evidence": [
+    { "description": "What the evidence item is", "type": "document|photo|testimony|record|report|other", "strength": "strong|moderate|weak" }
+  ],
+  "legalIssues": ["Specific legal claim, violation, or cause of action identified"],
+  "openQuestions": ["Important unanswered question about facts, law, or evidence raised by this document"],
+  "notes": "Any additional observations — inconsistencies, red flags, or strategic considerations"
+}
+
+Rules:
+- Extract only what is actually in the document or clearly implied. Do not fabricate.
+- parties: include every named individual and organization
+- timeline: include every date, deadline, or time reference
+- legalIssues: name specific statutes, amendments, or legal theories where identifiable
+- Return only the JSON object, no explanation`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      system: "You are HyperLaw AI, a precise legal document analyst. Extract structured information accurately. Never fabricate facts not present in the document.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse<DocumentIntakeAnalysis>(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
   }
 
   private parseJsonArray<T>(raw: string): T[] {

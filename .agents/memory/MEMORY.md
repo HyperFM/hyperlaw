@@ -12,3 +12,4 @@
 - [HyperLaw Index Clouds](hyperlaw-index-clouds.md) — TutorAnalysis defined in 2 files (must stay in sync); cloud color system; HoldToUnlockButton cleanup + credit-loading rules.
 - [HyperLaw Exhibit Studio](hyperlaw-exhibit-studio.md) — Studio tab (formerly Builder); video workspace; object URL ref cleanup; functional setState for in-flight AI; empty-dictation guard; jurisdiction verify hold+cache.
 - [HyperLaw Creator Page](hyperlaw-creator-page.md) — Profile photo (localStorage base64 + profilePhotoChanged event); creator button; AboutCreatorView with hero/carousel/CTA; about_creator AppView type.
+- [HyperLaw Document Intake](hyperlaw-document-intake.md) — upload stores only (no AI); 5-step wizard; credit deducted at hold-to-analyze; Party/TimelineEvent types prevent direct AI merge (notes only).

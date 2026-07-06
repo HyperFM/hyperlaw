@@ -66,6 +66,17 @@ export interface UploadResult {
   fromCache?: boolean;
 }
 
+export interface DocumentIntakeAnalysis {
+  title: string;
+  summary: string;
+  parties: Array<{ name: string; role: string; details?: string }>;
+  timeline: Array<{ date: string; description: string; significance?: string }>;
+  evidence: Array<{ description: string; type: string; strength?: string }>;
+  legalIssues: string[];
+  openQuestions: string[];
+  notes?: string;
+}
+
 // ── Admin types ───────────────────────────────────────────────────────────────
 
 export interface AiLog {
@@ -561,6 +572,28 @@ export const aiApi = {
       xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
       xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
       xhr.send(form);
+    });
+  },
+
+  /**
+   * Deep document analysis — requires 1 credit.
+   * Sends stored doc text + intake answers to Claude for full case extraction.
+   */
+  analyzeDocumentWithIntake(params: {
+    docId: string;
+    caseId: string;
+    intakeAnswers: {
+      docType: string;
+      preparedBy: string;
+      hasParties: string;
+      hasDates: string;
+      additionalContext: string;
+    };
+  }): Promise<{ ok: boolean; analysis: DocumentIntakeAnalysis; fileName: string }> {
+    return aiFetch("/ai/analyze-document", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
     });
   },
 

@@ -13,9 +13,9 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable } from "@workspace/db";
 import { storage } from "../storage.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
 
 const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
@@ -272,53 +272,10 @@ router.post(
     const userId = auth.userId;
 
     try {
-      // 1. Extract text from the document
+      // 1. Parse text from the document — no AI analysis at this stage
       const parsed = await parseDocument(buffer, mimetype, originalname);
 
-      // 2. AI-extract case metadata — check cache by content hash first
-      let extraction = null;
-      let docExtractionFromCache = false;
-
-      if (aiService.isConfigured() && parsed.wordCount > 20) {
-        const extractKey = computeCacheKey("extract_document", parsed.text.slice(0, 5000));
-        const cached = await getFromCache(userId, extractKey);
-
-        if (cached) {
-          extraction = cached.result;
-          docExtractionFromCache = true;
-          void logAiCall({
-            userId,
-            feature: "extract_document",
-            model: MODEL,
-            inputTokens: 0, outputTokens: 0, estimatedCostMicroUsd: 0, responseTimeMs: 0,
-            cacheHit: true, promptTemplate: "extract_document",
-          });
-        } else {
-          try {
-            const aiResult = await aiService.extractFromDocument(parsed.text);
-            extraction = aiResult.data;
-            void logAiCall({
-              userId,
-              feature: "extract_document",
-              model: aiResult.meta.model,
-              inputTokens: aiResult.meta.inputTokens,
-              outputTokens: aiResult.meta.outputTokens,
-              estimatedCostMicroUsd: aiResult.meta.estimatedCostMicroUsd,
-              responseTimeMs: aiResult.meta.responseTimeMs,
-              cacheHit: false,
-              promptTemplate: "extract_document",
-            });
-            void setCache(userId, extractKey, "extract_document", extraction);
-          } catch {
-            // Non-fatal — upload still succeeds without extraction
-          }
-        }
-      }
-
-      // 3. OCR logging (handled inside parseDocument when it calls aiService.ocrImage)
-      // If the document was parsed via OCR, that call is logged separately by the image branch below.
-
-      // 4. Persist to DB
+      // 2. Persist to DB — store raw text for later analysis
       let docId: string | null = null;
       try {
         const caseId = typeof req.body.caseId === "string" ? req.body.caseId : null;
@@ -328,21 +285,22 @@ router.post(
           fileName: originalname,
           mimeType: mimetype,
           extractedText: parsed.text.slice(0, 50_000),
-          caseExtraction: extraction as Record<string, unknown> | null,
+          caseExtraction: null,
         }).returning({ id: uploadedDocumentsTable.id });
         docId = rows[0]?.id ?? null;
       } catch {
         // DB storage failure is non-fatal
       }
 
+      // 3. Return receipt — no AI extraction here; call POST /ai/analyze-document for that
       res.json({
         docId,
         method: parsed.method,
         pageCount: parsed.pageCount,
         wordCount: parsed.wordCount,
         textPreview: parsed.text.slice(0, 2000),
-        extraction,
-        fromCache: docExtractionFromCache,
+        extraction: null,
+        fromCache: false,
       });
     } catch (err) {
       // Log failure for admin visibility — truly fire-and-forget (no await)
@@ -364,6 +322,145 @@ router.post(
     }
   },
 );
+
+// ── POST /ai/analyze-document ──────────────────────────────────────────────────
+// Deducts 1 credit, runs deep Claude analysis on a stored document, updates the case.
+// Body: { docId, caseId, intakeAnswers: { docType, preparedBy, hasParties, hasDates, additionalContext } }
+router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+    return;
+  }
+
+  const { docId, caseId, intakeAnswers } = req.body as {
+    docId?: string;
+    caseId?: string;
+    intakeAnswers?: { docType: string; preparedBy: string; hasParties: string; hasDates: string; additionalContext: string };
+  };
+
+  if (!docId) { res.status(400).json({ error: "docId is required" }); return; }
+  if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
+  if (!intakeAnswers) { res.status(400).json({ error: "intakeAnswers is required" }); return; }
+
+  const userId = auth.userId;
+
+  try {
+    // 1. Load document text from DB
+    const [doc] = await db
+      .select({
+        extractedText: uploadedDocumentsTable.extractedText,
+        fileName: uploadedDocumentsTable.fileName,
+        userId: uploadedDocumentsTable.userId,
+        caseExtraction: uploadedDocumentsTable.caseExtraction,
+      })
+      .from(uploadedDocumentsTable)
+      .where(and(eq(uploadedDocumentsTable.id, docId), eq(uploadedDocumentsTable.userId, userId)));
+
+    if (!doc) { res.status(404).json({ error: "Document not found" }); return; }
+    if (!doc.extractedText || doc.extractedText.trim().length < 10) {
+      res.status(422).json({ error: "Document has no extractable text" });
+      return;
+    }
+
+    // Idempotency guard — if this document was already analyzed, return the stored result
+    // without charging another credit.
+    if (doc.caseExtraction) {
+      res.json({ ok: true, analysis: doc.caseExtraction, fileName: doc.fileName, fromCache: true });
+      return;
+    }
+
+    // 2. Deduct 1 credit (atomic — returns false if balance < 1)
+    const deducted = await storage.deductCredit(userId);
+    if (!deducted) {
+      const balance = await storage.getCreditBalance(userId);
+      res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balance });
+      return;
+    }
+
+    // 3. Run deep analysis with Claude
+    let analysis;
+    try {
+      const aiResult = await aiService.analyzeDocumentWithIntake(doc.extractedText, intakeAnswers);
+      analysis = aiResult.data;
+      void logAiCall({
+        userId,
+        feature: "analyze_document_intake",
+        model: aiResult.meta.model,
+        inputTokens: aiResult.meta.inputTokens,
+        outputTokens: aiResult.meta.outputTokens,
+        estimatedCostMicroUsd: aiResult.meta.estimatedCostMicroUsd,
+        responseTimeMs: aiResult.meta.responseTimeMs,
+        cacheHit: false,
+        promptTemplate: "analyze_document_intake",
+      });
+    } catch (claudeErr) {
+      // Refund credit if Claude fails
+      await db.execute(
+        sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${userId}`
+      );
+      throw claudeErr;
+    }
+
+    // 4. Store analysis back on the document record
+    try {
+      await db
+        .update(uploadedDocumentsTable)
+        .set({ caseExtraction: analysis as unknown as Record<string, unknown> })
+        .where(eq(uploadedDocumentsTable.id, docId));
+    } catch { /* non-fatal */ }
+
+    // 5. Merge extracted data into the case (via the case's caseData JSONB column)
+    try {
+      const [existingCase] = await db
+        .select({ caseData: casesTable.caseData })
+        .from(casesTable)
+        .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+
+      if (existingCase) {
+        const existing = (existingCase.caseData ?? {}) as Record<string, unknown>;
+        // Merge new parties into existing parties array
+        const existingParties = (existing.parties as unknown[]) ?? [];
+        const newParties = (analysis.parties ?? []).map((p: { name: string; role: string; details?: string }) => ({
+          id: crypto.randomUUID(),
+          name: p.name,
+          role: p.role === "plaintiff" ? "plaintiff" : p.role === "defendant" ? "defendant" : "other",
+          description: p.details ?? "",
+        }));
+        const mergedParties = [...existingParties, ...newParties];
+
+        // Merge new timeline events
+        const existingTimeline = (existing.timeline as unknown[]) ?? [];
+        const newTimeline = (analysis.timeline ?? []).map((t: { date: string; description: string; significance?: string }) => ({
+          id: crypto.randomUUID(),
+          date: t.date,
+          title: t.description.slice(0, 80),
+          description: t.significance ?? t.description,
+          category: "other",
+        }));
+        const mergedTimeline = [...existingTimeline, ...newTimeline];
+
+        // Append analysis notes to case notes
+        const existingNotes = (existing.notes as string) ?? "";
+        const newNotes = [existingNotes, analysis.summary].filter(Boolean).join("\n\n");
+
+        await db
+          .update(casesTable)
+          .set({
+            caseData: { ...existing, parties: mergedParties, timeline: mergedTimeline, notes: newNotes },
+            updatedAt: new Date(),
+          })
+          .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+      }
+    } catch { /* non-fatal — analysis result still returned */ }
+
+    res.json({ ok: true, analysis, fileName: doc.fileName });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Document analysis failed" });
+  }
+});
 
 // ── GET /ai/documents/:caseId ──────────────────────────────────────────────────
 router.get("/ai/documents/:caseId", async (req: Request, res: Response): Promise<void> => {

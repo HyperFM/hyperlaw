@@ -22,7 +22,8 @@ export type AiFeature =
   | "learning"
   | "extract_document"
   | "ocr_image"
-  | "generate_document";
+  | "generate_document"
+  | "analyze_document_intake";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

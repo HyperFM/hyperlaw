@@ -1,0 +1,263 @@
+Replit Update Request: Redesign Document Intake Workflow
+
+Problem
+
+Currently, when a user uploads a document:
+
+1. The system immediately begins generating case summaries.
+2. It creates factual gaps.
+3. It generates investigative questions.
+4. It creates a partial case file.
+
+This is happening too early.
+
+The uploaded document should be stored first, then HyperLaw should gather context from the user before any AI analysis occurs.
+
+The AI should only run after the user explicitly chooses to analyze the document and spends a credit.
+
+⸻
+
+New Workflow
+
+Step 1: Upload Document
+
+User uploads:
+
+* PDF
+* DOCX
+* TXT
+* Image
+
+System stores the file.
+
+No AI analysis yet.
+
+No factual gaps.
+
+No generated questions.
+
+No case summary.
+
+No case index generation.
+
+Simply display:
+
+“Document received successfully.”
+
+⸻
+
+Step 2: Guided Intake Questions
+
+Replace the current AI-generated screens with a clean onboarding flow.
+
+Question 1
+
+What type of document is this?
+
+Options:
+
+* Draft Complaint
+* Motion
+* Court Order
+* Police Report
+* Medical Record
+* Correspondence
+* Evidence
+* Other
+
+⸻
+
+Question 2
+
+Was this document prepared by an attorney or by yourself?
+
+Options:
+
+* Attorney
+* Self Prepared
+* Not Sure
+
+⸻
+
+Question 3
+
+Does this document already identify the people involved?
+
+Options:
+
+* Yes
+* No
+* Partially
+
+⸻
+
+Question 4
+
+Does this document already contain dates, times, and event details?
+
+Options:
+
+* Yes
+* No
+* Partially
+
+⸻
+
+Question 5
+
+Is there anything else you would like HyperLaw to know before analyzing this document?
+
+Large text box.
+
+User can provide:
+
+* Additional facts
+* Missing context
+* Evidence details
+* Witness information
+* Anything important
+
+⸻
+
+Step 3: Analysis Gate
+
+After all questions are answered:
+
+Show a premium screen.
+
+⸻
+
+Analyze Case
+
+This document is ready for AI analysis.
+
+HyperLaw will:
+
+* Review the uploaded document
+* Combine your answers
+* Extract facts
+* Identify parties
+* Build a timeline
+* Detect missing information
+* Organize your case file
+
+Credit Cost: 1
+
+⸻
+
+Analyze Button
+
+Make this the premium experience:
+
+* Orange glow
+* Hold-to-analyze interaction
+* Circular progress animation
+* Subtle haptic vibration
+* Metallic glow effect
+
+Only after the hold completes:
+
+* Deduct credit
+* Send document + answers to Claude
+
+⸻
+
+Claude’s Job
+
+Only after payment:
+
+Claude should:
+
+1. Read the entire document.
+2. Read all intake answers.
+3. Extract parties.
+4. Extract timeline.
+5. Extract evidence.
+6. Extract legal issues.
+7. Build structured case memory.
+
+Then create:
+
+* Case Summary
+* Timeline
+* Parties
+* Evidence
+* Open Questions
+* Drafting Data
+
+⸻
+
+Extremely Important: Case Memory
+
+Current concern:
+
+“Will Claude remember the case?”
+
+Answer:
+
+No.
+
+Claude API does NOT remember anything between requests.
+
+Every API call is stateless.
+
+⸻
+
+Required Architecture
+
+Create a Case Memory Database.
+
+Each case should have:
+
+{
+  "caseId": "...",
+  "documents": [],
+  "timeline": [],
+  "parties": [],
+  "evidence": [],
+  "notes": [],
+  "analysis": [],
+  "generatedDrafts": []
+}
+
+Claude should never be the memory.
+
+The HyperLaw database should be the memory.
+
+Claude only:
+
+* Reads memory
+* Updates memory
+* Generates output
+
+Then memory is saved back to the case.
+
+⸻
+
+User Experience Goal
+
+The user should feel:
+
+Upload Document
+↓
+Answer Simple Questions
+↓
+Pay Credit
+↓
+AI Analyzes Everything
+↓
+Case Memory Updates
+↓
+HyperLaw Now Understands The Entire Case
+
+Instead of:
+
+Upload Document
+↓
+Random AI Summary
+↓
+Random Questions
+↓
+Confusing Screens
+↓
+Incomplete Analysis

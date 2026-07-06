@@ -1,0 +1,421 @@
+
+
+
+HyperLaw Pre-Final Architecture Update
+
+Objective
+
+This is the final major architecture update before testing and polish.
+
+Do not rebuild HyperLaw.
+
+Instead, refactor the existing application so every feature follows one consistent workflow.
+
+Reuse existing components wherever possible and preserve all working functionality.
+
+The goal is to reduce complexity, automate repetitive tasks, and create a unified case workspace.
+
+⸻
+
+Core Philosophy
+
+The user should never have to organize their own case if HyperLaw can do it automatically.
+
+HyperLaw is not an AI chat application.
+
+HyperLaw is an AI-powered legal case workspace that transforms user information into an organized, structured case.
+
+Claude is the reasoning engine—not the product.
+
+The structured case database becomes the source of truth.
+
+⸻
+
+Overall Workflow
+
+Every case should follow this lifecycle.
+
+Create Case
+
+↓
+
+Complete Intake
+
+↓
+
+Upload supporting documents/evidence (optional but encouraged)
+
+↓
+
+Claude analyzes all available information
+
+↓
+
+Claude detects missing information
+
+↓
+
+If necessary, Claude performs one comprehensive follow-up interview
+
+↓
+
+Structured Case Database updates
+
+↓
+
+All automation engines update automatically
+
+↓
+
+User enters the completed Case Workspace
+
+No unnecessary manual organization.
+
+No duplicate analysis.
+
+⸻
+
+Intake Engine
+
+Keep the existing intake process.
+
+Improve it by ensuring users can:
+
+* Type their narrative.
+* Dictate their narrative.
+* Upload documents.
+* Upload evidence.
+* Enter every involved party.
+
+Maintain the nickname system already planned.
+
+Each party should have:
+
+* Full legal name
+* User-defined nickname
+
+Example:
+
+Jonathan Michael Smith
+
+Nickname:
+
+Officer
+
+During dictation and future processing, Claude should understand that “Officer” refers to Jonathan Michael Smith.
+
+This improves transcription accuracy and consistency.
+
+⸻
+
+Claude Interview Rules
+
+After intake, send all collected information to Claude.
+
+Claude’s responsibility is to gather enough information to build the strongest possible structured case while minimizing API usage.
+
+Interview rules:
+
+* Ask as many follow-up questions as possible in one response.
+* Encourage users to answer every question in one detailed reply.
+* Avoid one-question-at-a-time conversations.
+* Only continue interviewing if important information is still missing.
+* Never ask unnecessary questions.
+
+The interview should feel efficient instead of conversational.
+
+⸻
+
+Structured Case Database
+
+Claude should organize information into one structured case.
+
+This database becomes the permanent source used throughout the application.
+
+Original uploaded files remain attached as evidence.
+
+The structured case should include (when applicable):
+
+* Executive Summary
+* Parties
+* Timeline
+* Key Facts
+* Evidence
+* Claims
+* Potential Violations
+* Constitutional Amendments
+* Statutes
+* Definitions
+* Important Quotes
+* Deadlines
+* Complaint Draft
+* Supporting Notes
+
+⸻
+
+Organization Engine
+
+Once Claude completes analysis, automatically generate and save:
+
+* Index
+* Timeline
+* Parties
+* Evidence
+* Violations
+* Definitions
+* Complaint Draft
+* Deadlines
+
+No manual sorting.
+
+No manual organization.
+
+Every feature should read from the structured case database.
+
+⸻
+
+Index (Replacing Tutor)
+
+Rename the Tutor feature to Index.
+
+The Index is not an AI chat.
+
+The Index is an interactive reference center for the user’s case.
+
+Its purpose is to help users quickly understand and remember the important concepts within their own case.
+
+The Index should automatically organize:
+
+* Violations
+* Constitutional Amendments
+* Statutes
+* Parties
+* Evidence
+* Legal Concepts
+* Important Facts
+* Deadlines
+
+⸻
+
+Interactive Index Clouds
+
+Replace traditional lists with interactive concept clouds whenever practical.
+
+Each cloud represents one important concept.
+
+Examples:
+
+* Fourth Amendment
+* Officer Smith
+* False Arrest
+* Body Camera
+* Qualified Immunity
+
+Tapping a cloud expands it into a detailed information card showing:
+
+* Description
+* Supporting facts
+* Related evidence
+* Related people
+* Related timeline events
+* Why it is important within the user’s case
+
+The Index is intended to reinforce memory and organization—not provide legal advice.
+
+⸻
+
+Color System
+
+Color-code Index concepts consistently.
+
+Suggested categories:
+
+* Blue = Constitutional Amendments
+* Orange = Statutes
+* Green = Evidence
+* Purple = Parties
+* Red = Violations
+* Gray = Deadlines
+* Yellow = Legal Concepts
+
+This color system should remain consistent throughout the application.
+
+⸻
+
+Case Navigation
+
+Allow users to switch between cases directly from the top of the workspace without returning to the dashboard.
+
+Case switching should be fast and preserve context whenever possible.
+
+⸻
+
+Relationship Mapping
+
+Every item inside the Index should be connected.
+
+Selecting a person should immediately display:
+
+* Related evidence
+* Related violations
+* Timeline entries
+* Complaint references
+* Builder references
+* Documents
+
+Every important concept should link naturally throughout the case.
+
+⸻
+
+Automatic Triggers
+
+Claude does not decide what to generate.
+
+The application controls the workflow.
+
+Example:
+
+Document uploaded
+
+↓
+
+Analysis Engine
+
+↓
+
+Structured Case updates
+
+↓
+
+Automatically regenerate:
+
+* Index
+* Timeline
+* Parties
+* Evidence
+* Violations
+* Complaint
+* Deadlines
+
+No manual refresh required.
+
+⸻
+
+Prompt Architecture
+
+Separate Claude into reusable prompt templates.
+
+At minimum:
+
+* Intake Engine
+* Gap Detection Engine
+* Organization Engine
+* Timeline Engine
+* Complaint Draft Engine
+* Builder Engine
+
+Each engine should have:
+
+* One responsibility
+* Consistent output
+* Structured responses suitable for storage
+
+⸻
+
+Builder Engine
+
+Retain the existing Builder feature but automate it.
+
+When users select evidence or describe an event:
+
+Claude should generate an illustrative presentation slide using the existing template.
+
+Whenever supported by the user’s materials, automatically include:
+
+* Parties
+* Relevant facts
+* Relevant violations
+* Supporting quotations
+* Citations already available within the case
+
+The Builder should create persuasive visual aids while making clear that local court rules vary and users remain responsible for ensuring compliance with applicable filing and evidentiary requirements.
+
+⸻
+
+Automation Philosophy
+
+Every automation should begin with the structured case database.
+
+Whenever information changes:
+
+* Update the database.
+* Refresh every affected feature automatically.
+* Avoid duplicate AI analysis whenever possible.
+
+⸻
+
+API Efficiency
+
+Minimize unnecessary Claude usage.
+
+Reuse existing structured data whenever possible.
+
+Only perform additional analysis when:
+
+* New information is added.
+* Existing information changes.
+* A required automation has never been generated.
+
+⸻
+
+Subscription Behavior
+
+Maintain the existing subscription model while aligning automation.
+
+Pay-As-You-Go
+
+Users purchase credits.
+
+Credits unlock individual automation features as needed.
+
+Pro Se
+
+Users receive monthly credits.
+
+Credits can be spent across available automation features.
+
+Additional credits may be purchased if needed.
+
+Apex Litigant
+
+Unlimited automation.
+
+No credit prompts.
+
+No feature unlock prompts.
+
+All eligible automation runs automatically.
+
+The premium experience should feel frictionless.
+
+⸻
+
+User Experience Goal
+
+Every interaction should reduce cognitive overload.
+
+Users should feel like HyperLaw is taking scattered legal information and automatically transforming it into a clean, organized workspace that is easier to understand, review, and maintain.
+
+The experience should feel calm, structured, and efficient rather than chat-focused.
+
+⸻
+
+Final Implementation Notes
+
+* Preserve existing functionality wherever possible.
+* Connect current features to the new architecture instead of rebuilding them.
+* Use the structured case database as the single source of truth.
+* Keep Claude focused on defined engines with reusable prompt templates.
+* Prioritize automation, consistency, performance, and maintainability over adding new features.
+
+I also want the button that unlocks the documents and any api usage to be like the delete account button but only be held down for 3 seconds and glowing around the users fingers as they hold it to unlock 

@@ -2766,14 +2766,22 @@ function DocumentIntakeView({
                   {currentQ.options.map(opt => {
                     const selected = intakeAnswers[currentQ.key] === opt;
                     return (
-                      <button key={opt} onClick={() => setIntakeAnswers(a => ({ ...a, [currentQ.key]: opt }))}
+                      <button key={opt} onClick={() => {
+                        setIntakeAnswers(a => ({ ...a, [currentQ.key]: opt }));
+                        // Auto-advance after a brief pause so the selection flash is visible
+                        setTimeout(() => {
+                          if (intakeStep < 3) setIntakeStep(s => s + 1);
+                          else if (intakeStep === 3) setIntakeStep(4); // move to textarea step
+                        }, 180);
+                      }}
                         style={{
-                          padding: "13px 8px", borderRadius: 12, cursor: "pointer",
-                          border: `1.5px solid ${selected ? ORANGE : "#1e1e1e"}`,
-                          background: selected ? `${ORANGE}20` : "#111",
-                          color: selected ? ORANGE : "#555",
-                          fontSize: 13, fontWeight: 700, textAlign: "center", lineHeight: 1.3,
+                          padding: "16px 8px", borderRadius: 14, cursor: "pointer",
+                          border: `1.5px solid ${selected ? ORANGE : "#222"}`,
+                          background: selected ? ORANGE : "#111",
+                          color: selected ? "#000" : "#555",
+                          fontSize: 13, fontWeight: 800, textAlign: "center", lineHeight: 1.3,
                           transition: "all 0.15s",
+                          WebkitTapHighlightColor: "transparent",
                         }}>
                         {opt}
                       </button>
@@ -2881,23 +2889,24 @@ function DocumentIntakeView({
 
       {/* ── Sticky bottom navigation (intake phase only) ── */}
       {phase === "intake" && (
-        <div style={{ flexShrink: 0, padding: "14px 20px", background: "#0a0a0a", borderTop: "1px solid #151515", display: "flex", gap: 10 }}>
+        <div style={{ flexShrink: 0, padding: "14px 20px 20px", background: "#0a0a0a", borderTop: "1px solid #151515", display: "flex", gap: 10 }}>
           <button
             onClick={() => intakeStep === 0 ? onCancel() : setIntakeStep(s => s - 1)}
-            style={{ flex: 1, padding: "14px", borderRadius: 12, border: "1px solid #1e1e1e", background: "none", color: "#555", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            style={{ flex: 1, padding: "18px 10px", borderRadius: 14, border: "1px solid #1e1e1e", background: "none", color: "#444", fontSize: 15, fontWeight: 700, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
             {intakeStep === 0 ? "Cancel" : "← Back"}
           </button>
           <button
             disabled={!canAdvance}
             onClick={() => intakeStep < 4 ? setIntakeStep(s => s + 1) : setPhase("gate")}
             style={{
-              flex: 2, padding: "14px", borderRadius: 12, cursor: canAdvance ? "pointer" : "not-allowed",
-              border: `1.5px solid ${canAdvance ? ORANGE : "#1e1e1e"}`,
-              background: canAdvance ? `${ORANGE}1e` : "transparent",
-              color: canAdvance ? ORANGE : "#2a2a2a",
-              fontSize: 14, fontWeight: 900, transition: "all 0.15s",
+              flex: 3, padding: "18px 10px", borderRadius: 14, cursor: canAdvance ? "pointer" : "not-allowed",
+              border: "none",
+              background: canAdvance ? ORANGE : "#181818",
+              color: canAdvance ? "#000" : "#2a2a2a",
+              fontSize: 16, fontWeight: 900, transition: "background 0.15s, color 0.15s",
+              WebkitTapHighlightColor: "transparent",
             }}>
-            {intakeStep < 4 ? "Next →" : "Continue to Analysis →"}
+            {intakeStep < 4 ? "Next →" : "Continue →"}
           </button>
         </div>
       )}

@@ -86,7 +86,7 @@ const CAROUSEL_IMAGES: CarouselImage[] = [
   {
     src: "/timeline-14.jpeg",
     title: "Toodles — Chicken Nugget",
-    description: "Her holding her chicken nugget. She earned it.",
+    description: "All the loneliness and pain she helped me get through... she earned it.",
   },
 ];
 

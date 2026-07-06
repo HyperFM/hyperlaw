@@ -121,6 +121,132 @@ function WaveBar({ index, active }: { index: number; active: boolean }) {
   );
 }
 
+// ── HoldToUnlockButton ────────────────────────────────────────────────────────
+// 3-second hold with orange glow + phone vibration.
+// Uses native touch listeners (passive:false) so scroll doesn't steal the touch.
+
+function HoldToUnlockButton({ onComplete, disabled }: { onComplete: () => void; disabled?: boolean }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const isHoldingRef = useRef(false);
+  const startTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [active, setActive] = useState(false);
+  const HOLD_MS = 3000;
+
+  function vibrate(pattern: number | number[]) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch {}
+  }
+
+  function begin() {
+    if (isHoldingRef.current || disabled) return;
+    isHoldingRef.current = true;
+    setActive(true);
+    setProgress(0);
+    startTimeRef.current = performance.now();
+    vibrate([25]);
+    function tick(now: number) {
+      if (!isHoldingRef.current) return;
+      const p = Math.min(1, (now - (startTimeRef.current ?? now)) / HOLD_MS);
+      setProgress(p);
+      if (p >= 1) {
+        isHoldingRef.current = false;
+        setActive(false);
+        vibrate([40, 25, 80]);
+        onComplete();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function cancel() {
+    if (!isHoldingRef.current) return;
+    isHoldingRef.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    startTimeRef.current = null;
+    setProgress(0);
+    setActive(false);
+  }
+
+  useEffect(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    function onTouchStart(e: TouchEvent) { e.preventDefault(); begin(); }
+    function onTouchEnd() { cancel(); }
+    function onTouchCancel() { cancel(); }
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+      // Cancel any in-flight RAF/hold on unmount
+      cancel();
+    };
+  }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const secsLeft = Math.max(0, Math.ceil((1 - progress) * (HOLD_MS / 1000)));
+  const circ = 2 * Math.PI * 30;
+  const glowSize = active ? Math.round(6 + progress * 20) : 0;
+
+  return (
+    <button
+      ref={btnRef}
+      onMouseDown={begin}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        padding: active ? "18px 14px" : "13px 16px",
+        borderRadius: 10,
+        background: active ? "rgba(217,113,31,0.12)" : ORANGE,
+        border: `2px solid ${active ? ORANGE : "transparent"}`,
+        color: active ? ORANGE : "#fff",
+        fontSize: 14, fontWeight: 800,
+        cursor: disabled ? "not-allowed" : "pointer",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "none",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        boxShadow: active
+          ? `0 0 ${glowSize}px rgba(217,113,31,0.9), 0 0 ${glowSize * 2}px rgba(217,113,31,0.4), inset 0 0 ${glowSize}px rgba(217,113,31,0.08)`
+          : "none",
+        transition: "background 0.15s, border-color 0.15s, box-shadow 0.08s",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      {!active ? (
+        <>
+          <Unlock size={15} />
+          Hold to Unlock (1 credit)
+        </>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ position: "relative", width: 72, height: 72 }}>
+            <svg width={72} height={72} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+              <circle cx={36} cy={36} r={30} fill="none" stroke="rgba(217,113,31,0.2)" strokeWidth={4} />
+              <circle
+                cx={36} cy={36} r={30} fill="none" stroke={ORANGE} strokeWidth={4}
+                strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
+                strokeLinecap="round"
+                style={{ filter: `drop-shadow(0 0 8px ${ORANGE})` }}
+              />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 900, color: ORANGE }}>
+              {secsLeft}s
+            </div>
+          </div>
+          <span style={{ fontSize: 12, color: "rgba(217,113,31,0.85)" }}>Keep holding…</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface DocumentViewerModalProps {
@@ -249,7 +375,8 @@ export default function DocumentViewerModal({
 
   const previewText = truncateWords(doc.content, PREVIEW_WORD_COUNT);
   const docTypeLabel = doc.documentType.replace(/_/g, " ").toUpperCase();
-  const hasCredits = (creditBalance ?? 0) > 0;
+  // Treat undefined balance as "loading" — don't block the button until we know for sure
+  const hasCredits = creditBalance === undefined || creditBalance > 0;
 
   return (
     <div
@@ -368,31 +495,29 @@ export default function DocumentViewerModal({
                   {unlockError}
                 </div>
               )}
-              <button
-                onClick={handleUnlock}
-                disabled={unlocking}
-                style={{
-                  background: ORANGE, border: "none", borderRadius: 10,
-                  padding: "12px 16px", color: "#fff", fontWeight: 800, fontSize: 14,
-                  cursor: unlocking ? "not-allowed" : "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  opacity: unlocking ? 0.7 : 1,
-                }}
-              >
-                {unlocking
-                  ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} />
-                  : <Unlock size={15} />}
-                {unlocking ? "Unlocking…" : "Unlock Full Document  (1 credit)"}
-              </button>
-              {!hasCredits && (
+              {unlocking ? (
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  padding: "16px", background: "rgba(217,113,31,0.08)",
+                  border: "1px solid rgba(217,113,31,0.3)", borderRadius: 10,
+                  color: ORANGE, fontSize: 14, fontWeight: 700,
+                }}>
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                  Unlocking document…
+                </div>
+              ) : (
+                <HoldToUnlockButton onComplete={handleUnlock} disabled={!hasCredits} />
+              )}
+              {!hasCredits && !unlocking && (
                 <button
                   onClick={() => { onClose(); onBuyCredits?.(); }}
                   style={{
-                    background: "none", border: "1px solid #2a2a2a", borderRadius: 8,
-                    padding: "8px 12px", color: "#aaa", fontSize: 12, cursor: "pointer",
+                    background: ORANGE, border: "none", borderRadius: 10,
+                    padding: "12px 16px", color: "#fff", fontWeight: 800, fontSize: 14,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   }}
                 >
-                  + Buy Credits
+                  + Buy Credits to Unlock
                 </button>
               )}
               {creditBalance !== undefined && (

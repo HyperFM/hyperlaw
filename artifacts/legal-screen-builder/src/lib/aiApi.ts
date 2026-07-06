@@ -6,10 +6,21 @@ export interface TutorInsight {
   text: string;
 }
 
+export interface IndexCloud {
+  id: string;
+  label: string;
+  category: "amendment" | "statute" | "evidence" | "party" | "violation" | "deadline" | "concept";
+  description: string;
+  facts?: string[];
+  relatedItems?: string[];
+  importance?: string;
+}
+
 export interface TutorAnalysis {
   overview: string;
   insights: TutorInsight[];
   guidingQuestions: string[];
+  clouds?: IndexCloud[];
   /** True when this result came from the server-side cache (no Claude call was made) */
   fromCache?: boolean;
   /** ISO timestamp of when the result was originally cached */

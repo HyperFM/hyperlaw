@@ -7,10 +7,21 @@ export interface TutorInsight {
   text: string;
 }
 
+export interface IndexCloud {
+  id: string;
+  label: string;
+  category: "amendment" | "statute" | "evidence" | "party" | "violation" | "deadline" | "concept";
+  description: string;
+  facts?: string[];
+  relatedItems?: string[];
+  importance?: string;
+}
+
 export interface TutorAnalysis {
   overview: string;
   insights: TutorInsight[];
   guidingQuestions: string[];
+  clouds?: IndexCloud[];
 }
 
 export interface AiChatMessage {
@@ -170,19 +181,31 @@ Return JSON with this exact shape:
     "Question about witnesses or documentation",
     "Question about prior incidents or patterns",
     "Question about the outcome the person sought"
+  ],
+  "clouds": [
+    {
+      "id": "c1",
+      "label": "Concept or entity name (e.g. Fourth Amendment, Officer Smith, Body Camera)",
+      "category": "one of: amendment | statute | evidence | party | violation | deadline | concept",
+      "description": "Plain-language explanation of what this is and how it applies to civil rights law",
+      "facts": ["Specific fact from the described incident that connects to this concept", "Another specific supporting fact"],
+      "relatedItems": ["Name or label of a related cloud concept"],
+      "importance": "One sentence: why this specific concept matters in this specific case"
+    }
   ]
 }
 
-Guidelines:
-- Include 3-5 insights: legal rights implicated, evidence preservation urgency, procedural issues, red flags
-- Include exactly 5 guiding questions targeted at this specific incident
-- Be specific to the actual content — no generic advice
+Cloud guidelines:
+- Generate 4-10 clouds covering the most important concepts in this incident
+- Use all relevant categories: constitutional amendments implicated, specific statutes, named parties, key evidence items, alleged violations, any deadlines, and key legal concepts
+- Every cloud must reference specific details from the described incident — no generic text
+- category must be exactly one of: amendment, statute, evidence, party, violation, deadline, concept
 - Return only the JSON object`;
 
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 1500,
+      max_tokens: 2500,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
     }));
@@ -227,15 +250,32 @@ Return JSON with this exact shape:
     "Question about the relationship between incidents and defendants",
     "Question about documenting the cumulative harm",
     "Question about the overall timeline and how it reads to a fact-finder"
+  ],
+  "clouds": [
+    {
+      "id": "c1",
+      "label": "Concept or entity name (e.g. Fourth Amendment, Officer Smith, Pattern of Conduct)",
+      "category": "one of: amendment | statute | evidence | party | violation | deadline | concept",
+      "description": "Plain-language explanation of what this is and how it applies to civil rights law",
+      "facts": ["Specific fact from the described incidents that connects to this concept", "Another supporting fact"],
+      "relatedItems": ["Name or label of a related cloud concept"],
+      "importance": "One sentence: why this specific concept matters in this specific case"
+    }
   ]
 }
 
-Return only the JSON object`;
+Cloud guidelines:
+- Generate 5-12 clouds covering the most important concepts across all incidents in this case
+- Use all relevant categories: constitutional amendments implicated, specific statutes, named parties, key evidence items, alleged violations, any deadlines, and key legal concepts
+- Every cloud must reference specific details from the described incidents — no generic text
+- Prioritize concepts that span multiple incidents (patterns, recurring parties, repeated violations)
+- category must be exactly one of: amendment, statute, evidence, party, violation, deadline, concept
+- Return only the JSON object`;
 
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 3000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],
     }));

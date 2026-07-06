@@ -17,7 +17,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud } from "./lib/aiApi";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
@@ -1542,6 +1542,26 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   onDocSaved?: () => void;
 }) {
   type TutorTarget = { kind: "incident"; item: Incident } | { kind: "case"; item: HLCase } | null;
+
+  const CLOUD_COLORS: Record<string, string> = {
+    amendment: "#3b82f6",
+    statute: "#d9711f",
+    evidence: "#22c55e",
+    party: "#8b5cf6",
+    violation: "#ef4444",
+    deadline: "#9ca3af",
+    concept: "#eab308",
+  };
+  const CLOUD_LABELS: Record<string, string> = {
+    amendment: "Constitutional",
+    statute: "Statutes",
+    evidence: "Evidence",
+    party: "Parties",
+    violation: "Violations",
+    deadline: "Deadlines",
+    concept: "Concepts",
+  };
+
   const [target, setTarget] = useState<TutorTarget>(() => {
     if (initialIncident) return { kind: "incident", item: initialIncident };
     if (initialCase) return { kind: "case", item: initialCase };
@@ -1550,30 +1570,24 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const forceRefreshRef = useRef(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showPreVerify, setShowPreVerify] = useState(false);
   const [savingDoc, setSavingDoc] = useState(false);
-  // key = "${kind}:${id}" of the last successfully saved target; null = not saved yet
   const [savedTargetKey, setSavedTargetKey] = useState<string | null>(null);
+  const [selectedCloud, setSelectedCloud] = useState<IndexCloud | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [overviewExpanded, setOverviewExpanded] = useState(true);
 
-  // Reset save state whenever the user changes what they're analyzing
-  const currentTargetKey = target
-    ? `${target.kind}:${target.item.id}`
-    : null;
+  const currentTargetKey = target ? `${target.kind}:${target.item.id}` : null;
+
   useEffect(() => {
     setSavingDoc(false);
     setSavedTargetKey(null);
+    setSelectedCloud(null);
+    setActiveCategory("all");
   }, [currentTargetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-
-  // Stable key representing the content of incidents relevant to the selected target.
-  // Recalculated when target or incident descriptions change — avoids stale analysis
-  // when the user edits an incident that belongs to the currently selected case.
   const relevantIncidentKey = (() => {
     if (!target) return "";
     if (target.kind === "incident") {
@@ -1587,14 +1601,9 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
       .join("|");
   })();
 
-  // Analyze whenever target or relevant incident content changes
   useEffect(() => {
-    if (!target) { setAnalysis(null); setChatMessages([]); return; }
-
-    setChatMessages([]);
+    if (!target) { setAnalysis(null); return; }
     setIsAnalyzing(true);
-
-    // Consume the force-refresh flag for this run, then reset it
     const isForceRefresh = forceRefreshRef.current;
     forceRefreshRef.current = false;
 
@@ -1616,7 +1625,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         }
         setAnalysis(result);
       } catch {
-        // Fall back to static on any error
         if (target!.kind === "incident") {
           setAnalysis(staticTutorService.analyzeIncident(target!.item as Incident));
         } else {
@@ -1627,52 +1635,21 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         setIsAnalyzing(false);
       }
     }
-
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, relevantIncidentKey, refreshTrigger]);
 
-  // Scroll chat to bottom on new messages
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
-
-  async function sendChat() {
-    if (!chatInput.trim() || isSending) return;
-    const userMsg = chatInput.trim();
-    setChatInput("");
-    setChatMessages(prev => [...prev, { role: "user", content: userMsg }]);
-    setIsSending(true);
-    try {
-      const context = {
-        incident: target?.kind === "incident" ? (target.item as Incident) : null,
-        hlCase: target?.kind === "case" ? (target.item as HLCase) : null,
-        incidents: target?.kind === "case"
-          ? data.incidents.filter(i => (target.item as HLCase).incidentIds.includes(i.id))
-          : undefined,
-        history: chatMessages,
-      };
-      const { reply } = await aiApi.chat(userMsg, context);
-      setChatMessages(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch (err: unknown) {
-      const e = err as { code?: string; message?: string };
-      let errMsg = "Couldn't get a response. Please try again.";
-      if (e?.code === "rate_limited") {
-        errMsg = "You've reached today's AI limit. Come back tomorrow, or upgrade your plan.";
-      } else if (e?.code === "insufficient_credits" || (e?.message ?? "").includes("402")) {
-        errMsg = "You're out of credits. Top up in Profile → Credits.";
-      }
-      setChatMessages(prev => [...prev, { role: "assistant", content: errMsg }]);
-    } finally {
-      setIsSending(false);
-    }
-  }
+  const clouds = (analysis?.clouds ?? []).filter(c => c && c.label && c.category);
+  const categories = Array.from(new Set(clouds.map(c => c.category)));
+  const filteredClouds = activeCategory === "all" ? clouds : clouds.filter(c => c.category === activeCategory);
+  const hasClouds = clouds.length > 0;
 
   const insightBg: Record<string, string> = { gap: "#1c1600", key_point: "#121e2a", question: "#211e0e", notice: "#2a1212" };
   const insightBorder: Record<string, string> = { gap: "#4a3800", key_point: "#2a4a6a", question: "#5a4a12", notice: "#6a2222" };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {/* Picker button */}
       <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
         <button onClick={() => setShowPicker(true)}
           style={{ width: "100%", background: "#111", border: `1px solid ${target ? ORANGE + "55" : "#2a2a2a"}`, borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", textAlign: "left" }}>
@@ -1686,121 +1663,163 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 32px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px" }}>
         {!target ? (
           <div style={{ textAlign: "center", paddingTop: 60 }}>
             <BookOpen size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Index</div>
             <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
-              Select an incident or case above. The Index will read what you described and help you think through it.
+              Select an incident or case above. The Index will map your case into an interactive concept cloud.
             </div>
           </div>
         ) : isAnalyzing ? (
           <div style={{ textAlign: "center", paddingTop: 60 }}>
             <Loader2 size={36} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 16 }} />
-            <div style={{ color: "#555", fontSize: 14 }}>Analyzing…</div>
+            <div style={{ color: "#555", fontSize: 14 }}>Building your case Index…</div>
           </div>
         ) : analysis ? (
           <>
-            {/* AI Disclaimer Banner */}
-            <div style={{
-              background: "#0d0d0d", border: "1px solid #1a1a1a",
-              borderRadius: 10, padding: "10px 14px", marginBottom: 20,
-              display: "flex", alignItems: "flex-start", gap: 10,
-            }}>
+            {/* AI Disclaimer */}
+            <div style={{ background: "#0d0d0d", border: "1px solid #1a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "flex-start", gap: 10 }}>
               <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
               <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
-                <strong style={{ color: "#666" }}>HyperLaw AI Assistant</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
+                <strong style={{ color: "#666" }}>HyperLaw AI Index</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
               </p>
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>OVERVIEW</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {analysis.fromCache && (
-                    <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>
-                      Cached result
-                    </span>
-                  )}
-                  <button
-                    onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
-                    style={{
-                      background: "none", border: `1px solid #2a2a2a`, borderRadius: 6,
-                      padding: "3px 8px", cursor: "pointer", color: "#555",
-                      fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4,
-                    }}
-                    title="Regenerate analysis"
-                  >
-                    ↻ Regenerate
-                  </button>
-                  <button
-                    onClick={() => setShowPreVerify(true)}
-                    style={{
-                      background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6,
-                      padding: "3px 8px", cursor: "pointer", color: ORANGE,
-                      fontSize: 10, fontWeight: 700,
-                    }}
-                    title="Pre-verify this analysis before using it"
-                  >
-                    Pre-Verify
-                  </button>
-                </div>
-              </div>
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "16px 18px", fontSize: 15, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>
-                {analysis.overview}
+
+            {/* Toolbar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>CASE INDEX</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {analysis.fromCache && (
+                  <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>Cached</span>
+                )}
+                <button
+                  onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
+                  style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: "#555", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
+                >↻ Regenerate</button>
+                <button
+                  onClick={() => setShowPreVerify(true)}
+                  style={{ background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: ORANGE, fontSize: 10, fontWeight: 700 }}
+                >Pre-Verify</button>
               </div>
             </div>
-            {/* Backward-compat: old cached results may still carry type="summary" — remap to gap */}
-            {(() => { analysis.insights.forEach(ins => { if ((ins.type as string) === "summary") (ins as any).type = "gap"; }); })()}
-            {/* Non-gap insights — legal notices and key documented facts */}
-            {analysis.insights.filter(ins => ins.type !== "gap").length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>WHAT THE TUTOR SEES</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {analysis.insights.filter(ins => ins.type !== "gap").map((insight, i) => (
-                    <div key={i} style={{ background: insightBg[insight.type] || "#111", border: `1px solid ${insightBorder[insight.type] || "#2a2a2a"}`, borderRadius: 12, padding: "14px 16px" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: "#666", marginBottom: 6, textTransform: "uppercase" }}>{insight.type.replace("_", " ")}</div>
-                      <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.6 }}>{insight.text}</div>
-                    </div>
+
+            {/* Overview card (collapsible) */}
+            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, marginBottom: 20, overflow: "hidden" }}>
+              <button
+                onClick={() => setOverviewExpanded(e => !e)}
+                style={{ width: "100%", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: 0.5 }}>OVERVIEW</span>
+                <ChevronRight size={14} color="#444" style={{ transform: overviewExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
+              </button>
+              {overviewExpanded && (
+                <div style={{ padding: "0 16px 16px", borderTop: "1px solid #1a1a1a" }}>
+                  <div style={{ paddingTop: 12, fontSize: 14, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>{analysis.overview}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Concept clouds or fallback insights */}
+            {hasClouds ? (
+              <>
+                {/* Color legend */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+                  {Object.entries(CLOUD_LABELS).filter(([cat]) => categories.includes(cat as any)).map(([cat, label]) => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(prev => prev === cat ? "all" : cat)}
+                      style={{
+                        padding: "4px 12px", borderRadius: 20,
+                        border: `1.5px solid ${activeCategory === cat ? CLOUD_COLORS[cat] : "#2a2a2a"}`,
+                        background: activeCategory === cat ? CLOUD_COLORS[cat] + "22" : "transparent",
+                        color: activeCategory === cat ? CLOUD_COLORS[cat] : "#555",
+                        fontSize: 11, fontWeight: 700, cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 5,
+                      }}
+                    >
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: CLOUD_COLORS[cat] }} />
+                      {label}
+                    </button>
                   ))}
                 </div>
-              </div>
-            )}
-            {/* Factual gap checklist — what is missing or undocumented */}
-            {analysis.insights.filter(ins => ins.type === "gap").length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "#4a3800", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                  <AlertCircle size={11} color="#f59e0b" />
-                  <span style={{ color: "#f59e0b" }}>FACTUAL GAP CHECKLIST</span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {analysis.insights.filter(ins => ins.type === "gap").map((insight, i) => (
-                    <div key={i} style={{ background: "#1c1600", border: "1px solid #4a3800", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                      <div style={{ width: 16, height: 16, border: "1.5px solid #4a3800", borderRadius: 3, flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.6 }}>{insight.text}</div>
-                    </div>
+
+                {/* Cloud grid */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
+                  {filteredClouds.map(cloud => (
+                    <button
+                      key={cloud.id}
+                      onClick={() => setSelectedCloud(cloud)}
+                      style={{
+                        background: CLOUD_COLORS[cloud.category] + "18",
+                        border: `1.5px solid ${CLOUD_COLORS[cloud.category]}50`,
+                        borderRadius: 24,
+                        padding: "9px 18px",
+                        color: CLOUD_COLORS[cloud.category],
+                        fontSize: 13, fontWeight: 700,
+                        cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 8,
+                        WebkitTapHighlightColor: "transparent",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: CLOUD_COLORS[cloud.category], flexShrink: 0 }} />
+                      {cloud.label}
+                    </button>
                   ))}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: "#555", paddingLeft: 2 }}>
-                  Each unchecked item is a gap in your factual record. Address these before generating documents.
-                </div>
-              </div>
-            )}
-            {analysis.guidingQuestions.length > 0 && (
-              <div style={{ marginBottom: 28 }}>
-                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {analysis.guidingQuestions.map((q, i) => (
-                    <div key={i} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12 }}>
-                      <div style={{ color: ORANGE, fontWeight: 900, fontSize: 15, flexShrink: 0, lineHeight: 1.6 }}>{i + 1}</div>
-                      <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.65 }}>{q}</div>
+              </>
+            ) : (
+              /* Fallback: insights + questions when no clouds (old cached data) */
+              <>
+                {(() => { analysis.insights.forEach(ins => { if ((ins.type as string) === "summary") (ins as any).type = "gap"; }); })()}
+                {analysis.insights.filter(ins => ins.type !== "gap").length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>KEY INSIGHTS</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {analysis.insights.filter(ins => ins.type !== "gap").map((insight, i) => (
+                        <div key={i} style={{ background: insightBg[insight.type] || "#111", border: `1px solid ${insightBorder[insight.type] || "#2a2a2a"}`, borderRadius: 12, padding: "14px 16px" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: "#666", marginBottom: 6, textTransform: "uppercase" }}>{insight.type.replace("_", " ")}</div>
+                          <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.6 }}>{insight.text}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                )}
+                {analysis.insights.filter(ins => ins.type === "gap").length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, color: "#4a3800", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <AlertCircle size={11} color="#f59e0b" />
+                      <span style={{ color: "#f59e0b" }}>FACTUAL GAPS</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {analysis.insights.filter(ins => ins.type === "gap").map((insight, i) => (
+                        <div key={i} style={{ background: "#1c1600", border: "1px solid #4a3800", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                          <div style={{ width: 16, height: 16, border: "1.5px solid #4a3800", borderRadius: 3, flexShrink: 0, marginTop: 2 }} />
+                          <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.6 }}>{insight.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {analysis.guidingQuestions.length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {analysis.guidingQuestions.map((q, i) => (
+                        <div key={i} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12 }}>
+                          <div style={{ color: ORANGE, fontWeight: 900, fontSize: 15, flexShrink: 0, lineHeight: 1.6 }}>{i + 1}</div>
+                          <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.65 }}>{q}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {/* Save Analysis to Case */}
+            {/* Save Index to Case */}
             {analysis && (() => {
               const caseId = target?.kind === "case" ? target.item.id
                 : target?.kind === "incident" && target.item.caseId ? target.item.caseId
@@ -1808,22 +1827,24 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               if (!caseId) return null;
               const isAlreadySaved = savedTargetKey === currentTargetKey && savedTargetKey !== null;
               return (
-                <div style={{ marginBottom: 24 }}>
+                <div style={{ marginBottom: 16 }}>
                   <button
                     onClick={async () => {
                       if (savingDoc || isAlreadySaved) return;
                       setSavingDoc(true);
                       try {
+                        const cloudSummary = clouds.length > 0
+                          ? "CONCEPT INDEX:\n" + clouds.map(c => `• ${c.label} (${c.category}): ${c.description}`).join("\n")
+                          : "";
                         const content = [
                           analysis.overview,
+                          cloudSummary,
                           "KEY INSIGHTS:",
                           analysis.insights.map(i => `• ${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
-                          "QUESTIONS TO CONSIDER:",
-                          analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n"),
-                        ].join("\n\n");
+                        ].filter(Boolean).join("\n\n");
                         await aiApi.generatedDocs.create({
                           caseId,
-                          title: `AI Analysis — ${target!.item.title}`,
+                          title: `AI Index — ${target!.item.title}`,
                           documentType: "analysis",
                           content,
                         });
@@ -1847,76 +1868,100 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
                       ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving…</>
                       : isAlreadySaved
                         ? <><CheckCircle2 size={14} /> Saved to Case</>
-                        : <><FileText size={14} /> Save Analysis to Case</>
+                        : <><FileText size={14} /> Save Index to Case</>
                     }
                   </button>
                 </div>
               );
             })()}
-
-            {/* AI Chat */}
-            {(
-              <div>
-                <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ASK THE TUTOR</div>
-                <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
-                  {chatMessages.length > 0 && (
-                    <div style={{ maxHeight: 340, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-                      {chatMessages.map((m, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                          <div style={{
-                            maxWidth: "85%", padding: "10px 14px",
-                            borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                            background: m.role === "user" ? ORANGE : "#1a1a1a",
-                            color: m.role === "user" ? "#000" : "#ccc",
-                            fontSize: 14, lineHeight: 1.55, fontWeight: m.role === "user" ? 600 : 400,
-                          }}>
-                            {m.content}
-                          </div>
-                        </div>
-                      ))}
-                      {isSending && (
-                        <div style={{ display: "flex" }}>
-                          <div style={{ background: "#1a1a1a", padding: "10px 16px", borderRadius: "14px 14px 14px 4px", display: "flex", gap: 4, alignItems: "center" }}>
-                            {[0, 0.2, 0.4].map((delay, i) => (
-                              <div key={i} style={{ width: 6, height: 6, borderRadius: 3, background: "#555", animation: `pulse 1.2s ease-in-out ${delay}s infinite` }} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <div ref={chatEndRef} />
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: chatMessages.length > 0 ? "1px solid #1a1a1a" : "none" }}>
-                    <input
-                      value={chatInput}
-                      onChange={e => setChatInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                      placeholder="Ask about your case, rights, strategy…"
-                      style={{ flex: 1, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", color: "#ccc", fontSize: 14, outline: "none", fontFamily: "Arial, sans-serif" }}
-                      onFocus={e => (e.target.style.borderColor = ORANGE + "66")}
-                      onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
-                    />
-                    <button
-                      onClick={sendChat}
-                      disabled={!chatInput.trim() || isSending}
-                      style={{
-                        background: chatInput.trim() && !isSending ? ORANGE : "#1a1a1a",
-                        border: "none", borderRadius: 10, width: 42, height: 42,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: chatInput.trim() && !isSending ? "pointer" : "default",
-                        flexShrink: 0, transition: "background 0.15s",
-                      }}>
-                      {isSending
-                        ? <Loader2 size={16} color="#555" style={{ animation: "spin 1s linear infinite" }} />
-                        : <Send size={16} color={chatInput.trim() ? "#000" : "#444"} />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         ) : null}
       </div>
+
+      {/* Cloud detail bottom sheet */}
+      {selectedCloud && (
+        <div
+          onClick={() => setSelectedCloud(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 200, display: "flex", alignItems: "flex-end" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#0d0d0d", width: "100%", maxWidth: 640, margin: "0 auto",
+              borderRadius: "20px 20px 0 0", padding: "24px 20px 52px",
+              maxHeight: "78vh", overflowY: "auto",
+              border: `1.5px solid ${CLOUD_COLORS[selectedCloud.category]}30`,
+              borderBottom: "none",
+            }}
+          >
+            <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 22px" }} />
+
+            {/* Category badge + close */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <span style={{
+                background: CLOUD_COLORS[selectedCloud.category] + "22",
+                border: `1px solid ${CLOUD_COLORS[selectedCloud.category]}55`,
+                color: CLOUD_COLORS[selectedCloud.category],
+                fontSize: 10, fontWeight: 700, padding: "3px 10px",
+                borderRadius: 20, letterSpacing: 0.5, textTransform: "uppercase",
+              }}>
+                {CLOUD_LABELS[selectedCloud.category] ?? selectedCloud.category}
+              </span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setSelectedCloud(null)} style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <X size={14} color="#555" />
+              </button>
+            </div>
+
+            {/* Title */}
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 14 }}>{selectedCloud.label}</div>
+
+            {/* Description */}
+            <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.7, marginBottom: 20, fontFamily: "Georgia, serif" }}>
+              {selectedCloud.description}
+            </div>
+
+            {/* Supporting facts */}
+            {selectedCloud.facts && selectedCloud.facts.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#444", letterSpacing: 0.5, marginBottom: 10 }}>SUPPORTING FACTS IN YOUR CASE</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selectedCloud.facts.map((fact, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "10px 14px" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: CLOUD_COLORS[selectedCloud.category], flexShrink: 0, marginTop: 5 }} />
+                      <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.6 }}>{fact}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Why it matters */}
+            {selectedCloud.importance && (
+              <div style={{
+                background: CLOUD_COLORS[selectedCloud.category] + "10",
+                border: `1px solid ${CLOUD_COLORS[selectedCloud.category]}30`,
+                borderRadius: 12, padding: "14px 16px", marginBottom: 16,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: CLOUD_COLORS[selectedCloud.category], letterSpacing: 0.5, marginBottom: 6 }}>WHY THIS MATTERS IN YOUR CASE</div>
+                <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65 }}>{selectedCloud.importance}</div>
+              </div>
+            )}
+
+            {/* Related items */}
+            {selectedCloud.relatedItems && selectedCloud.relatedItems.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#444", letterSpacing: 0.5, marginBottom: 10 }}>RELATED</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {selectedCloud.relatedItems.map((item, i) => (
+                    <span key={i} style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 20, padding: "4px 12px", fontSize: 12, color: "#666" }}>{item}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showPreVerify && analysis && (
         <PreVerificationModal
@@ -1924,9 +1969,8 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
           text={[
             analysis.overview,
             analysis.insights.map(i => `${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
-            "QUESTIONS TO CONSIDER:",
-            analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n"),
-          ].join("\n\n")}
+            analysis.guidingQuestions.length > 0 ? "QUESTIONS:\n" + analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n") : "",
+          ].filter(Boolean).join("\n\n")}
           onClose={() => setShowPreVerify(false)}
         />
       )}

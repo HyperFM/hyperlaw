@@ -46,6 +46,46 @@ const CAROUSEL_IMAGES: CarouselImage[] = [
     title: "Building HyperLaw",
     description: "Turning lived experience into technology.",
   },
+  {
+    src: "/timeline-8.jpeg",
+    title: "Documented Injuries",
+    description: "Physical evidence of harm sustained during incarceration.",
+  },
+  {
+    src: "/timeline-9.jpeg",
+    title: "Evidence of Harm",
+    description: "Injuries photographed and preserved as part of the record.",
+  },
+  {
+    src: "/timeline-10.jpeg",
+    title: "Toodles — Posing",
+    description: "My baby Toodles striking a pose by the pumpkins. She loved to show off.",
+  },
+  {
+    src: "/timeline-11.jpeg",
+    title: "Toodles — Pumpkin Season",
+    description: "Exploring her favorite fall setup. She always had to investigate everything.",
+  },
+  {
+    src: "/timeline-12.jpeg",
+    title: "Toodles & the Dog",
+    description: "Giving kisses to her dog friend. They got along better than anyone expected.",
+  },
+  {
+    src: "/timeline-13.jpeg",
+    title: "Toodles — Nose Ring Thief",
+    description: "Caught in the act, chewing on my nose ring. She thought it was hers.",
+  },
+  {
+    src: "/timeline-14.jpeg",
+    title: "Toodles — Chaos Mode",
+    description: "Scaring my little brother just by existing. She was fearless.",
+  },
+  {
+    src: "/timeline-15.png",
+    title: "Toodles — Forever",
+    description: "She deserved stability and care. Rehoming her was the hardest decision I've ever made.",
+  },
 ];
 
 // ── Lightbox ─────────────────────────────────────────────────────────────────

@@ -1184,39 +1184,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
-        {/* Workflow stage-awareness banner */}
-        {onGoToPhase && (() => {
-          const missing: { stage: WorkflowStage; label: string; hint: string }[] = [];
-          if (!hlCase.parties.length) missing.push({ stage: "parties", label: "Add Parties", hint: "Identify everyone involved" });
-          if (!hlCase.court) missing.push({ stage: "court", label: "Select Court", hint: "Choose the filing court" });
-          if (!(hlCase.story ?? "").trim()) missing.push({ stage: "story", label: "Tell Your Story", hint: "Describe what happened" });
-          if (!hlCase.timeline.length) missing.push({ stage: "timeline", label: "Build Timeline", hint: "Create the event sequence" });
-          if (!missing.length) return null;
-          return (
-            <div style={{ background: "#0f0d08", border: "1px solid #3a2a10", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
-              <div style={{ fontSize: 11, color: "#9c7a40", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
-                Complete Your Case Setup
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {missing.map(m => (
-                  <div key={m.stage} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: "#9c7a40", flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, color: "#888" }}>{m.hint}</span>
-                    </div>
-                    <button
-                      onClick={() => onGoToPhase(m.stage)}
-                      style={{ background: "none", border: "1px solid #3a2a10", borderRadius: 8, padding: "5px 12px", color: "#9c7a40", fontSize: 12, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}
-                    >
-                      {m.label}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-
         {/* Action buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
           <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>

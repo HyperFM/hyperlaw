@@ -1715,122 +1715,155 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   const insightBg: Record<string, string> = { gap: "#1c1600", key_point: "#121e2a", question: "#211e0e", notice: "#2a1212" };
   const insightBorder: Record<string, string> = { gap: "#4a3800", key_point: "#2a4a6a", question: "#5a4a12", notice: "#6a2222" };
 
+  // Inject float keyframes once
+  (() => {
+    const id = "hl-cloud-float-kf";
+    if (typeof document !== "undefined" && !document.getElementById(id)) {
+      const s = document.createElement("style");
+      s.id = id;
+      s.textContent = `
+        @keyframes cloudFloat {
+          0%, 100% { transform: translateY(0px); }
+          50%       { transform: translateY(-5px); }
+        }
+      `;
+      document.head.appendChild(s);
+    }
+  })();
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {/* Picker button */}
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-        <button onClick={() => setShowPicker(true)}
-          style={{ width: "100%", background: "#111", border: `1px solid ${target ? ORANGE + "55" : "#2a2a2a"}`, borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", textAlign: "left" }}>
-          {target ? (target.kind === "incident" ? <FileText size={16} color={ORANGE} /> : <Folder size={16} color={ORANGE} />) : <BookOpen size={16} color="#555" />}
-          <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: target ? "#fff" : "#555" }}>
-            {target ? target.item.title : "Select an incident or case…"}
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: "#0a0a0a" }}>
+
+      {/* ── Minimal top bar: picker + refresh ─────────────────────────────── */}
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #111", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        <button
+          onClick={() => setShowPicker(true)}
+          style={{
+            flex: 1, background: "none",
+            border: `1px solid ${target ? ORANGE + "33" : "#1e1e1e"}`,
+            borderRadius: 10, padding: "9px 13px",
+            display: "flex", alignItems: "center", gap: 9, cursor: "pointer", textAlign: "left",
+          }}
+        >
+          {target
+            ? (target.kind === "incident" ? <FileText size={14} color={ORANGE} /> : <Folder size={14} color={ORANGE} />)
+            : <BookOpen size={14} color="#333" />}
+          <span style={{ flex: 1, fontWeight: 700, fontSize: 13, color: target ? "#ccc" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {target ? target.item.title : "Select a case or incident…"}
           </span>
           {isAnalyzing
-            ? <Loader2 size={14} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
-            : <ChevronRight size={14} color="#555" />}
+            ? <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+            : <ChevronRight size={13} color="#333" style={{ flexShrink: 0 }} />}
         </button>
+        {/* Refresh icon — only when results are loaded */}
+        {target && !isAnalyzing && analysis && (
+          <button
+            onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
+            title="Regenerate Index"
+            style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "#444", display: "flex", alignItems: "center", flexShrink: 0 }}
+          >
+            <span style={{ fontSize: 15, lineHeight: 1 }}>↻</span>
+          </button>
+        )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px" }}>
-        {!target ? (
-          <div style={{ textAlign: "center", paddingTop: 60 }}>
-            <BookOpen size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
-            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Index</div>
-            <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
-              Select an incident or case above. The Index will map your case into an interactive concept cloud.
+      {/* ── Cloud canvas ──────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "28px 18px 140px" }}>
+
+        {/* Empty state */}
+        {!target && (
+          <div style={{ textAlign: "center", paddingTop: 80 }}>
+            {/* Ghost cloud bubbles hint */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: 36, opacity: 0.12 }}>
+              {["4th Amendment", "Excessive Force", "Due Process", "Evidence", "Timeline"].map((label, i) => (
+                <div key={label} style={{
+                  background: "#fff", borderRadius: 24, padding: "9px 18px",
+                  fontSize: 13, fontWeight: 700, color: "#fff",
+                  animation: `cloudFloat ${2.5 + i * 0.3}s ease-in-out ${i * 0.4}s infinite`,
+                }}>{label}</div>
+              ))}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 8 }}>Your case, mapped</div>
+            <div style={{ color: "#2a2a2a", fontSize: 13, lineHeight: 1.7, maxWidth: 280, margin: "0 auto" }}>
+              Select a case or incident above and the Index will surface every key concept — floating, colour-coded, and ready to teach.
             </div>
           </div>
-        ) : isAnalyzing ? (
-          <div style={{ textAlign: "center", paddingTop: 60 }}>
-            <Loader2 size={36} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 16 }} />
-            <div style={{ color: "#555", fontSize: 14 }}>Building your case Index…</div>
+        )}
+
+        {/* Loading */}
+        {target && isAnalyzing && (
+          <div style={{ textAlign: "center", paddingTop: 80 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: 32, opacity: 0.25 }}>
+              {["…", "…", "…", "…", "…"].map((_, i) => (
+                <div key={i} style={{
+                  background: "#333", borderRadius: 24, padding: "9px 32px",
+                  animation: `cloudFloat ${2 + i * 0.25}s ease-in-out ${i * 0.3}s infinite`,
+                }} />
+              ))}
+            </div>
+            <Loader2 size={28} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 12 }} />
+            <div style={{ color: "#444", fontSize: 13 }}>Mapping your case…</div>
           </div>
-        ) : analysis ? (
+        )}
+
+        {/* Clouds */}
+        {target && !isAnalyzing && analysis && (
           <>
-            {/* AI Disclaimer */}
-            <div style={{ background: "#0d0d0d", border: "1px solid #1a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <div style={{ width: 4, height: 4, borderRadius: 2, background: ORANGE, flexShrink: 0, marginTop: 5 }} />
-              <p style={{ margin: 0, fontSize: 11, color: "#555", lineHeight: 1.6 }}>
-                <strong style={{ color: "#666" }}>HyperLaw AI Index</strong> — {COMPLIANCE.AI_ANALYSIS_BANNER}
-              </p>
-            </div>
-
-            {/* Toolbar */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>CASE INDEX</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {analysis.fromCache && (
-                  <span style={{ fontSize: 10, color: "#555", background: "#111", border: "1px solid #1e1e1e", borderRadius: 4, padding: "2px 6px" }}>Cached</span>
-                )}
-                <button
-                  onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
-                  style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: "#555", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}
-                >↻ Regenerate</button>
-                <button
-                  onClick={() => setShowPreVerify(true)}
-                  style={{ background: `${ORANGE}15`, border: `1px solid ${ORANGE}44`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: ORANGE, fontSize: 10, fontWeight: 700 }}
-                >Pre-Verify</button>
-              </div>
-            </div>
-
-            {/* Overview card (collapsible) */}
-            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, marginBottom: 20, overflow: "hidden" }}>
-              <button
-                onClick={() => setOverviewExpanded(e => !e)}
-                style={{ width: "100%", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-              >
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: 0.5 }}>OVERVIEW</span>
-                <ChevronRight size={14} color="#444" style={{ transform: overviewExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
-              </button>
-              {overviewExpanded && (
-                <div style={{ padding: "0 16px 16px", borderTop: "1px solid #1a1a1a" }}>
-                  <div style={{ paddingTop: 12, fontSize: 14, color: "#ccc", lineHeight: 1.65, fontFamily: "Georgia, serif" }}>{analysis.overview}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Concept clouds or fallback insights */}
             {hasClouds ? (
               <>
-                {/* Color legend */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-                  {Object.entries(CLOUD_LABELS).filter(([cat]) => categories.includes(cat as any)).map(([cat, label]) => (
+                {/* Category filter chips — only if multiple categories */}
+                {categories.length > 1 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
                     <button
-                      key={cat}
-                      onClick={() => setActiveCategory(prev => prev === cat ? "all" : cat)}
+                      onClick={() => setActiveCategory("all")}
                       style={{
-                        padding: "4px 12px", borderRadius: 20,
-                        border: `1.5px solid ${activeCategory === cat ? CLOUD_COLORS[cat] : "#2a2a2a"}`,
-                        background: activeCategory === cat ? CLOUD_COLORS[cat] + "22" : "transparent",
-                        color: activeCategory === cat ? CLOUD_COLORS[cat] : "#555",
-                        fontSize: 11, fontWeight: 700, cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                        border: `1.5px solid ${activeCategory === "all" ? "#666" : "#1e1e1e"}`,
+                        background: activeCategory === "all" ? "#222" : "transparent",
+                        color: activeCategory === "all" ? "#bbb" : "#333",
                       }}
-                    >
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: CLOUD_COLORS[cat] }} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                    >All</button>
+                    {Object.entries(CLOUD_LABELS).filter(([cat]) => categories.includes(cat as any)).map(([cat, label]) => (
+                      <button
+                        key={cat}
+                        onClick={() => setActiveCategory(prev => prev === cat ? "all" : cat)}
+                        style={{
+                          padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                          border: `1.5px solid ${activeCategory === cat ? CLOUD_COLORS[cat] : "#1e1e1e"}`,
+                          background: activeCategory === cat ? CLOUD_COLORS[cat] + "22" : "transparent",
+                          color: activeCategory === cat ? CLOUD_COLORS[cat] : "#333",
+                          display: "flex", alignItems: "center", gap: 5,
+                        }}
+                      >
+                        <div style={{ width: 5, height: 5, borderRadius: "50%", background: CLOUD_COLORS[cat] }} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-                {/* Cloud grid */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
-                  {filteredClouds.map(cloud => (
+                {/* Floating cloud bubbles */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  {filteredClouds.map((cloud, idx) => (
                     <button
                       key={cloud.id}
                       onClick={() => setSelectedCloud(cloud)}
                       style={{
                         background: CLOUD_COLORS[cloud.category] + "18",
-                        border: `1.5px solid ${CLOUD_COLORS[cloud.category]}50`,
-                        borderRadius: 24,
-                        padding: "9px 18px",
+                        border: `1.5px solid ${CLOUD_COLORS[cloud.category]}55`,
+                        borderRadius: 28,
+                        padding: "10px 20px",
                         color: CLOUD_COLORS[cloud.category],
-                        fontSize: 13, fontWeight: 700,
+                        fontSize: 14, fontWeight: 700,
                         cursor: "pointer",
                         display: "flex", alignItems: "center", gap: 8,
                         WebkitTapHighlightColor: "transparent",
-                        transition: "all 0.15s",
+                        animation: `cloudFloat ${2.8 + (idx % 5) * 0.35}s ease-in-out ${(idx % 7) * 0.28}s infinite`,
+                        boxShadow: `0 0 0 0 ${CLOUD_COLORS[cloud.category]}00`,
+                        transition: "box-shadow 0.2s, transform 0.1s",
                       }}
+                      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 0 16px 4px ${CLOUD_COLORS[cloud.category]}33`)}
+                      onMouseLeave={e => (e.currentTarget.style.boxShadow = `0 0 0 0 ${CLOUD_COLORS[cloud.category]}00`)}
                     >
                       <div style={{ width: 7, height: 7, borderRadius: "50%", background: CLOUD_COLORS[cloud.category], flexShrink: 0 }} />
                       {cloud.label}
@@ -1839,114 +1872,20 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
                 </div>
               </>
             ) : (
-              /* Fallback: insights + questions when no clouds (old cached data) */
-              <>
-                {(() => { analysis.insights.forEach(ins => { if ((ins.type as string) === "summary") (ins as any).type = "gap"; }); })()}
-                {analysis.insights.filter(ins => ins.type !== "gap").length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>KEY INSIGHTS</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {analysis.insights.filter(ins => ins.type !== "gap").map((insight, i) => (
-                        <div key={i} style={{ background: insightBg[insight.type] || "#111", border: `1px solid ${insightBorder[insight.type] || "#2a2a2a"}`, borderRadius: 12, padding: "14px 16px" }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: "#666", marginBottom: 6, textTransform: "uppercase" }}>{insight.type.replace("_", " ")}</div>
-                          <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.6 }}>{insight.text}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {analysis.insights.filter(ins => ins.type === "gap").length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, color: "#4a3800", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                      <AlertCircle size={11} color="#f59e0b" />
-                      <span style={{ color: "#f59e0b" }}>FACTUAL GAPS</span>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {analysis.insights.filter(ins => ins.type === "gap").map((insight, i) => (
-                        <div key={i} style={{ background: "#1c1600", border: "1px solid #4a3800", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                          <div style={{ width: 16, height: 16, border: "1.5px solid #4a3800", borderRadius: 3, flexShrink: 0, marginTop: 2 }} />
-                          <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.6 }}>{insight.text}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {analysis.guidingQuestions.length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>QUESTIONS TO CONSIDER</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {analysis.guidingQuestions.map((q, i) => (
-                        <div key={i} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12 }}>
-                          <div style={{ color: ORANGE, fontWeight: 900, fontSize: 15, flexShrink: 0, lineHeight: 1.6 }}>{i + 1}</div>
-                          <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.65 }}>{q}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+              /* No clouds — clean prompt to regenerate */
+              <div style={{ textAlign: "center", paddingTop: 60 }}>
+                <div style={{ fontSize: 14, color: "#333", marginBottom: 16 }}>No concepts mapped yet.</div>
+                <button
+                  onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
+                  style={{ background: "none", border: `1px solid ${ORANGE}44`, borderRadius: 10, padding: "10px 20px", cursor: "pointer", color: ORANGE, fontSize: 13, fontWeight: 700 }}
+                >↻ Build Index</button>
+              </div>
             )}
-
-            {/* Save Index to Case */}
-            {analysis && (() => {
-              const caseId = target?.kind === "case" ? target.item.id
-                : target?.kind === "incident" && target.item.caseId ? target.item.caseId
-                : null;
-              if (!caseId) return null;
-              const isAlreadySaved = savedTargetKey === currentTargetKey && savedTargetKey !== null;
-              return (
-                <div style={{ marginBottom: 16 }}>
-                  <button
-                    onClick={async () => {
-                      if (savingDoc || isAlreadySaved) return;
-                      setSavingDoc(true);
-                      try {
-                        const cloudSummary = clouds.length > 0
-                          ? "CONCEPT INDEX:\n" + clouds.map(c => `• ${c.label} (${c.category}): ${c.description}`).join("\n")
-                          : "";
-                        const content = [
-                          analysis.overview,
-                          cloudSummary,
-                          "KEY INSIGHTS:",
-                          analysis.insights.map(i => `• ${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
-                        ].filter(Boolean).join("\n\n");
-                        await aiApi.generatedDocs.create({
-                          caseId,
-                          title: `AI Index — ${target!.item.title}`,
-                          documentType: "analysis",
-                          content,
-                        });
-                        setSavedTargetKey(currentTargetKey);
-                        onDocSaved?.();
-                      } catch {}
-                      setSavingDoc(false);
-                    }}
-                    disabled={savingDoc || isAlreadySaved}
-                    style={{
-                      width: "100%", padding: "11px 16px",
-                      background: isAlreadySaved ? "#0d1a0d" : "#111",
-                      border: `1px solid ${isAlreadySaved ? "#22c55e44" : "#2a2a2a"}`,
-                      borderRadius: 10, cursor: savingDoc || isAlreadySaved ? "default" : "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                      color: isAlreadySaved ? "#22c55e" : "#666", fontSize: 13, fontWeight: 700,
-                      transition: "all 0.2s",
-                    }}
-                  >
-                    {savingDoc
-                      ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving…</>
-                      : isAlreadySaved
-                        ? <><CheckCircle2 size={14} /> Saved to Case</>
-                        : <><FileText size={14} /> Save Index to Case</>
-                    }
-                  </button>
-                </div>
-              );
-            })()}
           </>
-        ) : null}
+        )}
       </div>
 
-      {/* Cloud detail bottom sheet */}
+      {/* ── Cloud detail bottom sheet ──────────────────────────────────────── */}
       {selectedCloud && (
         <div
           onClick={() => setSelectedCloud(null)}
@@ -1981,15 +1920,12 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               </button>
             </div>
 
-            {/* Title */}
             <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 14 }}>{selectedCloud.label}</div>
 
-            {/* Description */}
             <div style={{ fontSize: 14, color: "#bbb", lineHeight: 1.7, marginBottom: 20, fontFamily: "Georgia, serif" }}>
               {selectedCloud.description}
             </div>
 
-            {/* Supporting facts */}
             {selectedCloud.facts && selectedCloud.facts.length > 0 && (
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#444", letterSpacing: 0.5, marginBottom: 10 }}>SUPPORTING FACTS IN YOUR CASE</div>
@@ -2004,7 +1940,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               </div>
             )}
 
-            {/* Why it matters */}
             {selectedCloud.importance && (
               <div style={{
                 background: CLOUD_COLORS[selectedCloud.category] + "10",
@@ -2016,7 +1951,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               </div>
             )}
 
-            {/* Related items */}
             {selectedCloud.relatedItems && selectedCloud.relatedItems.length > 0 && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#444", letterSpacing: 0.5, marginBottom: 10 }}>RELATED</div>
@@ -2031,20 +1965,9 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         </div>
       )}
 
-      {showPreVerify && analysis && (
-        <PreVerificationModal
-          title={target?.item.title}
-          text={[
-            analysis.overview,
-            analysis.insights.map(i => `${i.type.replace("_", " ").toUpperCase()}: ${i.text}`).join("\n"),
-            analysis.guidingQuestions.length > 0 ? "QUESTIONS:\n" + analysis.guidingQuestions.map((q, n) => `${n + 1}. ${q}`).join("\n") : "",
-          ].filter(Boolean).join("\n\n")}
-          onClose={() => setShowPreVerify(false)}
-        />
-      )}
-
+      {/* ── Picker modal ──────────────────────────────────────────────────── */}
       {showPicker && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 150, display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 150, display: "flex", flexDirection: "column" }}>
           <div style={{ background: "#0d0d0d", flex: 1, display: "flex", flexDirection: "column", maxWidth: 600, width: "100%", margin: "0 auto" }}>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontWeight: 800, fontSize: 16 }}>Select to analyze</div>

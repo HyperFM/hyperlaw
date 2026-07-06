@@ -819,8 +819,8 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
         <Folder size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
         <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>No cases yet</div>
-        <div style={{ color: "#555", fontSize: 14, lineHeight: 1.6, maxWidth: 300 }}>
-          Cases are created from incidents. Open an incident and tap "Convert to New Case" to get started.
+        <div style={{ color: "#555", fontSize: 14, lineHeight: 1.6, maxWidth: 280 }}>
+          Create a new case to get started.
         </div>
       </div>
     );
@@ -838,8 +838,7 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sorted.map(c => {
-          const incidents = data.incidents.filter(i => c.incidentIds.includes(i.id));
-          const categories = [...new Set(incidents.map(i => i.category))];
+          const stageLabel = STAGE_LABELS[c.workflowStage] ?? c.workflowStage;
           return (
             <div key={c.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, display: "flex", overflow: "hidden" }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
@@ -851,19 +850,14 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>{c.title}</span>
-                    <span style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, color: STATUS_COLORS[c.status] }}>
-                      {STATUS_LABELS[c.status]}
-                    </span>
-                  </div>
-                  <div style={{ color: "#555", fontSize: 13, marginBottom: 8 }}>
-                    {incidents.length} incident{incidents.length !== 1 ? "s" : ""} · {formatDate(c.createdAt)}
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {categories.map(cat => (
-                      <span key={cat} style={{ background: `${CATEGORY_COLORS[cat]}18`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: CATEGORY_COLORS[cat] }}>
-                        {CATEGORY_LABELS[cat]}
+                    {c.structuredCase && (
+                      <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: ORANGE, letterSpacing: 0.4 }}>
+                        ORGANIZED
                       </span>
-                    ))}
+                    )}
+                  </div>
+                  <div style={{ color: "#555", fontSize: 13 }}>
+                    {stageLabel} · {formatDate(c.createdAt)}
                   </div>
                 </div>
                 <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />

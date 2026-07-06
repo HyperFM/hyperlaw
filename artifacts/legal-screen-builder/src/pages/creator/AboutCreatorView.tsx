@@ -8,6 +8,7 @@ interface CarouselImage {
   src: string;
   title?: string;
   description?: string;
+  objectPosition?: string;
 }
 
 const CAROUSEL_IMAGES: CarouselImage[] = [
@@ -60,6 +61,7 @@ const CAROUSEL_IMAGES: CarouselImage[] = [
     src: "/timeline-10.jpeg",
     title: "Toodles — Posing",
     description: "My baby Toodles striking a pose by the pumpkins. She loved to show off.",
+    objectPosition: "top",
   },
   {
     src: "/timeline-11.jpeg",
@@ -208,6 +210,7 @@ function InjusticeCarousel() {
             style={{
               width: "100%", height: "100%",
               objectFit: "cover",
+              objectPosition: img.objectPosition ?? "center",
               transition: "opacity 0.3s ease",
             }}
           />

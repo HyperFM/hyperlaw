@@ -2721,7 +2721,7 @@ function DocumentIntakeView({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0a0a0a" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: "#0a0a0a", position: "relative" }}>
       {/* ── Header ── */}
       <div style={{ padding: "16px 20px", borderBottom: "1px solid #151515", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2734,7 +2734,7 @@ function DocumentIntakeView({
       </div>
 
       {/* ── Scrollable body ── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 100px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 120px" }}>
 
         {/* "Document stored" receipt */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#0a150a", border: "1px solid #1a321a", borderRadius: 10, marginBottom: 28 }}>
@@ -2889,7 +2889,7 @@ function DocumentIntakeView({
 
       {/* ── Sticky bottom navigation (intake phase only) ── */}
       {phase === "intake" && (
-        <div style={{ flexShrink: 0, padding: "14px 20px 20px", background: "#0a0a0a", borderTop: "1px solid #151515", display: "flex", gap: 10 }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "14px 20px calc(14px + env(safe-area-inset-bottom))", background: "#0a0a0a", borderTop: "1px solid #222", display: "flex", gap: 10, zIndex: 50 }}>
           <button
             onClick={() => intakeStep === 0 ? onCancel() : setIntakeStep(s => s - 1)}
             style={{ flex: 1, padding: "18px 10px", borderRadius: 14, border: "1px solid #1e1e1e", background: "none", color: "#444", fontSize: 15, fontWeight: 700, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
@@ -4278,7 +4278,7 @@ export default function App() {
         </div>
       )}
 
-      {isMobile && (
+      {isMobile && view.type !== "document_intake" && (
         <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
       )}
 

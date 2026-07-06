@@ -77,12 +77,12 @@ const CAROUSEL_IMAGES: CarouselImage[] = [
     description: "Scaring my little brother just by existing. She was fearless.",
   },
   {
-    src: "/timeline-14.jpeg",
+    src: "/timeline-15.png",
     title: "Toodles — Nose Ring Thief",
     description: "Caught in the act, chewing on my nose ring. She thought it was hers.",
   },
   {
-    src: "/timeline-15.png",
+    src: "/timeline-14.jpeg",
     title: "Toodles — Chicken Nugget",
     description: "Her holding her chicken nugget. She earned it.",
   },

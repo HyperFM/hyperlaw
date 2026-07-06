@@ -6,6 +6,7 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
+  Camera,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -21,6 +22,7 @@ import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud } f
 import { api } from "./lib/api";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
+import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
@@ -2354,11 +2356,12 @@ function HoldToDeleteButton({ onComplete }: { onComplete: () => void }) {
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
   onBuyCredits?: () => void;
+  onAboutCreator: () => void;
 }) {
   const { signOut } = useClerk();
   const { user } = useUser();
@@ -2368,6 +2371,32 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
 
   const [showPlans, setShowPlans] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+
+  // Profile photo
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  function handlePhotoFile(file: File | undefined | null, inputEl?: HTMLInputElement | null) {
+    if (!file) return;
+    // Reset input value so selecting the same file again reliably retriggers onChange
+    if (inputEl) inputEl.value = "";
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      try {
+        localStorage.setItem("hl_profile_photo", dataUrl);
+      } catch {
+        alert("Photo is too large to save. Please choose a smaller image.");
+        return;
+      }
+      setProfilePhoto(dataUrl);
+      window.dispatchEvent(new Event("profilePhotoChanged"));
+    };
+    reader.readAsDataURL(file);
+    setShowPhotoOptions(false);
+  }
 
   // Account deletion
   const [showDeleteSection, setShowDeleteSection] = useState(false);
@@ -2415,10 +2444,71 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
+      {/* Hidden file inputs */}
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="user" style={{ display: "none" }}
+        onChange={e => handlePhotoFile(e.target.files?.[0], e.target)} />
+      <input ref={galleryInputRef} type="file" accept="image/*" style={{ display: "none" }}
+        onChange={e => handlePhotoFile(e.target.files?.[0], e.target)} />
+
+      {/* Photo options sheet */}
+      {showPhotoOptions && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }}
+          onClick={() => setShowPhotoOptions(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{
+              position: "absolute", bottom: 0, left: 0, right: 0,
+              background: "#111", borderRadius: "20px 20px 0 0",
+              padding: "20px 20px calc(20px + env(safe-area-inset-bottom))",
+              borderTop: `2px solid ${ORANGE}33`,
+            }}>
+            <div style={{ width: 36, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#888", marginBottom: 14, textAlign: "center" }}>Update Profile Photo</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button onClick={() => { cameraInputRef.current?.click(); }}
+                style={{ padding: "14px 16px", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, color: "#ccc", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+                <Camera size={16} color={ORANGE} /> Take Photo
+              </button>
+              <button onClick={() => { galleryInputRef.current?.click(); }}
+                style={{ padding: "14px 16px", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, color: "#ccc", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+                <User size={16} color={ORANGE} /> Choose from Library
+              </button>
+              {profilePhoto && (
+                <button onClick={() => { localStorage.removeItem("hl_profile_photo"); setProfilePhoto(null); window.dispatchEvent(new Event("profilePhotoChanged")); setShowPhotoOptions(false); }}
+                  style={{ padding: "12px 16px", background: "transparent", border: "1px solid #2a1a1a", borderRadius: 12, color: "#555", fontSize: 13, cursor: "pointer" }}>
+                  Remove Photo
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* User info */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-        <div style={{ width: 60, height: 60, borderRadius: 30, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <User size={28} color="#000" />
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 30, overflow: "hidden",
+            background: ORANGE,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: profilePhoto ? `2px solid ${ORANGE}` : "none",
+          }}>
+            {profilePhoto
+              ? <img src={profilePhoto} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              : <User size={28} color="#000" />
+            }
+          </div>
+          <button
+            onClick={() => setShowPhotoOptions(true)}
+            style={{
+              position: "absolute", bottom: -2, right: -2,
+              width: 22, height: 22, borderRadius: 11,
+              background: ORANGE, border: "2px solid #0d0d0d",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", padding: 0,
+            }}
+          >
+            <Camera size={11} color="#000" />
+          </button>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>{displayName}</div>
@@ -2636,7 +2726,36 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits }: {
         )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 40, gap: 6 }}>
+      {/* ── Creator button ─────────────────────────────────────────────── */}
+      <div style={{ marginTop: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#2a2a2a", letterSpacing: 1 }}>CREATOR</div>
+        <button
+          onClick={onAboutCreator}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            padding: 0, WebkitTapHighlightColor: "transparent",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+          }}
+          onMouseEnter={e => { const btn = e.currentTarget; const img = btn.querySelector("img") as HTMLImageElement; if (img) img.style.boxShadow = `0 0 28px ${ORANGE}88, 0 0 56px ${ORANGE}33`; }}
+          onMouseLeave={e => { const btn = e.currentTarget; const img = btn.querySelector("img") as HTMLImageElement; if (img) img.style.boxShadow = `0 0 18px ${ORANGE}44, 0 0 36px ${ORANGE}22`; }}
+        >
+          <img
+            src="/creator-logo.jpeg"
+            alt="Creator"
+            style={{
+              width: 72, height: 72, borderRadius: "50%",
+              objectFit: "cover",
+              border: `2px solid ${ORANGE}44`,
+              boxShadow: `0 0 18px ${ORANGE}44, 0 0 36px ${ORANGE}22`,
+              transition: "box-shadow 0.2s ease",
+              filter: "contrast(1.05) brightness(1.02)",
+            }}
+          />
+          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>About the Creator</div>
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 32, gap: 6 }}>
         <div style={{ color: "#1e1e1e", fontSize: 11, fontWeight: 700 }}>HYPERLAW</div>
         <button onClick={handleEggPress} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, opacity: 0.15, WebkitTapHighlightColor: "transparent" }}>
           <img src="/hyperlaw-logo.png" alt="" style={{ width: 36, height: 36, borderRadius: 8, filter: "grayscale(100%)" }} />
@@ -2806,6 +2925,18 @@ function IndexIcon({ size = 40 }: { size?: number }) {
 }
 
 function ProfileIcon({ size = 40 }: { size?: number }) {
+  const [photo, setPhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
+  useEffect(() => {
+    const handler = () => setPhoto(localStorage.getItem("hl_profile_photo"));
+    window.addEventListener("profilePhotoChanged", handler);
+    return () => window.removeEventListener("profilePhotoChanged", handler);
+  }, []);
+  if (photo) {
+    return (
+      <img src={photo} alt="" draggable={false}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0 }} />
+    );
+  }
   return (
     <img src="/profile-icon.jpeg" alt="" draggable={false}
       style={{ width: size, height: size, display: "block", pointerEvents: "none", userSelect: "none", flexShrink: 0 }} />
@@ -2987,7 +3118,8 @@ type AppView =
   | { type: "case_assembly"; caseId: string }
   | { type: "case_learning"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase }
-  | { type: "studio_workspace"; caseId: string };
+  | { type: "studio_workspace"; caseId: string }
+  | { type: "about_creator" };
 
 export default function App() {
   const w = useWindowWidth();
@@ -3460,8 +3592,20 @@ export default function App() {
       );
     }
 
+    if (view.type === "about_creator") {
+      return <AboutCreatorView onBack={() => setView({ type: "home" })} />;
+    }
+
     if (navTab === "profile") {
-      return <ProfileView data={data} onOpenCase={handleOpenCase} onEasterEgg={() => setShowEasterEgg(true)} onBuyCredits={() => setShowCreditShop(true)} />;
+      return (
+        <ProfileView
+          data={data}
+          onOpenCase={handleOpenCase}
+          onEasterEgg={() => setShowEasterEgg(true)}
+          onBuyCredits={() => setShowCreditShop(true)}
+          onAboutCreator={() => setView({ type: "about_creator" })}
+        />
+      );
     }
 
     if (navTab === "builder") {

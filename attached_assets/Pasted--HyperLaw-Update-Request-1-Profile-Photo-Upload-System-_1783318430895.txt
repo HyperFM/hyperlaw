@@ -1,0 +1,164 @@
+
+HyperLaw Update Request
+
+1. Profile Photo Upload System
+
+Add profile photo functionality for all users.
+
+Requirements:
+
+* Users should be able to:
+    * Take a photo with their camera
+    * Select a photo from their device gallery/library
+    * Change their profile photo at any time
+* The selected image should automatically appear as their profile avatar throughout the app.
+* Display profile photos in a clean circular format.
+
+⸻
+
+2. Creator Button in Profile Section
+
+At the bottom of the Profile tab, beneath the HyperLaw profile information, add a new circular creator button.
+
+Design:
+
+* Use the provided creator logo/image.
+* Remove all background from the image.
+* Crop it into a clean circular icon.
+* Match the existing HyperLaw aesthetic:
+    * Dark theme
+    * Burnt orange glow accents
+    * Premium appearance
+    * Subtle hover/press animation
+
+Behavior:
+
+Do NOT open the external link immediately.
+
+When the user taps the creator icon:
+
+➡ Open a dedicated About the Creator page.
+
+⸻
+
+3. About The Creator Page
+
+Create a premium, cinematic page.
+
+Hero Section
+
+At the top:
+
+* Use the provided black-and-white creator photo.
+* Full-width display.
+* Large hero image.
+* Add a smooth dark fade/gradient overlay.
+* The image should occupy most of the screen before scrolling.
+
+Title
+
+Display:
+
+About the Creator
+
+Use an elegant premium font consistent with HyperLaw branding.
+
+⸻
+
+Personal Note Section
+
+Display the following text exactly:
+
+⸻
+
+A Personal Note
+
+While the events documented throughout these cases were unfolding, life did not stop.
+
+I was simultaneously navigating multiple federal lawsuits, repeated interactions with public officials, arrests, detention, homelessness, isolation, and the lasting effects of trauma that began long before any of these incidents occurred.
+
+Despite that, I continued creating.
+
+During this same period, I completed my album EDGE, developed ShortHop — an app designed to connect people traveling in the same direction for safer, more efficient transportation — and continued building technology, documenting evidence, and advocating for myself when few others would.
+
+HyperLaw grew out of that same drive. I built it because I know firsthand what it feels like to face the legal system alone, without a lawyer, without resources, and without anyone explaining what any of it means. This app is for anyone standing where I stood.
+
+The personal cost of all of it was significant. During one of my hospitalizations, I made the painful decision to rehome my pet rat, Toodles, because I felt she deserved stability and care that I could not guarantee during that chapter of my life. It remains one of the hardest decisions I have ever made.
+
+What follows in these cases is not simply a collection of lawsuits. It is a documented timeline of events, supported by video, photographs, public records, witness statements, and court filings. The full evidence, including additional footage and documentation, can be viewed through my public profiles @HyperLaw and @HyperTransparency.
+
+These cases tell one story.
+
+My decision to keep building, creating, and moving forward despite them tells another.
+
+— Hyper
+
+⸻
+
+4. Injustice Timeline Carousel
+
+Below the creator section and above the final button:
+
+Add a swipeable image carousel.
+
+Requirements:
+
+* Smooth horizontal swipe navigation.
+* Mobile optimized.
+* Burnt orange accent indicators.
+* Ability to display multiple photos documenting:
+    * Court experiences
+    * Transit incidents
+    * Evidence
+    * Homelessness period
+    * Documentation efforts
+    * HyperLaw development journey
+    * Other significant life events
+
+Each image should support:
+
+* Optional title
+* Optional description
+* Full-screen viewing when tapped
+
+⸻
+
+5. External Link Section
+
+At the bottom of the About page:
+
+Add a premium call-to-action section.
+
+Button Text:
+
+View Full Story, Evidence & Projects
+
+Behavior:
+
+When pressed, open:
+
+https://beacons.ai/hyperfm
+
+Styling:
+
+* HyperLaw orange glow
+* Premium metallic appearance
+* Large touch target
+* Subtle animation
+* Consistent with the rest of the app branding
+
+⸻
+
+6. Visual Style Requirements
+
+Maintain HyperLaw’s existing design language:
+
+* Dark theme
+* Burnt orange glow effects
+* Glassmorphism where appropriate
+* Smooth transitions
+* Premium luxury-tech appearance
+* Mobile-first layout
+* Fast loading and responsive
+
+The page should feel personal, professional, and inspirational while fitting seamlessly into the HyperLaw ecosystem

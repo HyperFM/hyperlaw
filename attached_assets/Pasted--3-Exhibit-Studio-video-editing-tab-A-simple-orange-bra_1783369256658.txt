@@ -1,0 +1,136 @@
+### 3. Exhibit Studio (video editing tab)
+A simple, orange-branded video editor for building illustrative aid videos:
+- User adds their own video clips
+- User drags a line/marker to choose where an inserted screen (text/graphic slide) should go
+- Inserted screens automatically hold for 10 seconds between clips
+- Every edit auto-saves immediately to the app's own project folder — nothing saves in an unfinished state
+- Reopening the project pulls the saved state back instantly
+- On completion, user exports in their choice of format/quality (acceptable submission formats vary by state — tie this to the Glossary, don't assume)
+
+**Manual Screen Builder (addition to Exhibit Studio):**
+In addition to the existing workflow, add a manual builder using a consistent template system:
+- Timeline Screen
+- Event Screen
+- Evidence Screen
+- Quote Screen
+- Statute Screen
+- Case Citation Screen
+- Custom Screen
+
+Each template should be fast to create, easy to fill out, consistent in appearance, and automatically saved into the project. This complements uploaded media and AI-generated content — it doesn't replace either.
+
+**Important — check for hidden/layered work before building new:** Screen templates and related components may already exist in the codebase but be hidden in unused layers, disconnected views, or dead code paths. Before building the Manual Screen Builder (or any other piece described in this document) from scratch, check whether it already exists in some form. Reuse and reconnect what's already there wherever possible. Remove genuine clutter — abandoned screens, duplicate components, dead code — rather than leaving it alongside new work.
+
+### 4. Learning Index — "Discovery Clouds"
+- User selects their case from a slim circular slider at the top of the Index screen (supports multiple cases)
+- User holds down a glowing orange button at the bottom to unlock the Learning Index for that case (spends 1 credit, sends Case Memory / finished complaint to Claude Sonnet 5)
+- Claude extracts the strongest, most significant violations, citations, statutes, amendments, and relevant case law and turns them into learning entries
+- Each entry displays as a **Discovery Cloud** — a slim, gently drifting/floating element pairing the difficult name attached to that moment (a perpetrator, judge, officer, or other party) directly next to the relevant law/citation/knowledge. Format: **(Trauma/Law)**.
+- Tapping a floating cloud expands it into a larger Discovery Cloud view with the full explanation
+- Purpose: turning a difficult moment into something the user can actually learn from and retain
+
+### 5. Support Message (static in-app copy, not Claude-generated)
+Available in the Tutor section, always present regardless of app state:
+
+> *"Building a case alone is hard, and there will be moments that feel like too much. We built HyperLaw because we understand that. Keep going — you don't have to do this fearless, and you don't have to do it perfectly. If things ever feel heavier than you can carry, please reach out: call or text 988 anytime, day or night."*
+
+This must be static, unconditional UI copy — never dependent on a successful AI call.
+
+---
+
+## Credit Philosophy
+
+Credits are only consumed when meaningful AI work is performed.
+
+**Consumes credits:**
+- Build Case Memory
+- Generate Complaint
+- Generate Motion
+- Generate Discovery
+- Generate Learning Index
+- Strengthen Complaint
+- Generate Litigation Package
+
+**Does NOT consume credits:**
+- Upload Documents
+- Answer Intake Questions
+- View Existing Cases
+- Edit Existing Case Data
+- Browse Learning Index Entries
+- Navigate Existing Records
+
+**Credits should never be consumed if an API request fails.** Deduct only after a successful AI operation actually begins.
+
+---
+
+## Scope of Authority
+
+This is not a request for a limited audit followed by permission requests at every stage. You are being asked to evaluate the entire HyperLaw system against this vision and complete the implementation wherever practical.
+
+**You have authority to:**
+- Trace and repair backend workflows
+- Restructure database architecture
+- Redesign API flows
+- Create or modify data models
+- Connect unfinished systems
+- Remove redundant screens
+- Consolidate duplicate functionality
+- Build missing infrastructure
+- Improve performance and token efficiency
+- Complete unfinished features that clearly align with this vision
+
+Use your judgment. If a component is obviously incomplete, disconnected, or preventing the intended workflow, you have permission to fix it without waiting for additional approval. Before making major architectural decisions, verify the change supports this vision rather than introducing a different product direction.
+
+The objective is not to preserve existing implementation choices. The objective is to deliver the HyperLaw system described in this document.
+
+---
+
+## Execution Philosophy
+
+Do not stop at the first issue discovered. Do not return only a list of problems. Investigate the system end-to-end.
+
+For every issue found:
+1. Identify the root cause.
+2. Determine the correct architectural solution.
+3. Implement the solution.
+4. Validate that the fix works.
+5. Continue to the next issue.
+
+When possible, complete the entire workflow rather than repairing isolated pieces. Before modifying any existing functionality, inspect the current implementation carefully — check hidden layers, unused components, and dead code paths — and preserve/reuse anything that already aligns with this vision rather than rebuilding it unnecessarily. The platform already contains substantial work that should be respected and built upon. Remove genuine clutter as you go, rather than leaving abandoned duplicates alongside new work.
+
+---
+
+## Definition of Success
+
+HyperLaw is complete when a user can:
+
+**Build a Case** — Guided Intake, or Existing Document Upload
+
+**Have Case Memory built automatically** — information analyzed automatically, structured case memory created automatically, information retained across future sessions
+
+**Generate legal documents** — Complaint, Motion, Discovery, Demand Letter, Litigation Package
+
+**Learn their case** — Discovery Clouds, Learning Index, explanations, citations, relevant authority
+
+**Build exhibits** — video editing, manual screen builder, auto-saving projects, exporting final products
+
+**Continue later** — reopen any case, continue from saved state, add evidence, strengthen complaints, generate new documents — without ever needing to re-provide information already stored in Case Memory
+
+---
+
+## Explicit Permissions & Constraints
+
+**Do NOT touch, alter, or reposition:**
+- The bottom navigation panel
+- The icons at the top of the Exhibit Studio screen
+- Any screen or element that is already functioning correctly and matches this vision
+
+**Do reuse and reconnect:**
+- Any existing components, templates, or screens hidden in unused layers or disconnected code paths — check before rebuilding from scratch
+- Remove clutter (dead code, abandoned duplicate screens) once its function has been preserved or reconnected elsewhere
+
+---
+
+## After You're Finished
+
+Once everything above is built and functioning, provide a short summary of what was fixed, what was built, and anything genuinely important to know — not a full audit, just the essentials.

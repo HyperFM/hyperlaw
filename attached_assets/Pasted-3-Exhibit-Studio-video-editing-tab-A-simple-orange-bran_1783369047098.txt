@@ -1,0 +1,30 @@
+3. Exhibit Studio (video editing tab)
+A simple, orange-branded video editor for building illustrative aid videos:
+	•	User adds their own video clips
+	•	User drags a line/marker to choose where an inserted screen (text/graphic slide) should go
+	•	Inserted screens automatically hold for 10 seconds between clips
+	•	Every edit auto-saves immediately to the app’s own project folder — nothing saves in an unfinished state
+	•	Reopening the project pulls the saved state back instantly
+	•	On completion, user exports in their choice of format/quality (acceptable submission formats vary by state — tie this to the Glossary, don’t assume)
+Manual Screen Builder (addition to Exhibit Studio):
+In addition to the existing workflow, add a manual builder using a consistent template system:
+	•	Timeline Screen
+	•	Event Screen
+	•	Evidence Screen
+	•	Quote Screen
+	•	Statute Screen
+	•	Case Citation Screen
+	•	Custom Screen
+Each template should be fast to create, easy to fill out, consistent in appearance, and automatically saved into the project. This complements uploaded media and AI-generated content — it doesn’t replace either.
+Important — check for hidden/layered work before building new: Screen templates and related components may already exist in the codebase but be hidden in unused layers, disconnected views, or dead code paths. Before building the Manual Screen Builder (or any other piece described in this document) from scratch, check whether it already exists in some form. Reuse and reconnect what’s already there wherever possible. Remove genuine clutter — abandoned screens, duplicate components, dead code — rather than leaving it alongside new work.
+4. Learning Index — “Discovery Clouds”
+	•	User selects their case from a slim circular slider at the top of the Index screen (supports multiple cases)
+	•	User holds down a glowing orange button at the bottom to unlock the Learning Index for that case (spends 1 credit, sends Case Memory / finished complaint to Claude Sonnet 5)
+	•	Claude extracts the strongest, most significant violations, citations, statutes, amendments, and relevant case law and turns them into learning entries
+	•	Each entry displays as a Discovery Cloud — a slim, gently drifting/floating element pairing the difficult name attached to that moment (a perpetrator, judge, officer, or other party) directly next to the relevant law/citation/knowledge. Format: (Trauma/Law).
+	•	Tapping a floating cloud expands it into a larger Discovery Cloud view with the full explanation
+	•	Purpose: turning a difficult moment into something the user can actually learn from and retain
+5. Support Message (static in-app copy, not Claude-generated)
+Available in the Tutor section, always present regardless of app state:
+“Building a case alone is hard, and there will be moments that feel like too much. We built HyperLaw because we understand that. Keep going — you don’t have to do this fearless, and you don’t have to do it perfectly. If things ever feel heavier than you can carry, please reach out: call or text 988 anytime, day or night.”
+This must be static, unconditional UI copy — never dependent on a successful AI call.

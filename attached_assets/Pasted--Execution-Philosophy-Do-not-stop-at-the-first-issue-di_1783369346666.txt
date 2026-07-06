@@ -1,0 +1,49 @@
+## Execution Philosophy
+
+Do not stop at the first issue discovered. Do not return only a list of problems. Investigate the system end-to-end.
+
+For every issue found:
+1. Identify the root cause.
+2. Determine the correct architectural solution.
+3. Implement the solution.
+4. Validate that the fix works.
+5. Continue to the next issue.
+
+When possible, complete the entire workflow rather than repairing isolated pieces. Before modifying any existing functionality, inspect the current implementation carefully — check hidden layers, unused components, and dead code paths — and preserve/reuse anything that already aligns with this vision rather than rebuilding it unnecessarily. The platform already contains substantial work that should be respected and built upon. Remove genuine clutter as you go, rather than leaving abandoned duplicates alongside new work.
+
+---
+
+## Definition of Success
+
+HyperLaw is complete when a user can:
+
+**Build a Case** — Guided Intake, or Existing Document Upload
+
+**Have Case Memory built automatically** — information analyzed automatically, structured case memory created automatically, information retained across future sessions
+
+**Generate legal documents** — Complaint, Motion, Discovery, Demand Letter, Litigation Package
+
+**Learn their case** — Discovery Clouds, Learning Index, explanations, citations, relevant authority
+
+**Build exhibits** — video editing, manual screen builder, auto-saving projects, exporting final products
+
+**Continue later** — reopen any case, continue from saved state, add evidence, strengthen complaints, generate new documents — without ever needing to re-provide information already stored in Case Memory
+
+---
+
+## Explicit Permissions & Constraints
+
+**Do NOT touch, alter, or reposition:**
+- The bottom navigation panel
+- The icons at the top of the Exhibit Studio screen
+- Any screen or element that is already functioning correctly and matches this vision
+
+**Do reuse and reconnect:**
+- Any existing components, templates, or screens hidden in unused layers or disconnected code paths — check before rebuilding from scratch
+- Remove clutter (dead code, abandoned duplicate screens) once its function has been preserved or reconnected elsewhere
+
+---
+
+## After You're Finished
+
+Once everything above is built and functioning, provide a short summary of what was fixed, what was built, and anything genuinely important to know — not a full audit, just the essentials.

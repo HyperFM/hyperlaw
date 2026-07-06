@@ -1,0 +1,292 @@
+# HyperLaw — Vision & Handoff Brief for Claude Fable 5
+
+## Purpose of This Document
+
+HyperLaw is nearly complete. The visual design, most screens, and the core concept are already built. What remains is backend functionality — specifically, the document analysis pipeline is failing, and several features need to be finished to match the full vision described below.
+
+This document exists so you don't have to guess at intent. Read this in full before touching code. Then implement the complete system described here — end to end.
+
+---
+
+## Where This App Came From
+
+Before HyperLaw existed, the process for building a legal case looked like this: back-and-forth conversation with an AI to draft complaints and motions, screenshots and video clips saved in messy phone folders, resending the same documents over and over as they were revised, paying for a separate video editor to build illustrative aid screens, and periodically going back to ask an AI to explain the same statutes and case law again because there was nowhere to keep that knowledge long-term.
+
+HyperLaw exists to close that gap — all of it, in one place, for anyone doing this alone.
+
+---
+
+## Current Status / First Objective
+
+Most of the platform is visually complete. The core failure is in the document analysis pipeline. Recent logs show:
+
+```
+Feature: Document Analysis
+Model: claude-sonnet-5
+Input Tokens: 0
+Output Tokens: 0
+Cost: $0.00
+Response Time: 0ms
+```
+
+Compare to previous successful analyses:
+```
+Input Tokens: 4000+
+Output Tokens: 800+
+Response Time: 8+ seconds
+```
+
+API key, model access, and billing are all confirmed working. The request is failing or being blocked *before* it reaches Claude — the failure is in the app's own logic, not the API connection.
+
+**Trace the complete workflow:**
+
+```
+Upload Document
+↓
+Store Document
+↓
+Load Intake Data
+↓
+Build Case Object
+↓
+Verify Credits
+↓
+Build Claude Payload
+↓
+Send Request
+↓
+Receive Response
+↓
+Build Case Memory
+↓
+Save Case Memory
+↓
+Display Results
+```
+
+Identify the exact failure point. Repair the pipeline. Verify successful end-to-end execution. Then continue implementing the broader architecture described below.
+
+**Do not treat pipeline restoration as the final objective — treat it as the first one.**
+
+---
+
+## Core Architecture: Case Memory Is the Nucleus
+
+Case Memory — not the Complaint — is the true center of every case.
+
+Case Memory is **not** a manual system. Users should never be required to hand-organize data into structured records. Case Memory is generated and continuously enriched automatically through analysis of:
+
+- Uploaded documents
+- Intake responses
+- Future evidence submissions
+- Additional user-provided information over time
+
+**Case Memory should contain:**
+```
+Case Summary
+Fact Pattern
+Parties
+Events
+Timeline
+Evidence
+Witnesses
+Claims
+Agencies
+Locations
+Open Questions
+Generated Documents
+Complaint Versions
+Learning Index Entries
+```
+
+**Expected structured output when analysis completes:**
+```json
+{
+  "caseSummary": "",
+  "factPattern": "",
+  "parties": [],
+  "events": [],
+  "evidence": [],
+  "witnesses": [],
+  "claims": [],
+  "agencies": [],
+  "locations": [],
+  "openQuestions": []
+}
+```
+
+**Division of responsibility:**
+- The **database** stores Case Memory. It is the memory.
+- **Claude reads from Case Memory and updates it.** Claude is not the memory.
+
+### Complaint Generation (downstream of Case Memory, not the nucleus)
+
+The Complaint is the primary drafting document generated *from* Case Memory — not the other way around. Future drafting tools build in this order:
+
+```
+Case Memory
+↓
+Complaint
+↓
+Motion
+↓
+Discovery
+↓
+Timeline
+↓
+Litigation Package
+```
+
+This keeps every generated document consistent with every other one, and significantly reduces token usage — each downstream tool references the already-organized Case Memory rather than re-analyzing raw intake every time.
+
+---
+
+## The Complete Intended Vision
+
+### 1. Case Intake (two paths)
+
+**Path A — Guided intake:** User answers staged questions — jurisdiction (state/federal, searchable court selector), parties involved (names, or Doe placeholders with a brief disclosure that officials can often be identified later through discovery), and a description of what happened in their own words. This intake feeds Case Memory, which Claude then uses to draft the first complaint.
+
+**Path B — Document upload:** User already has a drafted complaint or document containing case facts. They use "Submit a Document" instead of guided intake. This uses *less* AI usage, since Claude is extracting from an already-organized document into Case Memory rather than generating structure from scratch.
+
+No AI analysis should ever run before intake (Path A) or upload (Path B) is complete.
+
+### 2. Local File Handling
+Users' raw video/photo files stay on their own device, in their own messy, unorganized folders. HyperLaw pulls from those files instantly when needed and presents them neatly within the app, regardless of how disorganized they are on-device.
+
+### 3. Exhibit Studio (video editing tab)
+A simple, orange-branded video editor for building illustrative aid videos:
+- User adds their own video clips
+- User drags a line/marker to choose where an inserted screen (text/graphic slide) should go
+- Inserted screens automatically hold for 10 seconds between clips
+- Every edit auto-saves immediately to the app's own project folder — nothing saves in an unfinished state
+- Reopening the project pulls the saved state back instantly
+- On completion, user exports in their choice of format/quality (acceptable submission formats vary by state — tie this to the Glossary, don't assume)
+
+**Manual Screen Builder (addition to Exhibit Studio):**
+In addition to the existing workflow, add a manual builder using a consistent template system:
+- Timeline Screen
+- Event Screen
+- Evidence Screen
+- Quote Screen
+- Statute Screen
+- Case Citation Screen
+- Custom Screen
+
+Each template should be fast to create, easy to fill out, consistent in appearance, and automatically saved into the project. This complements uploaded media and AI-generated content — it doesn't replace either.
+
+**Important — check for hidden/layered work before building new:** Screen templates and related components may already exist in the codebase but be hidden in unused layers, disconnected views, or dead code paths. Before building the Manual Screen Builder (or any other piece described in this document) from scratch, check whether it already exists in some form. Reuse and reconnect what's already there wherever possible. Remove genuine clutter — abandoned screens, duplicate components, dead code — rather than leaving it alongside new work.
+
+### 4. Learning Index — "Discovery Clouds"
+- User selects their case from a slim circular slider at the top of the Index screen (supports multiple cases)
+- User holds down a glowing orange button at the bottom to unlock the Learning Index for that case (spends 1 credit, sends Case Memory / finished complaint to Claude Sonnet 5)
+- Claude extracts the strongest, most significant violations, citations, statutes, amendments, and relevant case law and turns them into learning entries
+- Each entry displays as a **Discovery Cloud** — a slim, gently drifting/floating element pairing the difficult name attached to that moment (a perpetrator, judge, officer, or other party) directly next to the relevant law/citation/knowledge. Format: **(Trauma/Law)**.
+- Tapping a floating cloud expands it into a larger Discovery Cloud view with the full explanation
+- Purpose: turning a difficult moment into something the user can actually learn from and retain
+
+### 5. Support Message (static in-app copy, not Claude-generated)
+Available in the Tutor section, always present regardless of app state:
+
+> *"Building a case alone is hard, and there will be moments that feel like too much. We built HyperLaw because we understand that. Keep going — you don't have to do this fearless, and you don't have to do it perfectly. If things ever feel heavier than you can carry, please reach out: call or text 988 anytime, day or night."*
+
+This must be static, unconditional UI copy — never dependent on a successful AI call.
+
+---
+
+## Credit Philosophy
+
+Credits are only consumed when meaningful AI work is performed.
+
+**Consumes credits:**
+- Build Case Memory
+- Generate Complaint
+- Generate Motion
+- Generate Discovery
+- Generate Learning Index
+- Strengthen Complaint
+- Generate Litigation Package
+
+**Does NOT consume credits:**
+- Upload Documents
+- Answer Intake Questions
+- View Existing Cases
+- Edit Existing Case Data
+- Browse Learning Index Entries
+- Navigate Existing Records
+
+**Credits should never be consumed if an API request fails.** Deduct only after a successful AI operation actually begins.
+
+---
+
+## Scope of Authority
+
+This is not a request for a limited audit followed by permission requests at every stage. You are being asked to evaluate the entire HyperLaw system against this vision and complete the implementation wherever practical.
+
+**You have authority to:**
+- Trace and repair backend workflows
+- Restructure database architecture
+- Redesign API flows
+- Create or modify data models
+- Connect unfinished systems
+- Remove redundant screens
+- Consolidate duplicate functionality
+- Build missing infrastructure
+- Improve performance and token efficiency
+- Complete unfinished features that clearly align with this vision
+
+Use your judgment. If a component is obviously incomplete, disconnected, or preventing the intended workflow, you have permission to fix it without waiting for additional approval. Before making major architectural decisions, verify the change supports this vision rather than introducing a different product direction.
+
+The objective is not to preserve existing implementation choices. The objective is to deliver the HyperLaw system described in this document.
+
+---
+
+## Execution Philosophy
+
+Do not stop at the first issue discovered. Do not return only a list of problems. Investigate the system end-to-end.
+
+For every issue found:
+1. Identify the root cause.
+2. Determine the correct architectural solution.
+3. Implement the solution.
+4. Validate that the fix works.
+5. Continue to the next issue.
+
+When possible, complete the entire workflow rather than repairing isolated pieces. Before modifying any existing functionality, inspect the current implementation carefully — check hidden layers, unused components, and dead code paths — and preserve/reuse anything that already aligns with this vision rather than rebuilding it unnecessarily. The platform already contains substantial work that should be respected and built upon. Remove genuine clutter as you go, rather than leaving abandoned duplicates alongside new work.
+
+---
+
+## Definition of Success
+
+HyperLaw is complete when a user can:
+
+**Build a Case** — Guided Intake, or Existing Document Upload
+
+**Have Case Memory built automatically** — information analyzed automatically, structured case memory created automatically, information retained across future sessions
+
+**Generate legal documents** — Complaint, Motion, Discovery, Demand Letter, Litigation Package
+
+**Learn their case** — Discovery Clouds, Learning Index, explanations, citations, relevant authority
+
+**Build exhibits** — video editing, manual screen builder, auto-saving projects, exporting final products
+
+**Continue later** — reopen any case, continue from saved state, add evidence, strengthen complaints, generate new documents — without ever needing to re-provide information already stored in Case Memory
+
+---
+
+## Explicit Permissions & Constraints
+
+**Do NOT touch, alter, or reposition:**
+- The bottom navigation panel
+- The icons at the top of the Exhibit Studio screen
+- Any screen or element that is already functioning correctly and matches this vision
+
+**Do reuse and reconnect:**
+- Any existing components, templates, or screens hidden in unused layers or disconnected code paths — check before rebuilding from scratch
+- Remove clutter (dead code, abandoned duplicate screens) once its function has been preserved or reconnected elsewhere
+
+---
+
+## After You're Finished
+
+Once everything above is built and functioning, provide a short summary of what was fixed, what was built, and anything genuinely important to know — not a full audit, just the essentials.

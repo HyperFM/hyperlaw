@@ -10,6 +10,17 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export interface ServerCase {
+  id: string;
+  userId: string;
+  title: string;
+  workflowStage: string;
+  caseData: Record<string, unknown>;
+  structuredCase: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppNotification {
   id: string;
   userId: string;
@@ -75,5 +86,24 @@ export const api = {
     messages: (sessionId: string) => apiFetch<ChatMessage[]>(`/chat/messages/${sessionId}`),
     reply: (sessionId: string, body: string) =>
       apiFetch<ChatMessage>(`/chat/messages/${sessionId}`, { method: "POST", body: JSON.stringify({ body }) }),
+  },
+  cases: {
+    /** List all cases for the current user (server-persisted) */
+    list: () => apiFetch<ServerCase[]>("/cases"),
+    /** Create or update a case on the server */
+    upsert: (id: string, title: string, workflowStage: string, caseData: Record<string, unknown>) =>
+      apiFetch<{ ok: boolean }>("/cases", {
+        method: "POST",
+        body: JSON.stringify({ id, title, workflowStage, caseData }),
+      }),
+    /** Save Organization Engine output to the case */
+    saveStructured: (id: string, structuredCase: Record<string, unknown>) =>
+      apiFetch<{ ok: boolean }>(`/cases/${id}/structured`, {
+        method: "PATCH",
+        body: JSON.stringify({ structuredCase }),
+      }),
+    /** Delete a case from the server */
+    delete: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${id}`, { method: "DELETE" }),
   },
 };

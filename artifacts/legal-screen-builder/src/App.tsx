@@ -18,6 +18,7 @@ import {
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud } from "./lib/aiApi";
+import { api } from "./lib/api";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import NotificationBell from "./components/NotificationBell";
@@ -1618,10 +1619,21 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         } else {
           const hlCase = target!.item as HLCase;
           const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
-          result = await aiApi.analyzeCase(hlCase, incs, {
-            forceRefresh: isForceRefresh,
-            caseId: hlCase.id,
-          });
+          // If the case already has Organization Engine output, use it directly — no extra Claude call
+          if (!isForceRefresh && hlCase.structuredCase?.clouds?.length) {
+            result = {
+              overview: hlCase.structuredCase.executiveSummary,
+              insights: [],
+              guidingQuestions: hlCase.structuredCase.gapQuestions ?? [],
+              clouds: hlCase.structuredCase.clouds as IndexCloud[],
+              fromCache: true,
+            };
+          } else {
+            result = await aiApi.analyzeCase(hlCase, incs, {
+              forceRefresh: isForceRefresh,
+              caseId: hlCase.id,
+            });
+          }
         }
         setAnalysis(result);
       } catch {
@@ -2954,6 +2966,57 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
   );
 }
 
+// ─── Case Switcher Bar ────────────────────────────────────────────────────────
+
+function CaseSwitcherBar({ cases, activeCaseId, onSwitch }: {
+  cases: HLCase[];
+  activeCaseId: string | null;
+  onSwitch: (caseId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeCase = cases.find(c => c.id === activeCaseId);
+  if (!activeCaseId || cases.length <= 1) return null;
+
+  return (
+    <>
+      <div style={{ background: "#080808", borderBottom: "1px solid #151515", padding: "5px 12px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <Folder size={11} color="#444" />
+        <span style={{ flex: 1, fontSize: 11, color: "#555", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: 0.3 }}>
+          {activeCase?.title ?? "Case"}
+        </span>
+        <button onClick={() => setOpen(true)}
+          style={{ background: "none", border: "1px solid #222", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: "#555", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 3, flexShrink: 0, letterSpacing: 0.5 }}>
+          SWITCH <ChevronRight size={9} />
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 600, display: "flex", alignItems: "flex-end" }}
+          onClick={() => setOpen(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+            <div style={{ width: 36, height: 3, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
+            <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 14, color: "#ccc" }}>Switch Case</div>
+            {cases.map(c => (
+              <button key={c.id} onClick={() => { onSwitch(c.id); setOpen(false); }}
+                style={{ width: "100%", background: c.id === activeCaseId ? "#1a1a1a" : "#0d0d0d", border: `1px solid ${c.id === activeCaseId ? ORANGE + "55" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                <Folder size={15} color={c.id === activeCaseId ? ORANGE : "#444"} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: c.id === activeCaseId ? "#fff" : "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                  <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>
+                    {c.structuredCase ? "✦ Organized" : c.assembly ? "Assembly done" : c.story ? "Story added" : "In progress"}
+                  </div>
+                </div>
+                {c.id === activeCaseId && <CheckCircle2 size={14} color={ORANGE} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 type AppView =
   | { type: "home" }
@@ -2990,7 +3053,22 @@ export default function App() {
   const [showUpgradeGate, setShowUpgradeGate] = useState(false);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
-  function setData(d: AppData) { setDataRaw(d); saveData(d); }
+  // ── Server sync refs ────────────────────────────────────────────────────────
+  const serverSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Tracks which cases have already had organize triggered to prevent double-firing */
+  const organizingCasesRef = useRef<Set<string>>(new Set());
+
+  function setData(d: AppData) {
+    setDataRaw(d);
+    saveData(d);
+    // Debounce server sync — avoids flooding during rapid updates (e.g. StoryView auto-save)
+    if (serverSyncTimeoutRef.current) clearTimeout(serverSyncTimeoutRef.current);
+    serverSyncTimeoutRef.current = setTimeout(() => {
+      d.cases.forEach(c => {
+        api.cases.upsert(c.id, c.title, c.workflowStage, c as unknown as Record<string, unknown>).catch(() => {});
+      });
+    }, 1500);
+  }
 
   // Fetch credit balance on mount and after checkout success
   const fetchCreditBalance = useCallback(async () => {
@@ -3011,6 +3089,70 @@ export default function App() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+
+  // ── Load cases from server on mount — merge with localStorage ────────────────
+  // Merge policy: local always wins (user may have unsynced edits).
+  // Server only fills in cases that don't exist locally, or adds structuredCase
+  // (which is always server-generated and never exists in local-only state).
+  useEffect(() => {
+    api.cases.list().then(serverCases => {
+      if (!serverCases.length) return;
+      setDataRaw(prev => {
+        const localMap = new Map(prev.cases.map(c => [c.id, c]));
+        let changed = false;
+        serverCases.forEach(sc => {
+          const local = localMap.get(sc.id);
+          if (!local) {
+            // Case on server but not in localStorage — add it (opened on a new device)
+            const caseData = sc.caseData as unknown as HLCase;
+            if (sc.structuredCase && !caseData.structuredCase) {
+              caseData.structuredCase = sc.structuredCase as unknown as HLCase["structuredCase"];
+            }
+            localMap.set(sc.id, caseData);
+            changed = true;
+          } else if (!local.structuredCase && sc.structuredCase) {
+            // Local case lacks structuredCase — pull it in from server (server-generated only)
+            localMap.set(sc.id, { ...local, structuredCase: sc.structuredCase as unknown as HLCase["structuredCase"] });
+            changed = true;
+          }
+          // Otherwise: local wins — user may have unsynced edits
+        });
+        if (!changed) return prev;
+        const next = { ...prev, cases: Array.from(localMap.values()) };
+        saveData(next);
+        return next;
+      });
+    }).catch(() => {}); // Silent failure — user stays on local data
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-trigger Organization Engine when assembly completes ─────────────────
+  useEffect(() => {
+    data.cases.forEach(c => {
+      if (
+        c.assembly &&
+        !c.structuredCase &&
+        !organizingCasesRef.current.has(c.id) &&
+        isOnline
+      ) {
+        organizingCasesRef.current.add(c.id);
+        aiApi.organizeCase({ hlCase: c as Parameters<typeof aiApi.organizeCase>[0]["hlCase"], caseId: c.id })
+          .then(structured => {
+            const fullStructured = { ...structured, organizedAt: Date.now() };
+            setDataRaw(prev => {
+              const target = prev.cases.find(x => x.id === c.id);
+              if (!target) return prev;
+              const next = updateCase(prev, { ...target, structuredCase: fullStructured, structuredCaseGeneratedAt: Date.now() });
+              saveData(next);
+              return next;
+            });
+            api.cases.saveStructured(c.id, fullStructured as unknown as Record<string, unknown>).catch(() => {});
+          })
+          .catch(() => {
+            organizingCasesRef.current.delete(c.id); // Allow retry on next render
+          });
+      }
+    });
+  }, [data.cases, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchCreditBalance();
@@ -3177,6 +3319,12 @@ export default function App() {
     setNavTab("builder");
   }
 
+  function handleDeleteCaseWithSync(id: string) {
+    setData(deleteCase(data, id));
+    api.cases.delete(id).catch(() => {});
+    setView({ type: "home" });
+  }
+
   function handleNavChange(tab: NavTab) {
     setNavTab(tab);
     if (tab === "home") setView({ type: "home" });
@@ -3318,7 +3466,7 @@ export default function App() {
           hlCase={hlCase}
           data={data}
           onUpdateCase={c => setData(updateCase(data, c))}
-          onDeleteCase={id => { setData(deleteCase(data, id)); setView({ type: "home" }); }}
+          onDeleteCase={id => handleDeleteCaseWithSync(id)}
           onOpenIncident={handleOpenIncident}
           onOpenInTutor={c => { setNavTab("tutor"); setView({ type: "tutor", hlCase: c }); }}
           onAddIncident={() => openNewIncident(hlCase.id)}
@@ -3359,7 +3507,7 @@ export default function App() {
     }
 
     if (navTab === "builder") {
-      return <CasesView data={data} onOpenCase={handleOpenCase} onDeleteCase={id => { setData(deleteCase(data, id)); setView({ type: "home" }); }} />;
+      return <CasesView data={data} onOpenCase={handleOpenCase} onDeleteCase={id => handleDeleteCaseWithSync(id)} />;
     }
 
     return (
@@ -3395,6 +3543,24 @@ export default function App() {
               <span>You're offline — AI features are unavailable until your connection is restored.</span>
             </div>
           )}
+          {/* Case switcher — visible when inside any case workspace view with multiple cases */}
+          {navTab === "builder" && (() => {
+            const activeCaseId =
+              view.type === "case_detail" ? view.hlCase.id :
+              (view.type === "case_parties" || view.type === "case_court" || view.type === "case_story" ||
+               view.type === "case_timeline" || view.type === "case_review" ||
+               view.type === "case_assembly" || view.type === "case_learning") ? view.caseId : null;
+            return activeCaseId ? (
+              <CaseSwitcherBar
+                cases={data.cases}
+                activeCaseId={activeCaseId}
+                onSwitch={caseId => {
+                  const c = data.cases.find(x => x.id === caseId);
+                  if (c) setView({ type: "case_detail", hlCase: c });
+                }}
+              />
+            ) : null;
+          })()}
           <ErrorBoundary onReset={() => { setNavTab("home"); setView({ type: "home" }); }}>
             {currentContent()}
           </ErrorBoundary>

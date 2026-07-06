@@ -562,4 +562,87 @@ router.post("/ai/learning", requireAuth, async (req: Request, res: Response): Pr
   }
 });
 
+// ── POST /ai/organize — Organization Engine ────────────────────────────────────
+// Produces the full structured case Index. Auto-triggered after assembly.
+router.post("/ai/organize", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { hlCase, extractedDocs, caseId } = req.body as {
+    hlCase: {
+      title: string;
+      parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+      court: { name: string; level: string; state: string } | null;
+      story: string;
+      timeline: Array<{ title: string; description: string }>;
+      assembly?: { organizedFacts: string; potentialClaims: Array<{ claim: string; supportingFacts: string[] }> } | null;
+      evidence?: Array<{ type: string; label: string; notes: string }>;
+    };
+    extractedDocs?: Array<{ fileName: string; summary: string; claims: string[]; deadlines: string[] }>;
+    caseId?: string;
+  };
+
+  if (!hlCase?.title) { res.status(400).json({ error: "hlCase is required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  // Fetch extracted docs from DB if caseId provided and none passed
+  let docs = extractedDocs ?? [];
+  if (!docs.length && caseId) {
+    try {
+      const uploaded = await db.select().from(uploadedDocumentsTable).where(
+        and(eq(uploadedDocumentsTable.userId, userId), eq(uploadedDocumentsTable.caseId, caseId))
+      );
+      docs = uploaded
+        .filter(d => d.caseExtraction)
+        .map(d => {
+          const ex = d.caseExtraction as { summary?: string; claims?: string[]; deadlines?: string[] };
+          return { fileName: d.fileName, summary: ex.summary ?? "", claims: ex.claims ?? [], deadlines: ex.deadlines ?? [] };
+        });
+    } catch { /* non-critical */ }
+  }
+
+  try {
+    const result = await aiService.organizeCase({ ...hlCase, extractedDocs: docs });
+    await logAiCall({ userId, feature: "organize_case", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Organization engine failed" });
+  }
+});
+
+// ── POST /ai/gap-detect — Gap Detection Engine ─────────────────────────────────
+// Batches ALL follow-up questions in one Claude call.
+router.post("/ai/gap-detect", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { hlCase, caseId } = req.body as {
+    hlCase: {
+      title: string;
+      parties: Array<{ firstName: string; lastName: string; type: string; nickname: string }>;
+      court: { name: string; level: string; state: string } | null;
+      story: string;
+      timeline: Array<{ title: string; description: string }>;
+      intakeChecklist: Array<{ key: string; completed: boolean; notes: string }>;
+      evidence?: Array<{ type: string; label: string }>;
+    };
+    caseId?: string;
+  };
+
+  if (!hlCase?.title) { res.status(400).json({ error: "hlCase is required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  try {
+    const result = await aiService.detectGaps(hlCase);
+    await logAiCall({ userId, feature: "gap_detect", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Gap detection failed" });
+  }
+});
+
 export default router;

@@ -719,6 +719,185 @@ Return only well-established authorities. Do not fabricate citations. Return onl
     };
   }
 
+  // ── Organization Engine ────────────────────────────────────────────────────
+  // Produces the full structured case Index from all available case data.
+  // Called automatically after assembly completes.
+
+  async organizeCase(input: {
+    title: string;
+    parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+    court: { name: string; level: string; state: string } | null;
+    story: string;
+    timeline: Array<{ title: string; description: string }>;
+    assembly?: { organizedFacts: string; potentialClaims: Array<{ claim: string; supportingFacts: string[] }> } | null;
+    evidence?: Array<{ type: string; label: string; notes: string }>;
+    extractedDocs?: Array<{ fileName: string; summary: string; claims: string[]; deadlines: string[] }>;
+  }): Promise<AiResult<{
+    executiveSummary: string;
+    clouds: IndexCloud[];
+    keyFacts: string[];
+    claims: string[];
+    importantQuotes: Array<{ quote: string; context: string }>;
+    gapQuestions: string[];
+  }>> {
+    const partiesBlock = input.parties.length
+      ? input.parties.map(p => {
+          const name = `${p.firstName} ${p.lastName}`;
+          const role = p.type === "official" ? `${p.title ?? "Official"} at ${p.agency ?? "Agency"}` : "Civilian";
+          return `- ${name} (nickname: "${p.nickname}", role: ${role})`;
+        }).join("\n")
+      : "No parties entered yet.";
+
+    const timelineBlock = input.timeline.length
+      ? input.timeline.map((e, i) => `${i + 1}. ${e.title}: ${e.description}`).join("\n")
+      : "No timeline events.";
+
+    const assemblyBlock = input.assembly
+      ? `ORGANIZED FACTS:\n${input.assembly.organizedFacts}\n\nCLAIMS:\n${input.assembly.potentialClaims.map(c => `- ${c.claim}`).join("\n")}`
+      : "Assembly not yet completed.";
+
+    const evidenceBlock = input.evidence?.length
+      ? input.evidence.map(e => `- [${e.type.toUpperCase()}] ${e.label}: ${e.notes}`).join("\n")
+      : "No evidence logged.";
+
+    const docsBlock = input.extractedDocs?.length
+      ? input.extractedDocs.map(d => `FILE: ${d.fileName}\nSummary: ${d.summary}\nClaims: ${d.claims.join("; ")}\nDeadlines: ${d.deadlines.join("; ")}`).join("\n\n")
+      : "No uploaded documents.";
+
+    const prompt = `You are HyperLaw's Organization Engine. Analyze the case information below and produce a complete structured Index.
+
+=== CASE TITLE ===
+${input.title}
+
+=== PARTIES ===
+${partiesBlock}
+
+=== COURT ===
+${input.court ? `${input.court.name} (${input.court.level}, ${input.court.state})` : "Not specified"}
+
+=== NARRATIVE ===
+${input.story || "Not yet provided."}
+
+=== TIMELINE ===
+${timelineBlock}
+
+=== ASSEMBLY RESULTS ===
+${assemblyBlock}
+
+=== EVIDENCE ===
+${evidenceBlock}
+
+=== UPLOADED DOCUMENTS ===
+${docsBlock}
+
+=== INSTRUCTIONS ===
+
+Return a single JSON object (no markdown, no code fences):
+{
+  "executiveSummary": "2–3 sentences covering what happened, who was involved, and the core legal issues",
+  "clouds": [
+    {
+      "id": "short-unique-slug",
+      "label": "Short name (max 4 words)",
+      "category": "amendment" | "statute" | "evidence" | "party" | "violation" | "deadline" | "concept",
+      "description": "Plain-English explanation of this concept",
+      "facts": ["Specific fact from THIS case supporting this concept"],
+      "relatedItems": ["Label of a related person, evidence item, or concept"],
+      "importance": "One sentence: why this matters specifically in THIS case"
+    }
+  ],
+  "keyFacts": ["Key established fact from the case"],
+  "claims": ["Potential legal claim or cause of action based only on the facts provided"],
+  "importantQuotes": [{ "quote": "Exact text quoted from documents or narrative", "context": "Source and why it matters" }],
+  "gapQuestions": ["Specific question whose answer could strengthen the legal case"]
+}
+
+Coverage rules for clouds (generate 8–20 total):
+- Every named party → one "party" cloud
+- Every constitutional amendment implicated → one "amendment" cloud (e.g. "Fourth Amendment", "Fourteenth Amendment")
+- Every relevant federal statute → one "statute" cloud (e.g. "42 U.S.C. § 1983")
+- Key evidence items → "evidence" clouds
+- Each distinct legal violation → one "violation" cloud
+- Any filing deadlines → "deadline" clouds
+- Other legal concepts (qualified immunity, respondeat superior, etc.) → "concept" clouds
+
+CRITICAL: Base everything ONLY on the provided case information. Do not fabricate facts or invent citations. Where information is unknown, omit that cloud or use [UNKNOWN] as a fact. Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: "You are HyperLaw's Organization Engine. You produce structured legal case Indexes. Return only valid JSON. Never fabricate facts or citations.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  // ── Gap Detection Engine ───────────────────────────────────────────────────
+  // Identifies missing information and batches ALL follow-up questions in one response.
+
+  async detectGaps(input: {
+    title: string;
+    parties: Array<{ firstName: string; lastName: string; type: string; nickname: string }>;
+    court: { name: string; level: string; state: string } | null;
+    story: string;
+    timeline: Array<{ title: string; description: string }>;
+    intakeChecklist: Array<{ key: string; completed: boolean; notes: string }>;
+    evidence?: Array<{ type: string; label: string }>;
+  }): Promise<AiResult<{ questions: string[]; urgentCategories: string[] }>> {
+    const checklistSummary = input.intakeChecklist
+      .map(item => `${item.key}: ${item.completed ? "✓ DONE" : "NOT DONE"}${item.notes ? ` (${item.notes})` : ""}`)
+      .join("\n");
+
+    const prompt = `You are HyperLaw's Gap Detection Engine.
+
+Review this case information and identify ALL important missing information in one comprehensive batch.
+
+=== CASE: ${input.title} ===
+
+PARTIES: ${input.parties.map(p => `${p.firstName} ${p.lastName} (${p.type})`).join(", ") || "None"}
+COURT: ${input.court ? `${input.court.name}, ${input.court.state}` : "Not selected"}
+STORY LENGTH: ${input.story.length > 0 ? `${input.story.split(" ").length} words` : "Not provided"}
+TIMELINE EVENTS: ${input.timeline.length}
+EVIDENCE CHECKLIST:
+${checklistSummary || "Not started"}
+EVIDENCE LOGGED: ${input.evidence?.length ?? 0} items
+
+Return JSON (no markdown):
+{
+  "questions": [
+    "Specific question whose answer would materially strengthen the legal case"
+  ],
+  "urgentCategories": ["evidence", "deadlines", "witnesses", "medical", "documents"]
+}
+
+Rules:
+- Ask ALL important questions at once — maximum 12 questions
+- Focus on: missing evidence, witnesses, deadlines, medical records, official records, prior incidents
+- Make questions specific to THIS case, not generic
+- Do NOT ask about information already clearly provided
+- Prioritize questions that could make or break the case
+- Include at least one question about filing deadlines if applicable
+Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 1000,
+      system: "You are HyperLaw's Gap Detection Engine. Identify missing case information. Return only valid JSON.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   private parseJsonResponse<T>(response: Anthropic.Message): T {
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

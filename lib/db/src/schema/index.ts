@@ -143,6 +143,24 @@ export const stripeProcessedSessionsTable = pgTable("stripe_processed_sessions",
   processedAt: timestamp("processed_at").notNull().defaultNow(),
 });
 
+// ── Cases (server-side persistence for HLCase + Organization Engine output) ────
+
+export const casesTable = pgTable("cases", {
+  /** Client-generated UUID — matches HLCase.id in the frontend store */
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull().default("Untitled Case"),
+  workflowStage: text("workflow_stage").notNull().default("parties"),
+  /** Full serialized HLCase object — localStorage mirror synced on every save */
+  caseData: jsonb("case_data").notNull().$type<Record<string, unknown>>(),
+  /** Structured output from the Organization Engine — clouds, facts, claims, etc. */
+  structuredCase: jsonb("structured_case").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  casesUserIdx: index("cases_user_idx").on(table.userId),
+}));
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export const usersTable = pgTable("users", {

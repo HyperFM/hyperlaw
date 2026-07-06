@@ -1,0 +1,157 @@
+
+Every important concept should link naturally throughout the case.
+
+⸻
+
+Automatic Triggers
+
+Claude does not decide what to generate.
+
+The application controls the workflow.
+
+Example:
+
+Document uploaded
+
+↓
+
+Analysis Engine
+
+↓
+
+Structured Case updates
+
+↓
+
+Automatically regenerate:
+
+* Index
+* Timeline
+* Parties
+* Evidence
+* Violations
+* Complaint
+* Deadlines
+
+No manual refresh required.
+
+⸻
+
+Prompt Architecture
+
+Separate Claude into reusable prompt templates.
+
+At minimum:
+
+* Intake Engine
+* Gap Detection Engine
+* Organization Engine
+* Timeline Engine
+* Complaint Draft Engine
+* Builder Engine
+
+Each engine should have:
+
+* One responsibility
+* Consistent output
+* Structured responses suitable for storage
+
+⸻
+
+Builder Engine
+
+Retain the existing Builder feature but automate it.
+
+When users select evidence or describe an event:
+
+Claude should generate an illustrative presentation slide using the existing template.
+
+Whenever supported by the user’s materials, automatically include:
+
+* Parties
+* Relevant facts
+* Relevant violations
+* Supporting quotations
+* Citations already available within the case
+
+The Builder should create persuasive visual aids while making clear that local court rules vary and users remain responsible for ensuring compliance with applicable filing and evidentiary requirements.
+
+⸻
+
+Automation Philosophy
+
+Every automation should begin with the structured case database.
+
+Whenever information changes:
+
+* Update the database.
+* Refresh every affected feature automatically.
+* Avoid duplicate AI analysis whenever possible.
+
+⸻
+
+API Efficiency
+
+Minimize unnecessary Claude usage.
+
+Reuse existing structured data whenever possible.
+
+Only perform additional analysis when:
+
+* New information is added.
+* Existing information changes.
+* A required automation has never been generated.
+
+⸻
+
+Subscription Behavior
+
+Maintain the existing subscription model while aligning automation.
+
+Pay-As-You-Go
+
+Users purchase credits.
+
+Credits unlock individual automation features as needed.
+
+Pro Se
+
+Users receive monthly credits.
+
+Credits can be spent across available automation features.
+
+Additional credits may be purchased if needed.
+
+Apex Litigant
+
+Unlimited automation.
+
+No credit prompts.
+
+No feature unlock prompts.
+
+All eligible automation runs automatically.
+
+The premium experience should feel frictionless.
+
+⸻
+
+User Experience Goal
+
+Every interaction should reduce cognitive overload.
+
+Users should feel like HyperLaw is taking scattered legal information and automatically transforming it into a clean, organized workspace that is easier to understand, review, and maintain.
+
+The experience should feel calm, structured, and efficient rather than chat-focused.
+
+⸻
+
+Final Implementation Notes
+
+* Preserve existing functionality wherever possible.
+* Connect current features to the new architecture instead of rebuilding them.
+* Use the structured case database as the single source of truth.
+* Keep Claude focused on defined engines with reusable prompt templates.
+* Prioritize automation, consistency, performance, and maintainability over adding new features.
+
+I also want the button that unlocks the documents and any api usage to be like the delete account button but only be held down for 3 seconds and glowing around the users fingers as they hold it to unlock 

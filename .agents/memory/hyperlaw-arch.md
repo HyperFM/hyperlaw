@@ -1,92 +1,56 @@
 ---
 name: HyperLaw Architecture
-description: Frontend routing, auth setup, data layer, and AI backend integration decisions for the HyperLaw app.
+description: Core app structure, routing, and data flow patterns.
 ---
 
-## Frontend (artifacts/legal-screen-builder/src/)
+## Frontend
 
-- `main.tsx` — ClerkProvider, Wouter routes `/, /sign-in/*?, /sign-up/*?, /plans`; ToS/Privacy links point to `${basePath}/legal.html` (real page)
-- `App.tsx` — 2450+ lines. Nav: home | cases | tutor | profile. Views: HomeView, IncidentDetailView, CaseDetailView, TutorView, ProfileView.
-- `types.ts` — Incident, HLCase (+ jurisdiction?: string), Reminder, AppData, GeneratedDocument, DocumentStatus, PaymentStatus
-- `store.ts` — loadData/saveData (localStorage key `hl_v3`) + CRUD helpers; defaults `jurisdiction: ""` on load
-- `services/tutor.ts` — staticTutorService (keyword regex fallback when Claude not configured)
-- `lib/api.ts` — existing apiFetch wrapper (notifications, feedback, admin, chat)
-- `lib/aiApi.ts` — AI API client; includes generated docs CRUD + `deleteUserData()` for server-side account purge
+- **Landing page** (unauthenticated) = plans carousel
+- **App.tsx** = authenticated main app; Wouter routes at /, /sign-in/*?, /sign-up/*?
+- **NavTab IDs**: `"home" | "builder" | "tutor" | "profile"` — never rename; "Index" is only the display label for `"tutor"`
+- **State**: cases stored in localStorage (key: `hl_v3`) via `store.ts`; synced to server via debounced `api.cases.upsert()` (1.5s delay)
+- **Mount**: loads cases from server, merges — local always wins (unsynced edits safe); server fills in cases not locally present + adds `structuredCase`
+- **Auto-organize**: useEffect in App watches `data.cases`; when `assembly` set but `structuredCase` missing, fires `aiApi.organizeCase()` → saves to HLCase + server
+- `organizingCasesRef` Set guards against double-firing organize per case
 
-## Backend (artifacts/api-server/src/)
+## Backend
 
-- `app.ts` — Express, pino, Clerk middleware, routes at `/api`
-- `routes/ai.ts` — AI routes: GET /ai/status, POST /ai/analyze, POST /ai/chat, POST /ai/upload, GET /ai/documents/:caseId
-- `routes/generated-documents.ts` — CRUD for generated docs: GET /ai/generated-documents?caseId=, POST, PATCH/:id, DELETE/:id
-- `routes/user.ts` — DELETE /user: purges all user DB data (parallel deletes across 6 tables) before Clerk account deletion
-- `services/ai.ts` — AiService class wrapping Claude (claude-opus-4-5); analyzeIncident, analyzeCase, chat, extractFromDocument, ocrImage
-- `services/documentParser.ts` — parseDocument: PDF (pdf-parse), DOCX (mammoth), TXT/RTF (text), images (Claude Vision OCR)
-- `middlewares/clerkProxyMiddleware.ts` — Clerk JS proxy
+- API server at `artifacts/api-server`
+- Routes all prefixed `/api`
+- Cases route: GET /cases, POST /cases (upsert with ownership check), PATCH /cases/:id/structured, DELETE /cases/:id
 
-## Database (lib/db/src/schema/index.ts)
+## Database
 
-Tables: notifications, chat_sessions, messages, feedback, uploaded_documents, ai_logs, ai_analysis_cache, **generated_documents** (userId, caseId, title, documentType, content, version, status, paymentStatus; indexed on userId+createdAt and userId+caseId)
+Cases are NOW persisted server-side in `cases` table (added):
+- `id` = client-generated UUID matching HLCase.id
+- `caseData` JSONB = full HLCase mirror
+- `structuredCase` JSONB = Organization Engine output
 
-**Why:** generatedDocumentsTable stores AI-generated content per user/case with status tracking for future paywall (status: draft→verified→filed; paymentStatus: free→pending→paid).
+Previously: cases were localStorage-only (no server table).
 
-Run `pnpm --filter @workspace/db push` then `cd lib/db && pnpm exec tsc -p tsconfig.json` after schema changes.
+## Organization Engine
 
-## AI Integration Design
+- Endpoint: `POST /ai/organize`
+- Service: `aiService.organizeCase()` — 4000 max_tokens
+- Produces: `executiveSummary`, `clouds[]`, `keyFacts[]`, `claims[]`, `importantQuotes[]`, `gapQuestions[]`
+- Auto-triggered after assembly; result stored in `HLCase.structuredCase` + `cases.structured_case`
+- **TutorView reads structuredCase.clouds directly** — skips `/ai/analyze` when data available
 
-**Provider:** Claude via `@anthropic-ai/sdk`. Model: `claude-opus-4-5`.
+## Gap Detection Engine
 
-**Key decisions:**
-- `ANTHROPIC_API_KEY` secret → AiService.isConfigured() gates all AI routes
-- When not configured: backend returns 503 with `code: "ai_not_configured"`; frontend falls back to staticTutorService; document upload still works for text/PDF/DOCX (skips extraction)
-- TutorView checks AI status on mount, triggers async analysis, falls back to static on error
-- TutorView dependency: `[target, aiAvailable, relevantIncidentKey]` — `relevantIncidentKey` is a stable string derived from incident content so stale analysis re-runs when user edits incidents in the selected case
-- Chat history stored in React component state (per session, resets on refresh)
+- Endpoint: `POST /ai/gap-detect`
+- Service: `aiService.detectGaps()` — 1000 max_tokens
+- Returns ALL follow-up questions in ONE batch (max 12), not one-at-a-time
+- Not yet wired to any UI trigger — endpoint is ready
 
-**Why:** Swappable provider design — AiService is the single entry point; changing provider = new AiService impl, no app changes.
+## Case Switcher
 
-## Phase 2 — Knowledge Library
+- `CaseSwitcherBar` component in App.tsx — shows above case content when 2+ cases
+- Bottom-sheet picker on tap; shows all cases with organize status indicator
+- Only visible when `navTab === "builder"` AND inside a case view (case_detail, case_parties, etc.)
 
-**DB table:** `knowledge_library` — title, summary, body, category, tags (jsonb), keywords (jsonb), jurisdiction, source, isActive, createdAt, updatedAt.
-**Indexes:** GIN on full tsvector (title+summary+body+keywords::text+tags::text) created via raw psql (drizzle push can't do GIN expression indexes — run psql manually after schema changes); btree indexes on category and isActive via drizzle.
+## Constants
 
-**Search service:** `artifacts/api-server/src/services/knowledgeLibrary.ts` — PostgreSQL `plainto_tsquery` FTS using pool.query() (raw SQL, not drizzle ORM, to avoid drizzle typing issues with dynamic conditions). FTS vector includes keywords/tags jsonb cast to text. Falls back to empty array on any error so library failures never break AI calls.
-
-**Library-first routing:** `routes/ai.ts` searches library AFTER cache check and BEFORE Claude call. Results injected as `opts.libraryContext` into `aiService.analyzeIncident()` / `analyzeCase()`. Library context appears as a `---` separated block at the top of the prompt.
-
-**Admin auth pattern:** Knowledge CRUD routes use same `requireAdmin` + `getClerkUserEmail` check as `routes/admin.ts` — admin email is `hyperlawcompliance@gmail.com`. Search endpoint is public (no auth).
-
-**aiFetch 204 fix:** Added `if (r.status === 204) return undefined as unknown as T;` before `r.json()` in `aiApi.ts`. Required for DELETE routes that return 204 No Content.
-
-**GIN index creation command (run after schema changes):**
-```sql
-CREATE INDEX CONCURRENTLY IF NOT EXISTS knowledge_library_fts_gin
-ON knowledge_library USING gin(
-  to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(body,'') || ' ' || coalesce(keywords::text,'') || ' ' || coalesce(tags::text,''))
-);
-```
-
-## Generated Docs Refresh Pattern
-
-TutorView has `onDocSaved?: () => void` prop. When user saves analysis, it calls `onDocSaved()`. App increments `genDocsRefreshKey` state. CaseDetailView receives `genDocsRefreshKey` in its useEffect deps, triggering a re-fetch of docs. TutorView save guard: `savedTargetKey` state (string `kind:id`) prevents duplicate saves per target; resets via useEffect when target changes.
-
-## Legal Docs
-
-`public/legal.html` — actual ToS/Privacy/AI Disclaimer content served statically. Hash-based tab selector script at bottom: `#tos`, `#privacy`, `#ai`. Links throughout app use `${basePath}/legal.html#tos` etc.
-
-## Security Notes
-
-- `/ai/upload`: `requireAuth` middleware runs BEFORE `upload.single("file")` (multer) — prevents unauthenticated 20MB memory exhaustion
-- `DELETE /user` purges all 6 table groups (generated_documents, ai_logs, ai_analysis_cache, uploaded_documents, notifications, chat_sessions→messages cascade) before Clerk account deletion
-- CORS is still `origin: true` — high risk in production
-- caseId on upload comes from request body; not ownership-validated server-side (track for future hardening)
-- req.params.id values must use `String(req.params.id)` in route handlers — typed as `string | string[]` in Express; `eq()` rejects `string | string[]` for UUID columns
-
-## CSS Animations
-
-`@keyframes spin` and `@keyframes pulse` added to `artifacts/legal-screen-builder/src/index.css` — used by Loader2 spinner and typing indicator dots in TutorView.
-
-## TypeScript Notes
-
-- `@types/multer` does not exist for multer v2 — custom declaration at `artifacts/api-server/src/types/multer.d.ts`
-- lib/db uses TypeScript project references; run `cd lib/db && pnpm exec tsc -p tsconfig.json` after schema changes to rebuild dist declarations before api-server typecheck
-- drizzle-orm 0.45.x: `eq(uuid_column, value)` requires value typed as `string` (not `string | string[]`) — use `String(req.params.id)` for URL params, explicit cast for query params
+- `ORANGE = "#d9711f"` everywhere
+- Admin email = `hypermodula@gmail.com`
+- Cloud colors: Blue=amendment, Orange=statute, Green=evidence, Purple=party, Red=violation, Gray=deadline, Yellow=concept

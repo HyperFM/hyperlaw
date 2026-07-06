@@ -16,6 +16,17 @@ export interface IndexCloud {
   importance?: string;
 }
 
+/** Output of the Organization Engine — drives the Index tab and stored server-side */
+export interface StructuredCase {
+  executiveSummary: string;
+  clouds: IndexCloud[];
+  keyFacts: string[];
+  claims: string[];
+  importantQuotes: Array<{ quote: string; context: string }>;
+  gapQuestions?: string[];
+  organizedAt: number;
+}
+
 export interface TutorAnalysis {
   overview: string;
   insights: TutorInsight[];
@@ -240,6 +251,44 @@ export const aiApi = {
     return aiFetch("/ai/timeline", {
       method: "POST",
       body: JSON.stringify({ story, caseId }),
+    });
+  },
+
+  /** Organization Engine — produce the full structured Index from all available case data */
+  organizeCase(input: {
+    hlCase: {
+      title: string;
+      parties: Array<{ firstName: string; lastName: string; type: string; nickname: string; agency?: string; title?: string }>;
+      court: { name: string; level: string; state: string } | null;
+      story: string;
+      timeline: Array<{ title: string; description: string }>;
+      assembly?: { organizedFacts: string; potentialClaims: Array<{ claim: string; supportingFacts: string[] }> } | null;
+      evidence?: Array<{ type: string; label: string; notes: string }>;
+    };
+    caseId?: string;
+  }): Promise<StructuredCase & { organizedAt: number }> {
+    return aiFetch("/ai/organize", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Gap Detection Engine — returns ALL missing-information questions in one batch */
+  gapDetect(input: {
+    hlCase: {
+      title: string;
+      parties: Array<{ firstName: string; lastName: string; type: string; nickname: string }>;
+      court: { name: string; level: string; state: string } | null;
+      story: string;
+      timeline: Array<{ title: string; description: string }>;
+      intakeChecklist: Array<{ key: string; completed: boolean; notes: string }>;
+      evidence?: Array<{ type: string; label: string }>;
+    };
+    caseId?: string;
+  }): Promise<{ questions: string[]; urgentCategories: string[] }> {
+    return aiFetch("/ai/gap-detect", {
+      method: "POST",
+      body: JSON.stringify(input),
     });
   },
 

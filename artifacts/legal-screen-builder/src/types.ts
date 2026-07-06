@@ -139,6 +139,34 @@ export interface EvidenceItem {
   uploadedAt: number;
 }
 
+// ── Structured Case (Organization Engine output) ──────────────────────────────
+
+/** A single concept in the interactive Index cloud map */
+export interface IndexCloud {
+  id: string;
+  label: string;
+  category: "amendment" | "statute" | "evidence" | "party" | "violation" | "deadline" | "concept";
+  description: string;
+  facts?: string[];
+  relatedItems?: string[];
+  importance?: string;
+}
+
+/**
+ * Produced by the Organization Engine after assembly.
+ * Stored server-side in cases.structured_case and cached locally on HLCase.
+ * Drives the Index tab without requiring an additional Claude call.
+ */
+export interface StructuredCase {
+  executiveSummary: string;
+  clouds: IndexCloud[];
+  keyFacts: string[];
+  claims: string[];
+  importantQuotes: Array<{ quote: string; context: string }>;
+  gapQuestions?: string[];
+  organizedAt: number;
+}
+
 export interface HLCase {
   id: string;
   title: string;
@@ -165,6 +193,11 @@ export interface HLCase {
   // ── Version history (optional — up to 10 snapshots each) ────────────────────
   storyHistory?: StorySnapshot[];
   timelineHistory?: TimelineSnapshot[];
+  // ── Organization Engine output ───────────────────────────────────────────────
+  /** Populated automatically after assembly; drives the Index tab cloud view */
+  structuredCase?: StructuredCase;
+  /** Unix ms when structuredCase was last generated */
+  structuredCaseGeneratedAt?: number;
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────

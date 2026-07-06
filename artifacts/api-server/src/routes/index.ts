@@ -10,6 +10,7 @@ import generatedDocumentsRouter from "./generated-documents";
 import userRouter from "./user";
 import knowledgeRouter from "./knowledge";
 import stripeRouter from "./stripe";
+import casesRouter from "./cases";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(generatedDocumentsRouter);
 router.use(userRouter);
 router.use(knowledgeRouter);
 router.use(stripeRouter);
+router.use(casesRouter);
 
 export default router;

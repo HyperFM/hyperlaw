@@ -18,7 +18,7 @@ import { storage } from "../storage.js";
 import { and, eq, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
 
-const ADMIN_EMAIL = "hyperlawcompliance@gmail.com";
+const ADMIN_EMAILS = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
 
 const router = Router();
 
@@ -408,11 +408,39 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
     // ── Checkpoint 5: Credit verification ─────────────────────────────────
     failStep = "credit-verification";
     const userInfo = await getClerkUserEmail(userId).catch(() => null);
-    const isAdminUser = userInfo?.email === ADMIN_EMAIL;
+    const isAdminUser = ADMIN_EMAILS.has(userInfo?.email ?? "");
 
+    // Check Apex plan tier via Stripe (Apex = unlimited, no credit charge)
+    let isApexUser = false;
     if (!isAdminUser) {
+      try {
+        const customerId = await storage.getStripeCustomerId(userId);
+        if (customerId) {
+          const { getUncachableStripeClient } = await import("../stripeClient.js");
+          const stripe = await getUncachableStripeClient();
+          const subs = await stripe.subscriptions.list({
+            customer: customerId,
+            status: "active",
+            limit: 5,
+            expand: ["data.items.data.price.product"],
+          });
+          outer: for (const sub of subs.data) {
+            for (const item of sub.items.data) {
+              const product = item.price.product as { name?: string };
+              if ((product.name ?? "").toLowerCase().includes("apex")) { isApexUser = true; break outer; }
+            }
+          }
+        }
+      } catch { /* non-fatal — default stays false */ }
+    }
+
+    if (isAdminUser) {
+      console.log(`[analyze-document] STEP 5: admin account — credit deduction skipped`);
+    } else if (isApexUser) {
+      console.log(`[analyze-document] STEP 5: Apex Litigant — credit deduction skipped`);
+    } else {
       const balance = await storage.getCreditBalance(userId);
-      console.log(`[analyze-document] STEP 5: credit check userId=${userId} balance=${balance} isAdmin=false`);
+      console.log(`[analyze-document] STEP 5: credit check userId=${userId} balance=${balance}`);
       if (balance < 1) {
         console.log(`[analyze-document] FAIL: insufficient credits balance=${balance}`);
         res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balance });
@@ -425,8 +453,6 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         return;
       }
       console.log(`[analyze-document] STEP 5: 1 credit deducted`);
-    } else {
-      console.log(`[analyze-document] STEP 5: admin account — credit deduction skipped`);
     }
 
     // ── Checkpoint 6: Build Claude request payload ─────────────────────────
@@ -633,7 +659,7 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
 
     // Admin accounts always get full access — check before deciding truncation
     const adminInfo = await getClerkUserEmail(userId).catch(() => null);
-    const isAdminUser = adminInfo?.email === ADMIN_EMAIL;
+    const isAdminUser = ADMIN_EMAILS.has(adminInfo?.email ?? "");
 
     // Save as "preview" — full content stored in DB
     const [savedDoc] = await db.insert(generatedDocumentsTable).values({

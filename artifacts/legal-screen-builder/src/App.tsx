@@ -974,12 +974,14 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [editingTitle, setEditingTitle] = useState(false);
   const [notes, setNotes] = useState(hlCase.notes);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
-  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadState, setUploadState] = useState<"idle" | "confirm" | "uploading" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ fileName: string; extraction: ReturnType<typeof Object.create> } | null>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [additionalContext, setAdditionalContext] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [jurisdiction, setJurisdiction] = useState(hlCase.jurisdiction ?? "");
   const [editingJurisdiction, setEditingJurisdiction] = useState(false);
@@ -1000,24 +1002,36 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       .finally(() => setGenDocsLoading(false));
   }, [hlCase.id, genDocsRefreshKey]); // genDocsRefreshKey increments when Tutor saves a doc
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  // Phase 1 — file selected → show confirmation screen
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setPendingFile(file);
+    setAdditionalContext("");
+    setUploadError(null);
+    setUploadState("confirm");
+  }
+
+  // Phase 2 — user held the analyze button → do the actual upload
+  async function handleConfirmAndUpload() {
+    if (!pendingFile) return;
     setUploadState("uploading");
     setUploadPct(0);
     setUploadError(null);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", pendingFile);
       form.append("caseId", hlCase.id);
+      if (additionalContext.trim()) form.append("additionalContext", additionalContext.trim());
       const result = await aiApi.uploadWithProgress(form, setUploadPct);
-      setUploadResult({ fileName: file.name, extraction: result.extraction });
+      setUploadResult({ fileName: pendingFile.name, extraction: result.extraction });
       setUploadState("done");
     } catch (err: unknown) {
       setUploadError((err as Error).message || "Upload failed");
       setUploadState("error");
     } finally {
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setPendingFile(null);
     }
   }
 
@@ -1219,7 +1233,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             type="file"
             accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.heic,image/*"
             style={{ display: "none" }}
-            onChange={handleUpload}
+            onChange={handleFileSelect}
           />
           {(uploadState === "idle" || uploadState === "error") && (
             <button
@@ -1234,6 +1248,50 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               </div>
             </button>
           )}
+
+          {/* ── Pre-analysis confirmation screen ── */}
+          {uploadState === "confirm" && pendingFile && (
+            <div style={{ background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "18px 16px" }}>
+              {/* File name */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <FileText size={16} color={ORANGE} style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pendingFile.name}</div>
+                  <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>Ready to analyze</div>
+                </div>
+                <button onClick={() => { setPendingFile(null); setUploadState("idle"); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#444", padding: 4 }}>
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Optional context */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 8 }}>
+                  Any additional information to include with this document?
+                </div>
+                <textarea
+                  value={additionalContext}
+                  onChange={e => setAdditionalContext(e.target.value)}
+                  placeholder="e.g. This is a transcript from my arrest on March 4th — the officer's name is misspelled throughout…"
+                  rows={3}
+                  style={{
+                    width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a",
+                    borderRadius: 10, padding: "10px 12px", color: "#ccc", fontSize: 13,
+                    resize: "vertical", outline: "none", fontFamily: "inherit",
+                    lineHeight: 1.5, boxSizing: "border-box",
+                  }}
+                  onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+                  onBlur={e => (e.target.style.borderColor = "#2a2a2a")}
+                />
+                <div style={{ fontSize: 11, color: "#333", marginTop: 4 }}>Optional — leave blank to analyze as-is</div>
+              </div>
+
+              {/* Hold-to-analyze button */}
+              <HoldToAnalyzeButton onComplete={handleConfirmAndUpload} />
+            </div>
+          )}
+
           {uploadState === "uploading" && (
             <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -2263,6 +2321,148 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
 // ─── HOLD-TO-DELETE BUTTON ────────────────────────────────────────────────────
 // Uses a native touchstart listener (passive:false) so preventDefault() actually
 // blocks the parent scroll container from stealing the touch.
+// ─── HOLD-TO-ANALYZE BUTTON ───────────────────────────────────────────────────
+function HoldToAnalyzeButton({ onComplete }: { onComplete: () => void }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const isHoldingRef = useRef(false);
+  const startTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [active, setActive] = useState(false);
+  const [done, setDone] = useState(false);
+  const HOLD_MS = 3000;
+
+  function begin() {
+    if (isHoldingRef.current || done) return;
+    isHoldingRef.current = true;
+    setActive(true);
+    setProgress(0);
+    startTimeRef.current = performance.now();
+    function tick(now: number) {
+      if (!isHoldingRef.current) return;
+      const p = Math.min(1, (now - (startTimeRef.current ?? now)) / HOLD_MS);
+      setProgress(p);
+      if (p >= 1) {
+        isHoldingRef.current = false;
+        setDone(true);
+        setActive(false);
+        onComplete();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function cancel() {
+    if (!isHoldingRef.current) return;
+    isHoldingRef.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    startTimeRef.current = null;
+    setProgress(0);
+    setActive(false);
+  }
+
+  useEffect(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    function onTouchStart(e: TouchEvent) { e.preventDefault(); begin(); }
+    function onTouchEnd() { cancel(); }
+    function onTouchCancel() { cancel(); }
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const secsLeft = Math.max(0, Math.ceil((1 - progress) * (HOLD_MS / 1000)));
+  const R = 32;
+  const circ = 2 * Math.PI * R;
+
+  return (
+    <button
+      ref={btnRef}
+      onMouseDown={begin}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      style={{
+        width: "100%",
+        padding: active ? "20px 14px" : "15px 14px",
+        borderRadius: 14,
+        background: active
+          ? `radial-gradient(circle at 50% 50%, ${ORANGE}33 0%, #0d0d0d 70%)`
+          : `linear-gradient(135deg, ${ORANGE}22 0%, ${ORANGE}0d 100%)`,
+        border: `2px solid ${active ? ORANGE : ORANGE + "55"}`,
+        cursor: done ? "default" : "pointer",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "none",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 8,
+        transition: "background 0.2s, padding 0.2s",
+        boxShadow: active
+          ? `0 0 24px ${ORANGE}66, 0 0 48px ${ORANGE}22`
+          : `0 0 8px ${ORANGE}22`,
+        animation: active ? "none" : undefined,
+      }}
+    >
+      {!active && !done && (
+        <>
+          {/* Idle ring hint */}
+          <div style={{
+            width: 56, height: 56,
+            borderRadius: "50%",
+            border: `2px solid ${ORANGE}44`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: `0 0 12px ${ORANGE}33`,
+          }}>
+            <Brain size={22} color={ORANGE} />
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, letterSpacing: 0.3 }}>
+            Hold to Analyze Document
+          </div>
+          <div style={{ fontSize: 11, color: "#444" }}>Press and hold for 3 seconds to begin</div>
+        </>
+      )}
+      {active && (
+        <>
+          <div style={{ position: "relative", width: 76, height: 76 }}>
+            {/* Glow ring */}
+            <svg width={76} height={76} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+              <circle cx={38} cy={38} r={R} fill="none" stroke={`${ORANGE}22`} strokeWidth={4} />
+              <circle cx={38} cy={38} r={R} fill="none" stroke={ORANGE} strokeWidth={4}
+                strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
+                strokeLinecap="round"
+                style={{ filter: `drop-shadow(0 0 6px ${ORANGE}) drop-shadow(0 0 12px ${ORANGE}88)` }}
+              />
+            </svg>
+            {/* Center */}
+            <div style={{
+              position: "absolute", inset: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexDirection: "column", gap: 2,
+            }}>
+              <Brain size={18} color={ORANGE} style={{ filter: `drop-shadow(0 0 6px ${ORANGE})` }} />
+              <div style={{ fontSize: 13, fontWeight: 900, color: ORANGE, lineHeight: 1 }}>{secsLeft}s</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: ORANGE + "cc", fontWeight: 700 }}>Analyzing…</div>
+        </>
+      )}
+      {done && (
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#22c55e" }}>✓ Starting analysis…</div>
+      )}
+    </button>
+  );
+}
+
 function HoldToDeleteButton({ onComplete }: { onComplete: () => void }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const isHoldingRef = useRef(false);

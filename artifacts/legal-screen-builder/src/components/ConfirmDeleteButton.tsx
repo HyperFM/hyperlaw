@@ -1,51 +1,47 @@
 /**
- * ConfirmDeleteButton v2
+ * ConfirmDeleteButton v3
  *
- * Phase 1 — Safety cover: a physical sliding guard sits over the trash button.
- *   Tap the cover to slide it open (reveals the delete button underneath).
- * Phase 2 — Hold to delete: press-and-hold the glowing button.
- *   A countdown number orbits your finger while an orange arc sweeps around.
- *   Release early to cancel. Complete → "See ya! 👋" fires onDelete.
+ * Phase 1 — Safety cover: a guard sits over the delete button.
+ *   The cover IS a trash-can button — tap/slide it to reveal phase 2.
+ * Phase 2 — Hold to delete: the button turns full red with a pulsing glow.
+ *   Press and hold. An orange ring sweeps around your finger with a countdown.
+ *   Release early → cancelled. Complete → fires onDelete.
  */
 import React, { useState, useEffect, useRef } from "react";
 import { Trash2 } from "lucide-react";
 
+const RED    = "#dc2626";
+const RED_DIM = "#7a1c1c";
 const ORANGE = "#d9711f";
 const HOLD_MS = 2500;
-const ORBIT_RADIUS = 22; // px from button center to orbiting number
 
-const STYLE_ID = "hl-delete-v2-kf";
+const STYLE_ID = "hl-delete-v3-kf";
 function ensureKeyframes() {
   if (typeof document === "undefined") return;
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement("style");
   s.id = STYLE_ID;
   s.textContent = `
-    @keyframes hlCoverSlide {
-      0%   { transform: translateX(0)    scaleX(1);   opacity: 1; }
-      100% { transform: translateX(130%) scaleX(0.5); opacity: 0; }
+    @keyframes v3CoverSlide {
+      0%   { transform: translateX(0);    opacity: 1; }
+      100% { transform: translateX(110%); opacity: 0; }
     }
-    @keyframes hlCoverHint {
-      0%, 80%, 100% { transform: translateX(0); }
-      40%           { transform: translateX(3px); }
+    @keyframes v3DangerPulse {
+      0%, 100% { box-shadow: 0 0 6px 2px ${RED}55, inset 0 0 10px ${RED}22; }
+      50%       { box-shadow: 0 0 18px 6px ${RED}99, inset 0 0 20px ${RED}44; }
     }
-    @keyframes hlGlowIdle {
-      0%, 100% { box-shadow: 0 0 4px 1px ${ORANGE}44; }
-      50%       { box-shadow: 0 0 10px 4px ${ORANGE}77; }
+    @keyframes v3HoldPulse {
+      0%, 100% { box-shadow: 0 0 12px 5px ${RED}88, 0 0 30px 10px ${RED}44; }
+      50%       { box-shadow: 0 0 24px 10px ${RED}cc, 0 0 50px 18px ${RED}66; }
     }
-    @keyframes hlGlowHold {
-      0%, 100% { box-shadow: 0 0 8px 4px ${ORANGE}99, 0 0 22px 8px ${ORANGE}55; }
-      50%       { box-shadow: 0 0 18px 7px ${ORANGE}cc, 0 0 40px 16px ${ORANGE}88; }
+    @keyframes v3Gone {
+      0%   { transform: translate(-50%, 0)   scale(0.7); opacity: 0; }
+      35%  { transform: translate(-50%, -16px) scale(1.15); opacity: 1; }
+      100% { transform: translate(-50%, -28px) scale(0.9);  opacity: 0; }
     }
-    @keyframes hlSeeYa {
-      0%   { transform: translate(-50%, 0)  scale(0.6); opacity: 0; }
-      35%  { transform: translate(-50%, -18px) scale(1.2); opacity: 1; }
-      100% { transform: translate(-50%, -30px) scale(0.85); opacity: 0; }
-    }
-    @keyframes hlCoverRipple {
-      0%   { box-shadow: inset 0 -2px 4px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,180,100,0.12), 0 2px 5px rgba(0,0,0,0.5); }
-      50%  { box-shadow: inset 0 -2px 4px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,180,100,0.12), 0 2px 5px rgba(0,0,0,0.5), 0 0 0 2px ${ORANGE}66; }
-      100% { box-shadow: inset 0 -2px 4px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,180,100,0.12), 0 2px 5px rgba(0,0,0,0.5); }
+    @keyframes v3CoverHint {
+      0%, 70%, 100% { transform: translateX(0); }
+      40%           { transform: translateX(4px); }
     }
   `;
   document.head.appendChild(s);
@@ -62,32 +58,25 @@ interface Props {
 
 export default function ConfirmDeleteButton({
   onDelete,
-  iconSize = 14,
+  iconSize = 16,
   style,
   title = "Delete",
 }: Props) {
   ensureKeyframes();
 
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState(0); // 0..1 hold progress
-  const [orbitAngle, setOrbitAngle] = useState(0); // degrees
+  const [phase, setPhase]       = useState<Phase>("idle");
+  const [progress, setProgress] = useState(0);
 
-  const rafRef = useRef<number | null>(null);
+  const rafRef       = useRef<number | null>(null);
   const holdStartRef = useRef<number | null>(null);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const slideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slideTimerRef= useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function cancelRaf() {
-    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-  }
-  function clearAutoClose() {
-    if (autoCloseRef.current !== null) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
-  }
-  function clearSlideTimer() {
-    if (slideTimerRef.current !== null) { clearTimeout(slideTimerRef.current); slideTimerRef.current = null; }
-  }
+  function cancelRaf()      { if (rafRef.current       !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } }
+  function clearAutoClose() { if (autoCloseRef.current  !== null) { clearTimeout(autoCloseRef.current);  autoCloseRef.current = null; } }
+  function clearSlideTimer(){ if (slideTimerRef.current !== null) { clearTimeout(slideTimerRef.current); slideTimerRef.current = null; } }
 
-  // Auto-close the cover after 5 s of inactivity in "uncovered" state
+  // Auto-reset if user doesn't interact after uncovering
   useEffect(() => {
     if (phase === "uncovered") {
       clearAutoClose();
@@ -100,14 +89,14 @@ export default function ConfirmDeleteButton({
 
   useEffect(() => () => { cancelRaf(); clearAutoClose(); clearSlideTimer(); }, []);
 
-  // ── Cover tap ──────────────────────────────────────────────────────────────
+  // ── Cover tap → slide away ──────────────────────────────────────────────────
   function handleCoverClick(e: React.MouseEvent | React.TouchEvent) {
     e.stopPropagation();
     e.preventDefault();
     if (phase !== "idle") return;
     setPhase("sliding");
     clearSlideTimer();
-    slideTimerRef.current = setTimeout(() => setPhase("uncovered"), 280);
+    slideTimerRef.current = setTimeout(() => setPhase("uncovered"), 240);
   }
 
   // ── Hold start ─────────────────────────────────────────────────────────────
@@ -117,169 +106,118 @@ export default function ConfirmDeleteButton({
     clearAutoClose();
     setPhase("holding");
     setProgress(0);
-    setOrbitAngle(0);
     holdStartRef.current = performance.now();
 
     function tick(now: number) {
-      const elapsed = now - (holdStartRef.current ?? now);
-      const p = Math.min(1, elapsed / HOLD_MS);
-      // Orbit: two full sweeps over the hold duration
-      const angle = (p * 720) % 360;
+      const p = Math.min(1, (now - (holdStartRef.current ?? now)) / HOLD_MS);
       setProgress(p);
-      setOrbitAngle(angle);
-      if (p >= 1) {
-        setPhase("fired");
-        return;
-      }
+      if (p >= 1) { setPhase("fired"); return; }
       rafRef.current = requestAnimationFrame(tick);
     }
     rafRef.current = requestAnimationFrame(tick);
   }
 
-  // ── Hold cancel (released early) ───────────────────────────────────────────
   function cancelHold() {
     if (phase !== "holding") return;
     cancelRaf();
     holdStartRef.current = null;
     setProgress(0);
-    setOrbitAngle(0);
     setPhase("uncovered");
   }
 
-  // ── Fire when hold completes ───────────────────────────────────────────────
+  // ── Fire ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== "fired") return;
     cancelRaf();
-    const t = setTimeout(() => {
-      setPhase("idle");
-      setProgress(0);
-      setOrbitAngle(0);
-      onDelete();
-    }, 750);
+    const t = setTimeout(() => { setPhase("idle"); setProgress(0); onDelete(); }, 700);
     return () => clearTimeout(t);
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Derived visuals ────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
   const secsLeft = Math.max(0, Math.ceil((1 - progress) * (HOLD_MS / 1000)));
-
-  // Orbiting number position
-  const rad = (orbitAngle * Math.PI) / 180;
-  const numX = Math.sin(rad) * ORBIT_RADIUS;
-  const numY = -Math.cos(rad) * ORBIT_RADIUS;
-
-  // SVG progress ring
-  const SVG = 64;
-  const CR = 28; // circle radius
-  const circ = 2 * Math.PI * CR;
+  const SVG      = 56;
+  const CR       = 24;
+  const circ     = 2 * Math.PI * CR;
   const dashOffset = circ * (1 - progress);
 
-  const showCover    = phase === "idle" || phase === "sliding";
-  const showButton   = phase === "uncovered" || phase === "holding" || phase === "fired";
-  const isHolding    = phase === "holding";
-  const isFired      = phase === "fired";
+  const showCover  = phase === "idle" || phase === "sliding";
+  const showButton = phase === "uncovered" || phase === "holding" || phase === "fired";
+  const isHolding  = phase === "holding";
+  const isFired    = phase === "fired";
 
   return (
     <div
+      title={title}
       style={{
         position: "relative",
         display: "inline-flex",
-        alignItems: "center",
+        alignItems: "stretch",
         justifyContent: "center",
-        width: 34,
-        height: 34,
+        width: 42,
+        height: 42,
         flexShrink: 0,
+        borderRadius: 10,
+        overflow: "hidden",
         ...style,
       }}
     >
-      {/* ══ SAFETY COVER ══════════════════════════════════════════════════════ */}
+      {/* ══ PHASE 1 — SAFETY COVER ════════════════════════════════════════════
+          Looks exactly like a DELETE button — trash icon, dark red tint.
+          Tap it → slides away to reveal the live button.                     */}
       {showCover && (
         <button
           onClick={handleCoverClick}
-          title="Slide to reveal delete"
+          onTouchEnd={handleCoverClick}
+          title="Slide to delete"
           style={{
             position: "absolute",
             inset: 0,
-            borderRadius: 8,
-            border: `1.5px solid ${ORANGE}66`,
-            background: `linear-gradient(160deg, #2e1206 0%, #180a03 60%, #0e0704 100%)`,
+            border: `1.5px solid ${RED_DIM}66`,
+            background: `linear-gradient(160deg, #220808 0%, #130404 60%, #0a0303 100%)`,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: "visible",
+            borderRadius: 10,
             zIndex: 3,
             padding: 0,
-            // Physical raised-cover shadow
-            boxShadow: `inset 0 -2px 4px rgba(0,0,0,0.65),
-                        inset 0 1px 1px rgba(255,170,80,0.13),
-                        0 3px 6px rgba(0,0,0,0.55),
-                        0 1px 0 rgba(255,140,60,0.08)`,
+            boxShadow: `inset 0 -2px 5px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,80,80,0.08), 0 2px 6px rgba(0,0,0,0.5)`,
             animation: phase === "sliding"
-              ? "hlCoverSlide 0.28s cubic-bezier(0.4,0,1,1) forwards"
-              : "hlCoverHint 3.5s ease-in-out 2s 1, hlCoverRipple 2.5s ease-in-out 0.5s 1",
+              ? "v3CoverSlide 0.24s cubic-bezier(0.4,0,1,1) forwards"
+              : "v3CoverHint 4s ease-in-out 1.5s infinite",
+            WebkitTapHighlightColor: "transparent",
           }}
         >
-          {/* Centre groove — acts as the visible "slide handle" */}
-          <div style={{
-            position: "absolute",
-            top: 3, bottom: 3,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 4,
-            borderRadius: 2,
-            background: `linear-gradient(180deg,
-              transparent 0%,
-              ${ORANGE}22 20%,
-              ${ORANGE}55 50%,
-              ${ORANGE}22 80%,
-              transparent 100%)`,
-          }} />
-
-          {/* Tiny raised ridge at top for realism */}
-          <div style={{
-            position: "absolute",
-            top: 0,
-            left: 4, right: 4,
-            height: 2,
-            borderRadius: "2px 2px 0 0",
-            background: `linear-gradient(90deg, transparent, ${ORANGE}33, transparent)`,
-          }} />
+          <Trash2 size={iconSize} color={RED_DIM} />
         </button>
       )}
 
-      {/* ══ DELETE BUTTON + HOLD VISUALS ══════════════════════════════════════ */}
+      {/* ══ PHASE 2-4 — ACTIVE DELETE BUTTON ═════════════════════════════════
+          Fully red. Trash icon is unmistakable. Hold to confirm.             */}
       {showButton && (
         <>
-          {/* SVG sweep arc — visible only while holding */}
+          {/* SVG progress ring (only during hold) */}
           {isHolding && (
             <svg
-              width={SVG}
-              height={SVG}
+              width={SVG} height={SVG}
               style={{
                 position: "absolute",
                 top: "50%", left: "50%",
                 transform: "translate(-50%, -50%) rotate(-90deg)",
-                zIndex: 0,
-                pointerEvents: "none",
+                zIndex: 0, pointerEvents: "none",
               }}
             >
-              {/* Track */}
-              <circle cx={SVG / 2} cy={SVG / 2} r={CR}
-                fill="none" stroke={`${ORANGE}1a`} strokeWidth={3} />
-              {/* Progress */}
-              <circle cx={SVG / 2} cy={SVG / 2} r={CR}
-                fill="none"
-                stroke={ORANGE}
-                strokeWidth={3}
-                strokeDasharray={circ}
-                strokeDashoffset={dashOffset}
+              <circle cx={SVG/2} cy={SVG/2} r={CR} fill="none" stroke={`${RED}22`} strokeWidth={3} />
+              <circle cx={SVG/2} cy={SVG/2} r={CR} fill="none"
+                stroke={RED} strokeWidth={3}
+                strokeDasharray={circ} strokeDashoffset={dashOffset}
                 strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 5px ${ORANGE})` }}
+                style={{ filter: `drop-shadow(0 0 4px ${RED})` }}
               />
             </svg>
           )}
 
-          {/* Core trash button */}
+          {/* The actual DELETE button */}
           <button
             onPointerDown={startHold}
             onPointerUp={cancelHold}
@@ -288,77 +226,55 @@ export default function ConfirmDeleteButton({
             title={phase === "uncovered" ? "Hold to delete" : undefined}
             style={{
               position: "absolute",
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              border: `2px solid ${ORANGE}`,
+              inset: 0,
+              borderRadius: 10,
+              border: `2px solid ${RED}`,
               background: isHolding
-                ? `radial-gradient(circle at 50% 50%, ${ORANGE}55 0%, ${ORANGE}15 70%)`
-                : `${ORANGE}18`,
+                ? `radial-gradient(circle at 50% 50%, ${RED}77 0%, ${RED}33 60%, ${RED}11 100%)`
+                : `linear-gradient(160deg, ${RED}44 0%, ${RED}22 100%)`,
               cursor: phase === "uncovered" ? "pointer" : "default",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: ORANGE,
               zIndex: 1,
               padding: 0,
               touchAction: "none",
               userSelect: "none",
               WebkitUserSelect: "none",
+              transition: "background 0.2s",
               animation: isHolding
-                ? "hlGlowHold 0.7s ease-in-out infinite"
-                : "hlGlowIdle 2s ease-in-out infinite",
-              transition: "background 0.15s",
+                ? "v3HoldPulse 0.6s ease-in-out infinite"
+                : "v3DangerPulse 2s ease-in-out infinite",
             }}
           >
-            {!isHolding && !isFired && <Trash2 size={iconSize} />}
+            {!isFired && (
+              <Trash2
+                size={isHolding ? iconSize + 2 : iconSize}
+                color={isHolding ? "#fff" : RED}
+                style={{ transition: "all 0.15s", filter: isHolding ? `drop-shadow(0 0 4px ${RED})` : "none" }}
+              />
+            )}
+            {isHolding && (
+              <div style={{
+                position: "absolute", bottom: 2,
+                fontSize: 9, fontWeight: 900, color: "#fff",
+                opacity: 0.8, letterSpacing: 0.3,
+              }}>
+                {secsLeft}s
+              </div>
+            )}
           </button>
 
-          {/* Orbiting countdown number */}
-          {isHolding && (
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                width: 16,
-                height: 16,
-                // Orbit offset from center
-                transform: `translate(calc(-50% + ${numX}px), calc(-50% + ${numY}px))`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 900,
-                fontSize: 10,
-                color: "#fff",
-                textShadow: `0 0 6px ${ORANGE}, 0 0 12px ${ORANGE}`,
-                zIndex: 4,
-                pointerEvents: "none",
-                lineHeight: 1,
-              }}
-            >
-              {secsLeft}
-            </div>
-          )}
-
-          {/* "See ya!" burst */}
+          {/* "Gone!" burst */}
           {isFired && (
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                whiteSpace: "nowrap",
-                fontSize: 11,
-                fontWeight: 900,
-                color: ORANGE,
-                textShadow: `0 0 8px ${ORANGE}, 0 0 18px ${ORANGE}88`,
-                zIndex: 5,
-                animation: "hlSeeYa 0.75s ease-out forwards",
-                pointerEvents: "none",
-              }}
-            >
-              See ya! 👋
+            <div style={{
+              position: "absolute", top: "50%", left: "50%",
+              whiteSpace: "nowrap", fontSize: 10, fontWeight: 900,
+              color: RED, textShadow: `0 0 8px ${RED}`,
+              zIndex: 5, animation: "v3Gone 0.7s ease-out forwards",
+              pointerEvents: "none",
+            }}>
+              Gone 🗑️
             </div>
           )}
         </>

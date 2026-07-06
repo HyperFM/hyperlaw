@@ -372,12 +372,17 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
       return;
     }
 
-    // 2. Deduct 1 credit (atomic — returns false if balance < 1)
-    const deducted = await storage.deductCredit(userId);
-    if (!deducted) {
-      const balance = await storage.getCreditBalance(userId);
-      res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balance });
-      return;
+    // 2. Deduct 1 credit — admin accounts are always exempt
+    const userInfo = await getClerkUserEmail(userId).catch(() => null);
+    const isAdminUser = userInfo?.email === ADMIN_EMAIL;
+
+    if (!isAdminUser) {
+      const deducted = await storage.deductCredit(userId);
+      if (!deducted) {
+        const balance = await storage.getCreditBalance(userId);
+        res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balance });
+        return;
+      }
     }
 
     // 3. Run deep analysis with Claude

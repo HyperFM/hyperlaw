@@ -965,7 +965,7 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 }
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, onGoToPhase }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, isApex, onGoToPhase }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
@@ -976,6 +976,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   onBuyCredits?: () => void;
   onDocGenerated?: () => void;
   isAdmin?: boolean;
+  isApex?: boolean;
   onGoToPhase?: (stage: WorkflowStage) => void;
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
@@ -1477,11 +1478,21 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                     ))}
                   </div>
 
-                  {/* Credit cost */}
-                  <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ fontSize: 13, color: "#666" }}>Credit cost</div>
-                    <div style={{ fontWeight: 900, fontSize: 15, color: ORANGE }}>1 credit</div>
-                  </div>
+                  {/* Credit cost — admin sees it for verification; apex sees unlimited badge; others see 1 credit */}
+                  {isApex ? (
+                    <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: ORANGE }} />
+                      <div style={{ fontSize: 14, color: ORANGE, fontWeight: 800 }}>Apex Litigant · Unlimited</div>
+                    </div>
+                  ) : (
+                    <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontSize: 13, color: "#666" }}>Credit cost</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontWeight: 900, fontSize: 15, color: ORANGE }}>1 credit</div>
+                        {isAdmin && <div style={{ fontSize: 10, color: "#444", fontWeight: 700, background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 5, padding: "2px 6px" }}>not charged</div>}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Back link */}
                   <button onClick={() => { setIntakeStep(4); setUploadState("intake"); }}
@@ -2685,13 +2696,15 @@ function HoldToDeleteButton({ onComplete }: { onComplete: () => void }) {
 // The document has already been stored (docId present). This view collects context
 // (5 questions) then spends 1 credit to run deep Claude analysis.
 function DocumentIntakeView({
-  docId, caseId, fileName, onComplete, onCancel,
+  docId, caseId, fileName, onComplete, onCancel, isAdmin, isApex,
 }: {
   docId: string;
   caseId: string;
   fileName: string;
   onComplete: (analysis: DocumentIntakeAnalysis) => void;
   onCancel: () => void;
+  isAdmin?: boolean;
+  isApex?: boolean;
 }) {
   const INTAKE_QUESTIONS = [
     { label: "What type of document is this?", key: "docType" as const, options: ["Draft Complaint", "Motion", "Court Order", "Police Report", "Medical Record", "Correspondence", "Evidence", "Other"], cols: 2 },
@@ -2843,10 +2856,21 @@ function DocumentIntakeView({
               ))}
             </div>
 
-            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "16px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 14, color: "#444" }}>Credit cost</div>
-              <div style={{ fontWeight: 900, fontSize: 20, color: ORANGE }}>1 credit</div>
-            </div>
+            {/* Credit row — admin sees it for verification; apex sees none; others see "1 credit" */}
+            {isApex ? (
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 18px", marginBottom: 24, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: ORANGE }} />
+                <div style={{ fontSize: 14, color: ORANGE, fontWeight: 800 }}>Apex Litigant · Unlimited</div>
+              </div>
+            ) : (
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "16px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 14, color: "#444" }}>Credit cost</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontWeight: 900, fontSize: 20, color: ORANGE }}>1 credit</div>
+                  {isAdmin && <div style={{ fontSize: 11, color: "#444", fontWeight: 700, background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: "2px 7px" }}>admin — not charged</div>}
+                </div>
+              </div>
+            )}
 
             <button onClick={() => setPhase("intake")}
               style={{ background: "none", border: "none", color: "#444", fontSize: 13, cursor: "pointer", marginBottom: 20, padding: 0, display: "block" }}>
@@ -3700,6 +3724,7 @@ export default function App() {
   const [newCaseUploadError, setNewCaseUploadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
+  const [planTier, setPlanTier] = useState<string>("free");
   const [showCreditShop, setShowCreditShop] = useState(false);
   const [showUpgradeGate, setShowUpgradeGate] = useState(false);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
@@ -3721,11 +3746,12 @@ export default function App() {
     }, 1500);
   }
 
-  // Fetch credit balance on mount and after checkout success
+  // Fetch credit balance + plan tier on mount and after checkout success
   const fetchCreditBalance = useCallback(async () => {
     try {
-      const { creditBalance: bal } = await aiApi.creditBalance();
+      const { creditBalance: bal, planTier: tier } = await aiApi.creditBalance();
       setCreditBalance(bal);
+      if (tier) setPlanTier(tier);
     } catch { /* silently ignore — user may not be signed in yet */ }
   }, []);
 
@@ -4101,6 +4127,8 @@ export default function App() {
           docId={view.docId}
           caseId={view.caseId}
           fileName={view.fileName}
+          isAdmin={isAdmin}
+          isApex={planTier === "apex"}
           onComplete={(analysis) => {
             // Merge summary into case notes; user reviews parties/timeline from analysis panel
             const updatedNotes = [hlCase.notes, analysis.summary].filter(Boolean).join("\n\n");
@@ -4149,6 +4177,7 @@ export default function App() {
           genDocsRefreshKey={genDocsRefreshKey}
           creditBalance={creditBalance}
           isAdmin={isAdmin}
+          isApex={planTier === "apex"}
           onBuyCredits={() => setShowCreditShop(true)}
           onDocGenerated={() => {
             setGenDocsRefreshKey(k => k + 1);

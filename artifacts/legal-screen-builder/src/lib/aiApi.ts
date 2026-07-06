@@ -431,8 +431,8 @@ export const aiApi = {
 
   // ── Stripe / Credits ───────────────────────────────────────────────────────
 
-  /** Get the authenticated user's current credit balance */
-  creditBalance(): Promise<{ creditBalance: number }> {
+  /** Get the authenticated user's current credit balance and plan tier */
+  creditBalance(): Promise<{ creditBalance: number; planTier?: string }> {
     return aiFetch("/stripe/credits");
   },
 

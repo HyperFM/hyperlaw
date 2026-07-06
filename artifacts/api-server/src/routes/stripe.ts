@@ -13,12 +13,37 @@ function requireAuth(req: Request, res: Response, next: () => void): void {
 }
 
 // ── GET /stripe/credits ───────────────────────────────────────────────────────
-// Returns the authenticated user's current credit balance.
+// Returns the user's credit balance and their active plan tier (free/basic/pro/apex).
 router.get('/stripe/credits', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { userId } = getAuth(req);
   try {
     const creditBalance = await storage.getCreditBalance(userId!);
-    res.json({ creditBalance });
+
+    // Detect active subscription tier from Stripe
+    let planTier = 'free';
+    try {
+      const customerId = await storage.getStripeCustomerId(userId!);
+      if (customerId) {
+        const stripe = await getUncachableStripeClient();
+        const subs = await stripe.subscriptions.list({
+          customer: customerId,
+          status: 'active',
+          limit: 5,
+          expand: ['data.items.data.price.product'],
+        });
+        outer: for (const sub of subs.data) {
+          for (const item of sub.items.data) {
+            const product = item.price.product as { name?: string };
+            const name = (product.name ?? '').toLowerCase();
+            if (name.includes('apex'))  { planTier = 'apex';  break outer; }
+            if (name.includes('pro'))   { planTier = 'pro';   break outer; }
+            if (name.includes('basic')) { planTier = 'basic'; break outer; }
+          }
+        }
+      }
+    } catch { /* non-fatal — default stays 'free' */ }
+
+    res.json({ creditBalance, planTier });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

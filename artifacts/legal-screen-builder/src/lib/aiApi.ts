@@ -77,6 +77,21 @@ export interface DocumentIntakeAnalysis {
   notes?: string;
 }
 
+/** Case Memory — structured source-of-truth built from document + intake answers */
+export interface CaseMemory {
+  caseSummary: string;
+  factPattern: string;
+  parties: Array<{ name: string; role: string; details?: string }>;
+  events: Array<{ date: string; description: string; significance?: string }>;
+  evidence: Array<{ description: string; type: string; strength?: string }>;
+  witnesses: Array<{ name: string; relevance?: string }>;
+  agencies: Array<{ name: string; role?: string }>;
+  claims: string[];
+  locations: string[];
+  openQuestions: string[];
+  jurisdictionSuggestions: string[];
+}
+
 // ── Admin types ───────────────────────────────────────────────────────────────
 
 export interface AiLog {
@@ -577,9 +592,9 @@ export const aiApi = {
 
   /**
    * Deep document analysis — requires 1 credit.
-   * Sends stored doc text + intake answers to Claude for full case extraction.
+   * Sends stored doc text + intake answers to Claude; builds structured Case Memory.
    */
-  analyzeDocumentWithIntake(params: {
+  buildCaseMemory(params: {
     docId: string;
     caseId: string;
     intakeAnswers: {
@@ -589,7 +604,7 @@ export const aiApi = {
       hasDates: string;
       additionalContext: string;
     };
-  }): Promise<{ ok: boolean; analysis: DocumentIntakeAnalysis; fileName: string }> {
+  }): Promise<{ ok: boolean; analysis: CaseMemory; fileName: string; fromCache?: boolean }> {
     return aiFetch("/ai/analyze-document", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -645,17 +660,19 @@ export function formatMicroUsd(microUsd: number): string {
 
 export function featureLabel(feature: string): string {
   const labels: Record<string, string> = {
-    analyze_incident:    "Incident Analysis",
-    analyze_incident_v2: "Incident Analysis",
-    analyze_case:        "Case Analysis",
-    analyze_case_v2:     "Case Analysis",
-    chat:                "AI Chat",
-    extract_document:    "Document Analysis",
-    generate_document:   "Generate Document",
-    ocr_image:           "Image OCR",
-    timeline:            "Timeline Generation",
-    assembly:            "Case Assembly",
-    learning:            "Learning Index",
+    analyze_incident:        "Incident Analysis",
+    analyze_incident_v2:     "Incident Analysis",
+    analyze_case:            "Case Analysis",
+    analyze_case_v2:         "Case Analysis",
+    chat:                    "AI Chat",
+    extract_document:        "Document Analysis (legacy)",
+    analyze_document_intake: "Document Analysis (legacy)",
+    build_case_memory:       "Case Memory Build",
+    generate_document:       "Generate Document",
+    ocr_image:               "Image OCR",
+    timeline:                "Timeline Generation",
+    assembly:                "Case Assembly",
+    learning:                "Learning Index",
   };
   return labels[feature] ?? feature;
 }

@@ -23,7 +23,8 @@ export type AiFeature =
   | "extract_document"
   | "ocr_image"
   | "generate_document"
-  | "analyze_document_intake";
+  | "analyze_document_intake"
+  | "build_case_memory";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

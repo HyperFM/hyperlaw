@@ -40,6 +40,21 @@ export interface DocumentIntakeAnalysis {
   notes?: string;
 }
 
+/** Case Memory — the structured source-of-truth built from a document + intake answers */
+export interface CaseMemory {
+  caseSummary: string;
+  factPattern: string;
+  parties: Array<{ name: string; role: string; details?: string }>;
+  events: Array<{ date: string; description: string; significance?: string }>;
+  evidence: Array<{ description: string; type: string; strength?: string }>;
+  witnesses: Array<{ name: string; relevance?: string }>;
+  agencies: Array<{ name: string; role?: string }>;
+  claims: string[];
+  locations: string[];
+  openQuestions: string[];
+  jurisdictionSuggestions: string[];
+}
+
 export interface CaseExtraction {
   plaintiff?: string | null;
   defendant?: string | null;
@@ -1113,6 +1128,81 @@ Rules:
 
     return {
       data: this.parseJsonResponse<DocumentIntakeAnalysis>(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  /**
+   * Build Case Memory — organizes a document into structured case data without drafting.
+   * This is the primary analysis engine for the new intake flow.
+   */
+  async buildCaseMemory(
+    documentText: string,
+    intakeAnswers: {
+      docType: string;
+      preparedBy: string;
+      hasParties: string;
+      hasDates: string;
+      additionalContext: string;
+    },
+  ): Promise<AiResult<CaseMemory>> {
+    const prompt = `You are HyperLaw's case analysis engine.
+Review the uploaded document and intake responses below.
+Extract and organize all case information into structured case memory.
+
+INTAKE ANSWERS PROVIDED BY USER:
+- Document type: ${intakeAnswers.docType}
+- Prepared by: ${intakeAnswers.preparedBy}
+- Parties identified: ${intakeAnswers.hasParties}
+- Dates/events present: ${intakeAnswers.hasDates}
+- Additional context: ${intakeAnswers.additionalContext || "None provided"}
+
+FULL DOCUMENT TEXT:
+${documentText.slice(0, 15000)}
+
+Return ONLY valid JSON. Do not draft a complaint. Do not explain your reasoning. Do not use markdown.
+
+{
+  "caseSummary": "3-4 sentence plain-language summary: what this document is, what it establishes, and why it matters legally",
+  "factPattern": "Chronological narrative of the key facts — what happened, to whom, when, where, and how",
+  "parties": [
+    { "name": "Full name exactly as written", "role": "plaintiff|defendant|witness|judge|attorney|officer|agency|other", "details": "position, title, or relevant detail" }
+  ],
+  "events": [
+    { "date": "Date or time reference as written in document", "description": "What happened — specific factual description", "significance": "Why this moment matters legally" }
+  ],
+  "evidence": [
+    { "description": "What the evidence item is", "type": "document|photo|testimony|record|report|other", "strength": "strong|moderate|weak" }
+  ],
+  "witnesses": [
+    { "name": "Witness full name", "relevance": "What they witnessed or can testify to" }
+  ],
+  "agencies": [
+    { "name": "Agency or organization name", "role": "Their role in the matter" }
+  ],
+  "claims": ["Specific legal claim, statute, constitutional violation, or cause of action identified"],
+  "locations": ["Specific location, address, or venue relevant to the case"],
+  "openQuestions": ["Important unanswered factual or legal question raised by this document"],
+  "jurisdictionSuggestions": ["Suggested court or jurisdiction based on the claims and parties"]
+}
+
+Extraction rules:
+- Extract only what is actually in the document or clearly implied by it. Do not fabricate.
+- parties: include every named individual and organization — be exhaustive
+- events: include every date, deadline, or time reference found in the document
+- claims: name specific statutes, amendments, or legal theories where identifiable
+- Return only the JSON object — no explanation, no preamble, no markdown`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 3000,
+      system: "You are HyperLaw's case analysis engine. Your sole job is to extract and organize factual and legal information from documents into structured JSON. Never fabricate. Never draft a complaint. Return only valid JSON.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    return {
+      data: this.parseJsonResponse<CaseMemory>(response),
       meta: this.buildMeta(response.usage, Date.now() - start),
     };
   }

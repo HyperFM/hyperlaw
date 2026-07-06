@@ -324,16 +324,11 @@ router.post(
 );
 
 // ── POST /ai/analyze-document ──────────────────────────────────────────────────
-// Deducts 1 credit, runs deep Claude analysis on a stored document, updates the case.
+// Deducts 1 credit, runs Claude Case Memory build on a stored document.
 // Body: { docId, caseId, intakeAnswers: { docType, preparedBy, hasParties, hasDates, additionalContext } }
 router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  if (!aiService.isConfigured()) {
-    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
-    return;
-  }
 
   const { docId, caseId, intakeAnswers } = req.body as {
     docId?: string;
@@ -341,83 +336,153 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
     intakeAnswers?: { docType: string; preparedBy: string; hasParties: string; hasDates: string; additionalContext: string };
   };
 
-  if (!docId) { res.status(400).json({ error: "docId is required" }); return; }
-  if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
-  if (!intakeAnswers) { res.status(400).json({ error: "intakeAnswers is required" }); return; }
-
   const userId = auth.userId;
+  let failStep = "pre-validation";
+
+  // Helper — log a failure to errorLogsTable so it's visible in the Admin Errors tab
+  async function logFailure(step: string, err: unknown) {
+    console.error(`[analyze-document] FAIL step="${step}" userId=${userId} caseId=${caseId ?? "?"} docId=${docId ?? "?"} error="${(err as Error).message ?? String(err)}"`);
+    try {
+      await db.insert(errorLogsTable).values({
+        userId,
+        context: "analyze_document",
+        message: `Step "${step}" failed: ${(err as Error).message || String(err)}`,
+        metadata: { step, caseId: caseId ?? null, docId: docId ?? null, stack: (err as Error).stack?.slice(0, 500) ?? null },
+      });
+    } catch { /* never let logging break the response */ }
+  }
 
   try {
-    // 1. Load document text from DB
+    // ── Checkpoint 1: User pressed Analyze ─────────────────────────────────
+    console.log(`[analyze-document] STEP 1: request received userId=${userId} docId=${docId} caseId=${caseId}`);
+
+    // ── Checkpoint 2: Validate inputs ──────────────────────────────────────
+    failStep = "input-validation";
+    if (!docId) { res.status(400).json({ error: "docId is required" }); return; }
+    if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
+    if (!intakeAnswers) { res.status(400).json({ error: "intakeAnswers is required" }); return; }
+
+    if (!aiService.isConfigured()) {
+      console.error("[analyze-document] FAIL: ANTHROPIC_API_KEY not set");
+      res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+      return;
+    }
+    console.log(`[analyze-document] STEP 2: inputs valid, AI configured`);
+
+    // ── Checkpoint 3: Load document text from DB ───────────────────────────
+    failStep = "load-document";
     const [doc] = await db
       .select({
         extractedText: uploadedDocumentsTable.extractedText,
         fileName: uploadedDocumentsTable.fileName,
-        userId: uploadedDocumentsTable.userId,
         caseExtraction: uploadedDocumentsTable.caseExtraction,
       })
       .from(uploadedDocumentsTable)
       .where(and(eq(uploadedDocumentsTable.id, docId), eq(uploadedDocumentsTable.userId, userId)));
 
-    if (!doc) { res.status(404).json({ error: "Document not found" }); return; }
-    if (!doc.extractedText || doc.extractedText.trim().length < 10) {
-      res.status(422).json({ error: "Document has no extractable text" });
+    if (!doc) {
+      console.error(`[analyze-document] FAIL: document not found docId=${docId}`);
+      res.status(404).json({ error: "Document not found" });
+      return;
+    }
+    const textLen = doc.extractedText?.trim().length ?? 0;
+    if (textLen < 10) {
+      console.error(`[analyze-document] FAIL: document has no extractable text docId=${docId} textLen=${textLen}`);
+      res.status(422).json({ error: "Document has no extractable text. Please upload a text-based PDF or document." });
+      return;
+    }
+    console.log(`[analyze-document] STEP 3: document loaded fileName="${doc.fileName}" textLen=${textLen}`);
+
+    // ── Checkpoint 4: Intake responses loaded ─────────────────────────────
+    console.log(`[analyze-document] STEP 4: intake answers loaded docType="${intakeAnswers.docType}" preparedBy="${intakeAnswers.preparedBy}" hasParties="${intakeAnswers.hasParties}" hasDates="${intakeAnswers.hasDates}"`);
+
+    // ── Idempotency guard — return stored result if already analyzed ───────
+    // Guard requires meaningful content (caseSummary or summary key present)
+    const stored = doc.caseExtraction as Record<string, unknown> | null;
+    if (stored && (stored.caseSummary || stored.summary) && Object.keys(stored).length >= 3) {
+      console.log(`[analyze-document] idempotency hit — returning stored result docId=${docId}`);
+      res.json({ ok: true, analysis: stored, fileName: doc.fileName, fromCache: true });
       return;
     }
 
-    // Idempotency guard — if this document was already analyzed, return the stored result
-    // without charging another credit.
-    if (doc.caseExtraction) {
-      res.json({ ok: true, analysis: doc.caseExtraction, fileName: doc.fileName, fromCache: true });
-      return;
-    }
-
-    // 2. Deduct 1 credit — admin accounts are always exempt
+    // ── Checkpoint 5: Credit verification ─────────────────────────────────
+    failStep = "credit-verification";
     const userInfo = await getClerkUserEmail(userId).catch(() => null);
     const isAdminUser = userInfo?.email === ADMIN_EMAIL;
 
     if (!isAdminUser) {
-      const deducted = await storage.deductCredit(userId);
-      if (!deducted) {
-        const balance = await storage.getCreditBalance(userId);
+      const balance = await storage.getCreditBalance(userId);
+      console.log(`[analyze-document] STEP 5: credit check userId=${userId} balance=${balance} isAdmin=false`);
+      if (balance < 1) {
+        console.log(`[analyze-document] FAIL: insufficient credits balance=${balance}`);
         res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balance });
         return;
       }
+      const deducted = await storage.deductCredit(userId);
+      if (!deducted) {
+        console.log(`[analyze-document] FAIL: deductCredit returned false (race condition) userId=${userId}`);
+        res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: 0 });
+        return;
+      }
+      console.log(`[analyze-document] STEP 5: 1 credit deducted`);
+    } else {
+      console.log(`[analyze-document] STEP 5: admin account — credit deduction skipped`);
     }
 
-    // 3. Run deep analysis with Claude
+    // ── Checkpoint 6: Build Claude request payload ─────────────────────────
+    failStep = "claude-call";
+    console.log(`[analyze-document] STEP 6: building Claude Case Memory prompt documentTextLen=${doc.extractedText!.length}`);
+
+    // ── Checkpoint 7: Claude API request sent ─────────────────────────────
+    console.log(`[analyze-document] STEP 7: sending request to Claude model=${process.env.AI_MODEL ?? "claude-sonnet-5"}`);
+
     let analysis;
     try {
-      const aiResult = await aiService.analyzeDocumentWithIntake(doc.extractedText, intakeAnswers);
+      const aiResult = await aiService.buildCaseMemory(doc.extractedText!, intakeAnswers);
       analysis = aiResult.data;
+
+      // ── Checkpoint 8: Claude response received ─────────────────────────
+      console.log(`[analyze-document] STEP 8: Claude responded inputTokens=${aiResult.meta.inputTokens} outputTokens=${aiResult.meta.outputTokens} responseTimeMs=${aiResult.meta.responseTimeMs}`);
+
       void logAiCall({
         userId,
-        feature: "analyze_document_intake",
+        caseId,
+        feature: "build_case_memory",
         model: aiResult.meta.model,
         inputTokens: aiResult.meta.inputTokens,
         outputTokens: aiResult.meta.outputTokens,
         estimatedCostMicroUsd: aiResult.meta.estimatedCostMicroUsd,
         responseTimeMs: aiResult.meta.responseTimeMs,
         cacheHit: false,
-        promptTemplate: "analyze_document_intake",
+        promptTemplate: "build_case_memory",
       });
     } catch (claudeErr) {
-      // Refund credit if Claude fails
-      await db.execute(
-        sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${userId}`
-      );
+      // Refund credit on Claude failure (non-admin only)
+      if (!isAdminUser) {
+        await db.execute(sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${userId}`);
+        console.log(`[analyze-document] credit refunded after Claude failure`);
+      }
+      await logFailure("claude-call", claudeErr);
       throw claudeErr;
     }
 
-    // 4. Store analysis back on the document record
+    // ── Checkpoint 9: Response parsed ─────────────────────────────────────
+    console.log(`[analyze-document] STEP 9: response parsed parties=${(analysis.parties ?? []).length} events=${(analysis.events ?? []).length} claims=${(analysis.claims ?? []).length}`);
+
+    // ── Checkpoint 10: Save Case Memory to DB ─────────────────────────────
+    failStep = "save-case-memory";
+
+    // Save on document record (idempotency key for future calls)
     try {
       await db
         .update(uploadedDocumentsTable)
         .set({ caseExtraction: analysis as unknown as Record<string, unknown> })
         .where(eq(uploadedDocumentsTable.id, docId));
-    } catch { /* non-fatal */ }
+    } catch (saveErr) {
+      console.warn(`[analyze-document] WARN: failed to save caseExtraction to uploadedDocuments — non-fatal`, (saveErr as Error).message);
+    }
 
-    // 5. Merge extracted data into the case (via the case's caseData JSONB column)
+    // Merge Case Memory into the case record: parties, events → timeline, notes, caseMemory blob
     try {
       const [existingCase] = await db
         .select({ caseData: casesTable.caseData })
@@ -426,19 +491,22 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
 
       if (existingCase) {
         const existing = (existingCase.caseData ?? {}) as Record<string, unknown>;
-        // Merge new parties into existing parties array
+
+        // Merge parties
         const existingParties = (existing.parties as unknown[]) ?? [];
         const newParties = (analysis.parties ?? []).map((p: { name: string; role: string; details?: string }) => ({
           id: crypto.randomUUID(),
-          name: p.name,
-          role: p.role === "plaintiff" ? "plaintiff" : p.role === "defendant" ? "defendant" : "other",
+          firstName: p.name.split(" ")[0] ?? p.name,
+          lastName: p.name.split(" ").slice(1).join(" ") ?? "",
+          type: p.role === "plaintiff" ? "plaintiff" : p.role === "defendant" ? "defendant" : "other",
           description: p.details ?? "",
+          nickname: "",
         }));
         const mergedParties = [...existingParties, ...newParties];
 
-        // Merge new timeline events
+        // Merge timeline events (from analysis.events)
         const existingTimeline = (existing.timeline as unknown[]) ?? [];
-        const newTimeline = (analysis.timeline ?? []).map((t: { date: string; description: string; significance?: string }) => ({
+        const newTimeline = (analysis.events ?? []).map((t: { date: string; description: string; significance?: string }) => ({
           id: crypto.randomUUID(),
           date: t.date,
           title: t.description.slice(0, 80),
@@ -447,22 +515,35 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         }));
         const mergedTimeline = [...existingTimeline, ...newTimeline];
 
-        // Append analysis notes to case notes
-        const existingNotes = (existing.notes as string) ?? "";
-        const newNotes = [existingNotes, analysis.summary].filter(Boolean).join("\n\n");
-
+        // Store the full Case Memory blob under caseData.caseMemory
         await db
           .update(casesTable)
           .set({
-            caseData: { ...existing, parties: mergedParties, timeline: mergedTimeline, notes: newNotes },
+            caseData: {
+              ...existing,
+              parties: mergedParties,
+              timeline: mergedTimeline,
+              notes: [existing.notes as string ?? "", analysis.caseSummary].filter(Boolean).join("\n\n"),
+              caseMemory: analysis,
+            },
             updatedAt: new Date(),
           })
           .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
-      }
-    } catch { /* non-fatal — analysis result still returned */ }
 
+        console.log(`[analyze-document] STEP 10: Case Memory saved to DB caseId=${caseId} mergedParties=${mergedParties.length} mergedTimeline=${mergedTimeline.length}`);
+      } else {
+        console.warn(`[analyze-document] WARN: case not found for caseMemory merge caseId=${caseId}`);
+      }
+    } catch (mergeErr) {
+      console.warn(`[analyze-document] WARN: case merge failed — non-fatal`, (mergeErr as Error).message);
+    }
+
+    // ── Checkpoint 11: Return result ──────────────────────────────────────
+    console.log(`[analyze-document] STEP 11: sending response to client`);
     res.json({ ok: true, analysis, fileName: doc.fileName });
+
   } catch (err) {
+    await logFailure(failStep, err);
     res.status(500).json({ error: (err as Error).message || "Document analysis failed" });
   }
 });

@@ -1,0 +1,256 @@
+
+HyperLaw Document Analysis Failure Investigation
+
+Current Issue
+
+The document intake flow reaches the final analysis step, but analysis fails before any results are returned.
+
+After reviewing the usage logs, it appears the Claude API request is never actually being executed.
+
+Evidence
+
+Recent log entry:
+
+Feature: Document Analysis
+Model: claude-sonnet-5
+Input Tokens: 0
+Output Tokens: 0
+Cost: $0.0000
+Response Time: 0ms
+
+This strongly suggests the request is failing before the Claude API call is sent.
+
+For comparison, previous successful calls show:
+
+Document Analysis
+Input: 4114 tokens
+Output: 845 tokens
+Cost: $0.0250
+Response: 8567ms
+
+This confirms:
+
+* Claude Sonnet 5 is working
+* Anthropic API key is working
+* Billing is working
+* HyperLaw has successfully connected to Claude before
+
+The current failure appears to be somewhere in the application pipeline before the API request is made.
+
+⸻
+
+Required Investigation
+
+Please add detailed logging to every step of the analysis workflow.
+
+Log the following checkpoints:
+
+1. User pressed Analyze
+2. Uploaded document located successfully
+3. Intake responses loaded successfully
+4. Case data object created
+5. Credit verification passed
+6. Claude request payload generated
+7. Claude API request sent
+8. Claude response received
+9. Response parsed successfully
+10. Case memory saved successfully
+11. User redirected to results
+
+If any step fails, log:
+
+Failure Step
+Error Message
+Stack Trace
+Case ID
+User ID
+
+⸻
+
+Architecture Update
+
+I would like the analysis workflow redesigned.
+
+Current Flow (Problematic)
+
+Upload Document
+↓
+Generate Complaint
+↓
+Generate Questions
+↓
+Generate Analysis
+
+This appears to be creating unnecessary complexity.
+
+⸻
+
+New Flow
+
+Upload Document
+↓
+Answer Intake Questions
+↓
+Spend Credit
+↓
+Claude Builds Case Memory
+↓
+Save Case Memory
+↓
+Unlock Drafting Tools
+
+⸻
+
+Stage 1: Build Case Memory
+
+Claude should NOT immediately draft a complaint.
+
+Instead, Claude should organize all uploaded information into structured case data.
+
+⸻
+
+Claude Prompt
+
+Use Claude as a case analysis engine.
+
+Prompt example:
+
+You are HyperLaw's case analysis engine.
+Review all uploaded documents and intake responses.
+Extract and organize:
+- Parties
+- Dates
+- Timeline Events
+- Evidence
+- Witnesses
+- Agencies
+- Locations
+- Claims
+- Legal Issues
+- Missing Information
+Return ONLY valid JSON.
+Do not draft a complaint.
+Do not explain your reasoning.
+Do not use markdown.
+
+⸻
+
+Expected Output
+
+{
+  "caseSummary": "",
+  "factPattern": "",
+  "parties": [],
+  "events": [],
+  "evidence": [],
+  "witnesses": [],
+  "agencies": [],
+  "claims": [],
+  "locations": [],
+  "openQuestions": [],
+  "jurisdictionSuggestions": []
+}
+
+⸻
+
+Save Case Memory
+
+The returned JSON should be saved permanently to the case database.
+
+Example:
+
+{
+  "caseId": "123",
+  "caseSummary": "...",
+  "parties": [...],
+  "events": [...],
+  "evidence": [...],
+  "claims": [...]
+}
+
+This becomes the source of truth for the case.
+
+Claude should NOT be the memory.
+
+The HyperLaw database should be the memory.
+
+⸻
+
+Future Document Generation
+
+Once Case Memory exists, users can generate:
+
+* Civil Rights Complaint
+* Litigation Motion
+* Demand Letter
+* Discovery Requests
+* Timeline Exhibit
+* Litigation Package
+
+Each document should use the stored Case Memory instead of repeatedly re-analyzing raw intake data.
+
+This reduces token usage and improves consistency.
+
+⸻
+
+User Experience Goal
+
+After analysis completes, show:
+
+✓ Case Organized
+Parties Found: X
+Events Found: X
+Evidence Items Found: X
+Potential Claims Found: X
+
+Then present:
+
+Build Complaint
+Build Motion
+Build Discovery
+Build Timeline
+Build Litigation Package
+
+⸻
+
+Future Feature: Strengthen Complaint
+
+Once a complaint has been generated, add:
+
+Strengthen Complaint
+
+User enters:
+
+* Additional facts
+* Additional evidence
+* Additional witnesses
+* Additional incidents
+
+Prompt Claude:
+
+Here is the existing complaint.
+Here is additional information provided by the user.
+Integrate this information and produce an improved version of the complaint while preserving all existing facts and claims.
+
+Generate:
+
+* Complaint Version 2
+* Complaint Version 3
+* etc.
+
+Allow users to continually improve their filings without starting over.
+
+⸻
+
+Immediate Priority
+
+Before any architectural changes, determine why the current analysis workflow is producing:
+
+Input Tokens: 0
+Output Tokens: 0
+Cost: $0.00
+Response Time: 0ms
+
+because this indicates the Claude request is not being executed at all.
+
+Please identify the exact failure point and return the relevant logs and stack trace.

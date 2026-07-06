@@ -18,7 +18,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, DocumentIntakeAnalysis } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory } from "./lib/aiApi";
 import { api } from "./lib/api";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
@@ -985,7 +985,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "receiving" | "received" | "intake" | "gate" | "analyzing" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
-  const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: DocumentIntakeAnalysis } | null>(null);
+  const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: CaseMemory } | null>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -1050,10 +1050,10 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     }
     setUploadState("analyzing");
     try {
-      const result = await aiApi.analyzeDocumentWithIntake({ docId: pendingDocId, caseId: hlCase.id, intakeAnswers });
+      const result = await aiApi.buildCaseMemory({ docId: pendingDocId, caseId: hlCase.id, intakeAnswers });
       // Merge the AI summary into case notes — parties/timeline are available in
       // the analysis result for the user to review and add manually via the workflow.
-      const updatedNotes = [hlCase.notes, result.analysis.summary].filter(Boolean).join("\n\n");
+      const updatedNotes = [hlCase.notes, result.analysis.caseSummary].filter(Boolean).join("\n\n");
       onUpdateCase({ ...hlCase, notes: updatedNotes });
       setUploadResult({ fileName: result.fileName, analysis: result.analysis });
       setUploadState("done");
@@ -1527,25 +1527,25 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                       style={{ background: "none", border: "none", cursor: "pointer", color: "#444" }}><X size={14} /></button>
                   </div>
                   <div style={{ fontSize: 12, color: "#555", marginBottom: 12 }}>{uploadResult.fileName}</div>
-                  {uploadResult.analysis.summary && (
+                  {uploadResult.analysis.caseSummary && (
                     <div style={{ fontSize: 13, color: "#bbb", lineHeight: 1.65, fontFamily: "Georgia, serif", marginBottom: 12, padding: "10px 12px", background: "#111", borderRadius: 8, borderLeft: `3px solid ${ORANGE}` }}>
-                      {uploadResult.analysis.summary}
+                      {uploadResult.analysis.caseSummary}
                     </div>
                   )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {uploadResult.analysis.parties?.length > 0 && (
+                    {(uploadResult.analysis.parties?.length ?? 0) > 0 && (
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6", background: "#8b5cf611", border: "1px solid #8b5cf633", borderRadius: 6, padding: "2px 8px" }}>
-                        {uploadResult.analysis.parties.length} parties extracted
+                        {uploadResult.analysis.parties.length} parties found
                       </span>
                     )}
-                    {uploadResult.analysis.timeline?.length > 0 && (
+                    {(uploadResult.analysis.events?.length ?? 0) > 0 && (
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", background: "#22c55e11", border: "1px solid #22c55e33", borderRadius: 6, padding: "2px 8px" }}>
-                        {uploadResult.analysis.timeline.length} timeline events
+                        {uploadResult.analysis.events!.length} events found
                       </span>
                     )}
-                    {uploadResult.analysis.legalIssues?.length > 0 && (
+                    {(uploadResult.analysis.claims?.length ?? 0) > 0 && (
                       <span style={{ fontSize: 11, fontWeight: 700, color: ORANGE, background: `${ORANGE}11`, border: `1px solid ${ORANGE}33`, borderRadius: 6, padding: "2px 8px" }}>
-                        {uploadResult.analysis.legalIssues.length} legal issues
+                        {uploadResult.analysis.claims.length} claims found
                       </span>
                     )}
                   </div>
@@ -2701,7 +2701,7 @@ function DocumentIntakeView({
   docId: string;
   caseId: string;
   fileName: string;
-  onComplete: (analysis: DocumentIntakeAnalysis) => void;
+  onComplete: (analysis: CaseMemory) => void;
   onCancel: () => void;
   isAdmin?: boolean;
   isApex?: boolean;
@@ -2714,7 +2714,8 @@ function DocumentIntakeView({
   ];
   const TOTAL_STEPS = 5;
 
-  const [phase, setPhase] = useState<"intake" | "gate" | "analyzing" | "error">("intake");
+  const [phase, setPhase] = useState<"intake" | "gate" | "analyzing" | "success" | "error">("intake");
+  const [caseMemory, setCaseMemory] = useState<CaseMemory | null>(null);
   const [intakeStep, setIntakeStep] = useState(0);
   const [intakeAnswers, setIntakeAnswers] = useState({ docType: "", preparedBy: "", hasParties: "", hasDates: "", additionalContext: "" });
   const [error, setError] = useState<string | null>(null);
@@ -2725,8 +2726,9 @@ function DocumentIntakeView({
   async function runAnalysis() {
     setPhase("analyzing");
     try {
-      const result = await aiApi.analyzeDocumentWithIntake({ docId, caseId, intakeAnswers });
-      onComplete(result.analysis);
+      const result = await aiApi.buildCaseMemory({ docId, caseId, intakeAnswers });
+      setCaseMemory(result.analysis);
+      setPhase("success");
     } catch (err: unknown) {
       setError((err as Error).message || "Analysis failed. Please try again.");
       setPhase("error");
@@ -2895,6 +2897,65 @@ function DocumentIntakeView({
               Extracting parties and timeline<br />
               Building case memory
             </div>
+          </div>
+        )}
+
+        {/* ── SUCCESS ── */}
+        {phase === "success" && caseMemory && (
+          <div>
+            {/* Organized badge */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", background: "#071207", border: "1px solid #1a3a1a", borderRadius: 14, marginBottom: 28 }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#0d2b0d", border: "1.5px solid #22c55e55", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <CheckCircle2 size={18} color="#22c55e" />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: "#22c55e" }}>Case Organized</div>
+                <div style={{ fontSize: 12, color: "#4ade8066", marginTop: 2 }}>Case Memory saved to database</div>
+              </div>
+            </div>
+
+            {/* Counts */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24 }}>
+              {[
+                { label: "Parties Found", value: caseMemory.parties?.length ?? 0 },
+                { label: "Events Found", value: caseMemory.events?.length ?? 0 },
+                { label: "Evidence Items", value: caseMemory.evidence?.length ?? 0 },
+                { label: "Potential Claims", value: caseMemory.claims?.length ?? 0 },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: ORANGE }}>{value}</div>
+                  <div style={{ fontSize: 11, color: "#555", marginTop: 3, fontWeight: 700 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Summary */}
+            {caseMemory.caseSummary && (
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", marginBottom: 24 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#333", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Case Summary</div>
+                <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6 }}>{caseMemory.caseSummary}</div>
+              </div>
+            )}
+
+            {/* Claims found */}
+            {(caseMemory.claims?.length ?? 0) > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: "#333", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>Potential Claims</div>
+                {caseMemory.claims.map((claim, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: ORANGE, marginTop: 6, flexShrink: 0 }} />
+                    <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.5 }}>{claim}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* CTA */}
+            <button
+              onClick={() => caseMemory && onComplete(caseMemory)}
+              style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", background: ORANGE, color: "#000", fontSize: 16, fontWeight: 900, cursor: "pointer", letterSpacing: 0.3, WebkitTapHighlightColor: "transparent" }}>
+              Open Case →
+            </button>
           </div>
         )}
 
@@ -4136,7 +4197,7 @@ export default function App() {
           isApex={planTier === "apex"}
           onComplete={(analysis) => {
             // Merge summary into case notes; user reviews parties/timeline from analysis panel
-            const updatedNotes = [hlCase.notes, analysis.summary].filter(Boolean).join("\n\n");
+            const updatedNotes = [hlCase.notes, analysis.caseSummary].filter(Boolean).join("\n\n");
             const updated: HLCase = { ...hlCase, notes: updatedNotes };
             setData(updateCase(data, updated));
             fetchCreditBalance();

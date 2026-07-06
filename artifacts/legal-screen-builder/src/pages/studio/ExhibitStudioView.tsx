@@ -17,11 +17,11 @@ export default function ExhibitStudioView({ cases, onOpenStudio }: Props) {
   return (
     <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
 
-      {/* ── Banner image — edge to edge, flush to top ─────────────── */}
+      {/* ── Banner image — smaller, full image visible, left-flush ── */}
       <img
         src="/exhibit-studio-banner.png"
         alt="Exhibit Studio"
-        style={{ width: "100%", display: "block", objectFit: "cover", objectPosition: "center top", maxHeight: 200, flexShrink: 0 }}
+        style={{ height: 130, width: "auto", display: "block", flexShrink: 0, alignSelf: "flex-start" }}
       />
 
       <div style={{ padding: "20px 20px 120px", display: "flex", flexDirection: "column" }}>

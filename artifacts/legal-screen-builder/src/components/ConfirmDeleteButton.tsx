@@ -234,17 +234,6 @@ export default function ConfirmDeleteButton({
               ${ORANGE}22 80%,
               transparent 100%)`,
           }} />
-          {/* Side-scroll chevron hint */}
-          <span style={{
-            fontSize: 9,
-            color: `${ORANGE}99`,
-            fontWeight: 900,
-            letterSpacing: -1.5,
-            zIndex: 1,
-            userSelect: "none",
-            textShadow: `0 0 5px ${ORANGE}88`,
-            lineHeight: 1,
-          }}>›</span>
 
           {/* Tiny raised ridge at top for realism */}
           <div style={{

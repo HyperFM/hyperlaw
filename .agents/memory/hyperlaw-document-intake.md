@@ -3,6 +3,16 @@ name: HyperLaw Document Intake Redesign
 description: 5-step guided intake wizard before AI analysis; upload stores only, credit deducted at analyze step
 ---
 
+## CRITICAL: Two separate upload entry points
+
+There are TWO upload entry points — both must route through the intake wizard:
+
+1. **HomeView "Start from a Document"** → `handleUploadForNewCase(file)` in App.tsx. This is the primary new-case creation path. It now: stores file → creates case shell → navigates to `{ type: "document_intake" }` view. Before this fix it went directly to `case_detail`.
+
+2. **CaseDetailView DOCUMENTS section** → inline intake wizard in `CaseDetailView` (states: receiving→received→intake→gate→analyzing→done). Used for adding documents to an existing case.
+
+The `DocumentIntakeView` component (standalone full-screen, placed before ProfileView in App.tsx) handles the HomeView path. It accepts `docId`, `caseId`, `fileName`, `onComplete(analysis)`, `onCancel`.
+
 ## Architecture
 
 **Upload split into two endpoints:**

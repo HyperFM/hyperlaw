@@ -432,7 +432,7 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase }: {
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError }: {
   data: AppData;
   onOpenIncident: (i: Incident) => void;
   onOpenCase: (c: HLCase) => void;
@@ -440,6 +440,8 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   onCreateCase: () => void;
   onContinueCase: (c: HLCase, stage: WorkflowStage) => void;
   onUploadForNewCase?: (file: File) => void;
+  uploadError?: string | null;
+  onClearUploadError?: () => void;
 }) {
   const uploadNewRef = useRef<HTMLInputElement>(null);
 
@@ -496,7 +498,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
                 onChange={e => { const f = e.target.files?.[0]; if (f) { onUploadForNewCase(f); e.target.value = ""; } }}
               />
               <div style={{ display: "flex", justifyContent: "center" }}>
-                <button onClick={() => uploadNewRef.current?.click()} style={{
+                <button onClick={() => { onClearUploadError?.(); uploadNewRef.current?.click(); }} style={{
                   background: "none", border: "1px solid #2a2a2a", borderRadius: 10,
                   padding: "11px 22px", color: "#555", fontSize: 14, cursor: "pointer",
                   display: "flex", alignItems: "center", gap: 8, marginTop: 12,
@@ -507,6 +509,12 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
                   <Upload size={15} /> Start from a Document
                 </button>
               </div>
+              {uploadError && (
+                <div style={{ marginTop: 10, padding: "8px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444", display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+                  {uploadError}
+                  <button onClick={onClearUploadError} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 0 }}><X size={12} /></button>
+                </div>
+              )}
             </>
           )}
           {data.incidents.length > 0 && (
@@ -2672,6 +2680,231 @@ function HoldToDeleteButton({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+// ─── DOCUMENT INTAKE VIEW ─────────────────────────────────────────────────────
+// Full-screen guided intake wizard. Used when a user starts a new case from a document.
+// The document has already been stored (docId present). This view collects context
+// (5 questions) then spends 1 credit to run deep Claude analysis.
+function DocumentIntakeView({
+  docId, caseId, fileName, onComplete, onCancel,
+}: {
+  docId: string;
+  caseId: string;
+  fileName: string;
+  onComplete: (analysis: DocumentIntakeAnalysis) => void;
+  onCancel: () => void;
+}) {
+  const INTAKE_QUESTIONS = [
+    { label: "What type of document is this?", key: "docType" as const, options: ["Draft Complaint", "Motion", "Court Order", "Police Report", "Medical Record", "Correspondence", "Evidence", "Other"], cols: 2 },
+    { label: "Was this prepared by an attorney or by yourself?", key: "preparedBy" as const, options: ["Attorney", "Self Prepared", "Not Sure"], cols: 3 },
+    { label: "Does this document identify the people involved?", key: "hasParties" as const, options: ["Yes", "No", "Partially"], cols: 3 },
+    { label: "Does this document contain dates, times, and event details?", key: "hasDates" as const, options: ["Yes", "No", "Partially"], cols: 3 },
+  ];
+  const TOTAL_STEPS = 5;
+
+  const [phase, setPhase] = useState<"intake" | "gate" | "analyzing" | "error">("intake");
+  const [intakeStep, setIntakeStep] = useState(0);
+  const [intakeAnswers, setIntakeAnswers] = useState({ docType: "", preparedBy: "", hasParties: "", hasDates: "", additionalContext: "" });
+  const [error, setError] = useState<string | null>(null);
+
+  const currentQ = INTAKE_QUESTIONS[intakeStep];
+  const canAdvance = intakeStep < 4 ? !!intakeAnswers[currentQ?.key as keyof typeof intakeAnswers] : true;
+
+  async function runAnalysis() {
+    setPhase("analyzing");
+    try {
+      const result = await aiApi.analyzeDocumentWithIntake({ docId, caseId, intakeAnswers });
+      onComplete(result.analysis);
+    } catch (err: unknown) {
+      setError((err as Error).message || "Analysis failed. Please try again.");
+      setPhase("error");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0a0a0a" }}>
+      {/* ── Header ── */}
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid #151515", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: "#333", letterSpacing: 1, marginBottom: 4, textTransform: "uppercase" }}>Document Intake</div>
+          <div style={{ fontSize: 13, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</div>
+        </div>
+        <button onClick={onCancel} style={{ background: "none", border: "none", cursor: "pointer", color: "#333", padding: 6, flexShrink: 0 }}>
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* ── Scrollable body ── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 100px" }}>
+
+        {/* "Document stored" receipt */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#0a150a", border: "1px solid #1a321a", borderRadius: 10, marginBottom: 28 }}>
+          <CheckCircle2 size={14} color="#22c55e" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: 13, color: "#4ade80" }}>Document received · No AI analysis yet</div>
+        </div>
+
+        {/* ── INTAKE: 5-step questions ── */}
+        {phase === "intake" && (
+          <>
+            {/* Step progress dots */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 32 }}>
+              {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+                <div key={i} style={{
+                  width: i === intakeStep ? 24 : 8, height: 8, borderRadius: 4,
+                  background: i < intakeStep ? "#22c55e" : i === intakeStep ? ORANGE : "#1c1c1c",
+                  transition: "all 0.25s ease",
+                }} />
+              ))}
+            </div>
+
+            {/* Q0-Q3 — pill options */}
+            {intakeStep < 4 && currentQ && (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#f0f0f0", lineHeight: 1.4, marginBottom: 22 }}>
+                  {currentQ.label}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${currentQ.cols}, 1fr)`, gap: 10 }}>
+                  {currentQ.options.map(opt => {
+                    const selected = intakeAnswers[currentQ.key] === opt;
+                    return (
+                      <button key={opt} onClick={() => setIntakeAnswers(a => ({ ...a, [currentQ.key]: opt }))}
+                        style={{
+                          padding: "13px 8px", borderRadius: 12, cursor: "pointer",
+                          border: `1.5px solid ${selected ? ORANGE : "#1e1e1e"}`,
+                          background: selected ? `${ORANGE}20` : "#111",
+                          color: selected ? ORANGE : "#555",
+                          fontSize: 13, fontWeight: 700, textAlign: "center", lineHeight: 1.3,
+                          transition: "all 0.15s",
+                        }}>
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {/* Q4 — free text */}
+            {intakeStep === 4 && (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#f0f0f0", lineHeight: 1.4, marginBottom: 8 }}>
+                  Is there anything else HyperLaw should know before analyzing?
+                </div>
+                <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6, marginBottom: 16 }}>
+                  Additional facts, missing context, witness names, evidence details — anything important the document doesn't capture.
+                </div>
+                <textarea
+                  value={intakeAnswers.additionalContext}
+                  onChange={e => setIntakeAnswers(a => ({ ...a, additionalContext: e.target.value }))}
+                  placeholder="e.g. The officer's name is misspelled throughout. There were two witnesses: Maria Santos and James Lee. The incident occurred at 2:45 AM, not 3 PM as stated in the report…"
+                  rows={7}
+                  style={{
+                    width: "100%", background: "#111", border: "1px solid #222",
+                    borderRadius: 12, padding: "14px 16px", color: "#ccc", fontSize: 14,
+                    resize: "none", outline: "none", fontFamily: "inherit",
+                    lineHeight: 1.6, boxSizing: "border-box",
+                  }}
+                  onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+                  onBlur={e => (e.target.style.borderColor = "#222")}
+                />
+                <div style={{ fontSize: 12, color: "#2a2a2a", marginTop: 8 }}>Optional — leave blank if nothing to add</div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── GATE: Premium analysis screen ── */}
+        {phase === "gate" && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 28 }}>
+              <div style={{ width: 50, height: 50, borderRadius: "50%", background: `${ORANGE}16`, border: `1.5px solid ${ORANGE}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Brain size={24} color={ORANGE} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 18, color: "#fff" }}>Ready for Analysis</div>
+                <div style={{ fontSize: 13, color: "#444", marginTop: 3 }}>HyperLaw AI · Deep Case Intake</div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#2a2a2a", letterSpacing: 1, marginBottom: 14, textTransform: "uppercase" }}>HyperLaw will:</div>
+              {["Read the entire uploaded document", "Combine all 5 of your intake answers as context", "Extract every named party and their role", "Build a complete event timeline", "Identify legal claims, violations, and statutes", "Detect gaps and missing information", "Organize your case memory automatically"].map(item => (
+                <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: ORANGE, flexShrink: 0, marginTop: 7 }} />
+                  <div style={{ fontSize: 14, color: "#c0c0c0", lineHeight: 1.5 }}>{item}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "16px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 14, color: "#444" }}>Credit cost</div>
+              <div style={{ fontWeight: 900, fontSize: 20, color: ORANGE }}>1 credit</div>
+            </div>
+
+            <button onClick={() => setPhase("intake")}
+              style={{ background: "none", border: "none", color: "#444", fontSize: 13, cursor: "pointer", marginBottom: 20, padding: 0, display: "block" }}>
+              ← Review intake answers
+            </button>
+
+            <HoldToAnalyzeButton onComplete={runAnalysis} />
+          </>
+        )}
+
+        {/* ── ANALYZING: Claude working ── */}
+        {phase === "analyzing" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", paddingTop: 60, textAlign: "center" }}>
+            <div style={{ width: 80, height: 80, borderRadius: "50%", background: `${ORANGE}12`, border: `2px solid ${ORANGE}30`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+              <Brain size={36} color={ORANGE} style={{ filter: `drop-shadow(0 0 14px ${ORANGE})` }} />
+            </div>
+            <Loader2 size={26} color={ORANGE} style={{ animation: "spin 1s linear infinite", marginBottom: 18 }} />
+            <div style={{ fontWeight: 900, fontSize: 19, color: "#e0e0e0", marginBottom: 12 }}>HyperLaw is building your case…</div>
+            <div style={{ fontSize: 14, color: "#333", lineHeight: 1.9 }}>
+              Reading document<br />
+              Applying your intake context<br />
+              Extracting parties and timeline<br />
+              Building case memory
+            </div>
+          </div>
+        )}
+
+        {/* ── ERROR ── */}
+        {phase === "error" && (
+          <div style={{ padding: "20px", background: "#140a0a", border: "1px solid #331a1a", borderRadius: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#ef4444", marginBottom: 10 }}>Analysis failed</div>
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 20, lineHeight: 1.5 }}>{error}</div>
+            <button onClick={() => setPhase("gate")}
+              style={{ background: `${ORANGE}1a`, border: `1.5px solid ${ORANGE}55`, borderRadius: 10, padding: "11px 22px", color: ORANGE, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Sticky bottom navigation (intake phase only) ── */}
+      {phase === "intake" && (
+        <div style={{ flexShrink: 0, padding: "14px 20px", background: "#0a0a0a", borderTop: "1px solid #151515", display: "flex", gap: 10 }}>
+          <button
+            onClick={() => intakeStep === 0 ? onCancel() : setIntakeStep(s => s - 1)}
+            style={{ flex: 1, padding: "14px", borderRadius: 12, border: "1px solid #1e1e1e", background: "none", color: "#555", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            {intakeStep === 0 ? "Cancel" : "← Back"}
+          </button>
+          <button
+            disabled={!canAdvance}
+            onClick={() => intakeStep < 4 ? setIntakeStep(s => s + 1) : setPhase("gate")}
+            style={{
+              flex: 2, padding: "14px", borderRadius: 12, cursor: canAdvance ? "pointer" : "not-allowed",
+              border: `1.5px solid ${canAdvance ? ORANGE : "#1e1e1e"}`,
+              background: canAdvance ? `${ORANGE}1e` : "transparent",
+              color: canAdvance ? ORANGE : "#2a2a2a",
+              fontSize: 14, fontWeight: 900, transition: "all 0.15s",
+            }}>
+            {intakeStep < 4 ? "Next →" : "Continue to Analysis →"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
 function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator }: {
   data: AppData;
@@ -3436,7 +3669,8 @@ type AppView =
   | { type: "case_learning"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase }
   | { type: "studio_workspace"; caseId: string }
-  | { type: "about_creator" };
+  | { type: "about_creator" }
+  | { type: "document_intake"; docId: string; caseId: string; fileName: string };
 
 export default function App() {
   const w = useWindowWidth();
@@ -3454,6 +3688,7 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [newCaseUploading, setNewCaseUploading] = useState(false);
   const [newCaseUploadPct, setNewCaseUploadPct] = useState(0);
+  const [newCaseUploadError, setNewCaseUploadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
   const [showCreditShop, setShowCreditShop] = useState(false);
@@ -3676,26 +3911,22 @@ export default function App() {
     setNewCaseUploading(true);
     setNewCaseUploadPct(0);
     try {
+      // Step 1: Store the file only — no AI extraction, no credit cost
       const form = new FormData();
       form.append("file", file);
       const result = await aiApi.uploadWithProgress(form, pct => setNewCaseUploadPct(pct));
-      const ex = result.extraction;
-      let title = "New Case";
-      if (ex?.plaintiff && ex?.defendant) {
-        title = `${ex.plaintiff} v. ${ex.defendant}`;
-      } else if (ex?.plaintiff) {
-        title = `${ex.plaintiff} — Case`;
-      } else {
-        title = file.name.replace(/\.[^.]+$/, "") + " — Case";
-      }
+
+      if (!result.docId) throw new Error("Document could not be stored. Please try again.");
+
+      // Step 2: Create a minimal case shell (title updated after AI analysis)
+      const caseTitle = (file.name.replace(/\.[^.]+$/, "") + " — Case").slice(0, 100);
       const newCase: HLCase = {
         id: crypto.randomUUID(),
-        title: title.slice(0, 100),
+        title: caseTitle,
         incidentIds: [],
-        notes: ex?.summary ?? "",
+        notes: "",
         status: "open",
         createdAt: Date.now(),
-        // Upload cases skip the new workflow — they jump straight to case_detail
         parties: [],
         court: null,
         story: "",
@@ -3704,10 +3935,12 @@ export default function App() {
         intakeChecklist: [],
       };
       setData(addCase(data, newCase));
+
+      // Step 3: Route to the intake wizard — NOT directly to case_detail
       setNavTab("builder");
-      setView({ type: "case_detail", hlCase: newCase });
-    } catch {
-      // Silent failure — user stays on HomeView; non-critical path
+      setView({ type: "document_intake", docId: result.docId, caseId: newCase.id, fileName: file.name });
+    } catch (err: unknown) {
+      setNewCaseUploadError((err as Error).message || "Upload failed. Please try again.");
     } finally {
       setNewCaseUploading(false);
       setNewCaseUploadPct(0);
@@ -3851,6 +4084,30 @@ export default function App() {
       );
     }
 
+    if (view.type === "document_intake") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { setView({ type: "home" }); return null; }
+      return (
+        <DocumentIntakeView
+          docId={view.docId}
+          caseId={view.caseId}
+          fileName={view.fileName}
+          onComplete={(analysis) => {
+            // Merge summary into case notes; user reviews parties/timeline from analysis panel
+            const updatedNotes = [hlCase.notes, analysis.summary].filter(Boolean).join("\n\n");
+            const updated: HLCase = { ...hlCase, notes: updatedNotes };
+            setData(updateCase(data, updated));
+            fetchCreditBalance();
+            setView({ type: "case_detail", hlCase: updated });
+          }}
+          onCancel={() => {
+            // Remove the placeholder case and go home
+            handleDeleteCaseWithSync(view.caseId);
+          }}
+        />
+      );
+    }
+
     if (view.type === "incident_detail") {
       const incident = data.incidents.find(i => i.id === view.incident.id) ?? view.incident;
       return (
@@ -3949,6 +4206,8 @@ export default function App() {
         onCreateCase={handleCreateNewCase}
         onContinueCase={handleContinueCase}
         onUploadForNewCase={handleUploadForNewCase}
+        uploadError={newCaseUploadError}
+        onClearUploadError={() => setNewCaseUploadError(null)}
       />
     );
   }

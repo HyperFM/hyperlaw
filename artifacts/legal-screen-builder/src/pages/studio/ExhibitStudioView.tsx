@@ -15,22 +15,16 @@ export default function ExhibitStudioView({ cases, onOpenStudio }: Props) {
   const sorted = [...cases].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "32px 20px 120px", display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-        <div style={{ width: 40, height: 40, background: ORANGE, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <svg width={18} height={18} viewBox="0 0 18 18" fill="none">
-            <polygon points="5,3 15,9 5,15" fill="#fff" />
-          </svg>
-        </div>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 900, margin: 0, letterSpacing: -0.5 }}>Exhibit Studio</h1>
-        </div>
-      </div>
-      <p style={{ fontSize: 14, color: "#666", margin: "0 0 20px", lineHeight: 1.55, maxWidth: 340 }}>
-        Build courtroom-ready illustrative exhibit slides from video evidence.
-      </p>
+      {/* ── Banner image — edge to edge, flush to top ─────────────── */}
+      <img
+        src="/exhibit-studio-banner.png"
+        alt="Exhibit Studio"
+        style={{ width: "100%", display: "block", objectFit: "cover", objectPosition: "center top", maxHeight: 200, flexShrink: 0 }}
+      />
+
+      <div style={{ padding: "20px 20px 120px", display: "flex", flexDirection: "column" }}>
 
       {/* ── More Info ────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
@@ -107,6 +101,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio }: Props) {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

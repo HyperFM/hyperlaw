@@ -29,17 +29,6 @@ export interface AiChatMessage {
   content: string;
 }
 
-export interface DocumentIntakeAnalysis {
-  title: string;
-  summary: string;
-  parties: Array<{ name: string; role: string; details?: string }>;
-  timeline: Array<{ date: string; description: string; significance?: string }>;
-  evidence: Array<{ description: string; type: string; strength?: string }>;
-  legalIssues: string[];
-  openQuestions: string[];
-  notes?: string;
-}
-
 /** Case Memory — the structured source-of-truth built from a document + intake answers */
 export interface CaseMemory {
   caseSummary: string;
@@ -462,10 +451,16 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
         dateOfEvent?: string;
         location?: string;
       }>;
+      // Authoritative structured facts extracted once during document analysis;
+      // when present the draft is grounded in these instead of re-derived facts.
+      caseMemory?: CaseMemory;
     },
     opts?: { libraryContext?: string },
   ): Promise<AiResult<string>> {
     const libBlock = opts?.libraryContext ? `${opts.libraryContext}\n\n---\n\n` : '';
+    const memoryBlock = caseData.caseMemory
+      ? `\n\n=== EXTRACTED CASE MEMORY (authoritative — already analyzed from this case's documents; draft ONLY from these facts, do not invent beyond them) ===\n${JSON.stringify(caseData.caseMemory).slice(0, 6000)}`
+      : '';
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const incidentBlock = (caseData.incidents ?? [])
       .map((inc, i) =>
@@ -482,7 +477,7 @@ Defendant: ${caseData.defendant ?? '[DEFENDANT NAME]'}
 Court: ${caseData.court ?? '[COURT NAME]'}
 Case Number: ${caseData.caseNumber ?? '[CASE NUMBER]'}
 Jurisdiction: ${caseData.jurisdiction ?? 'Federal / State'}
-Date: ${today}`;
+Date: ${today}${memoryBlock}`;
 
     let prompt = '';
 
@@ -570,6 +565,7 @@ Important rules:
       messages: [{ role: 'user', content: prompt }],
     }));
 
+    this.assertComplete(response);
     const text = this.firstText(response);
     return {
       data: text,
@@ -606,6 +602,7 @@ Rules:
       messages: [{ role: "user", content: prompt }],
     }));
 
+    this.assertComplete(response);
     const text = this.firstText(response, "[]");
     const events = this.parseJsonArray<{ title: string; description: string }>(text) ?? [];
 
@@ -679,7 +676,7 @@ Include 2-5 potential claims. Each claim must have at least 1 supporting fact fr
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: "You are a precise civil rights legal document assistant. Return only valid JSON. Never invent facts.",
       messages: [{ role: "user", content: prompt }],
     }));
@@ -898,6 +895,7 @@ Be concise. Do not give legal advice. Return only the JSON object.`;
     assembly?: { organizedFacts: string; potentialClaims: Array<{ claim: string; supportingFacts: string[] }> } | null;
     evidence?: Array<{ type: string; label: string; notes: string }>;
     extractedDocs?: Array<{ fileName: string; summary: string; claims: string[]; deadlines: string[] }>;
+    caseMemory?: CaseMemory;
   }): Promise<AiResult<{
     executiveSummary: string;
     clouds: IndexCloud[];
@@ -930,6 +928,10 @@ Be concise. Do not give legal advice. Return only the JSON object.`;
       ? input.extractedDocs.map(d => `FILE: ${d.fileName}\nSummary: ${d.summary}\nClaims: ${d.claims.join("; ")}\nDeadlines: ${d.deadlines.join("; ")}`).join("\n\n")
       : "No uploaded documents.";
 
+    const memoryBlock = input.caseMemory
+      ? JSON.stringify(input.caseMemory).slice(0, 6000)
+      : "No analyzed Case Memory yet.";
+
     const prompt = `You are HyperLaw's Organization Engine. Analyze the case information below and produce a complete structured Index.
 
 === CASE TITLE ===
@@ -955,6 +957,9 @@ ${evidenceBlock}
 
 === UPLOADED DOCUMENTS ===
 ${docsBlock}
+
+=== EXTRACTED CASE MEMORY (authoritative — already analyzed from this case's documents; treat as ground truth and build the Index from this; do not re-derive or invent) ===
+${memoryBlock}
 
 === INSTRUCTIONS ===
 
@@ -992,7 +997,7 @@ CRITICAL: Base everything ONLY on the provided case information. Do not fabricat
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: "You are HyperLaw's Organization Engine. You produce structured legal case Indexes. Return only valid JSON. Never fabricate facts or citations.",
       messages: [{ role: "user", content: prompt }],
     }));
@@ -1064,6 +1069,15 @@ Return only the JSON object.`;
     };
   }
 
+  // Throw if the model stopped because it hit the token ceiling. A truncated
+  // response yields invalid JSON or a half-written document; failing loudly is
+  // far better than silently persisting or parsing partial output.
+  private assertComplete(response: Anthropic.Message): void {
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("AI response was cut off (stop_reason=max_tokens). Increase max_tokens for this call.");
+    }
+  }
+
   // Extract the first text block from a response. Some models intermittently
   // emit a leading `thinking` (or other non-text) block, so `content[0]` is not
   // guaranteed to be the text — scan for it instead of assuming index 0.
@@ -1075,74 +1089,12 @@ Return only the JSON object.`;
   }
 
   private parseJsonResponse<T>(response: Anthropic.Message): T {
+    this.assertComplete(response);
     const text = this.firstText(response);
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("AI returned invalid JSON format");
     return JSON.parse(jsonMatch[0]) as T;
-  }
-
-  // ── Deep document intake analysis ─────────────────────────────────────────
-  async analyzeDocumentWithIntake(
-    documentText: string,
-    intakeAnswers: {
-      docType: string;
-      preparedBy: string;
-      hasParties: string;
-      hasDates: string;
-      additionalContext: string;
-    },
-  ): Promise<AiResult<DocumentIntakeAnalysis>> {
-    const prompt = `You are HyperLaw AI — a legal case management assistant helping a pro se litigant understand their uploaded document.
-
-INTAKE ANSWERS PROVIDED BY USER:
-- Document type: ${intakeAnswers.docType}
-- Prepared by: ${intakeAnswers.preparedBy}
-- Parties identified in document: ${intakeAnswers.hasParties}
-- Dates/times/events present: ${intakeAnswers.hasDates}
-- Additional context from user: ${intakeAnswers.additionalContext || "None provided"}
-
-FULL DOCUMENT TEXT:
-${documentText.slice(0, 15000)}
-
-Analyze this document thoroughly using both its content and the intake answers above. Return ONLY valid JSON:
-
-{
-  "title": "Short descriptive case title based on document content (e.g. 'Smith v. City of Denver — Police Misconduct')",
-  "summary": "3-4 sentence plain-language executive summary: what this document is, what it establishes, and why it matters to the case",
-  "parties": [
-    { "name": "Full name exactly as written", "role": "plaintiff|defendant|witness|judge|attorney|officer|other", "details": "position or relevant detail" }
-  ],
-  "timeline": [
-    { "date": "Date or time reference as written in document", "description": "What happened — specific factual description", "significance": "Why this moment matters legally" }
-  ],
-  "evidence": [
-    { "description": "What the evidence item is", "type": "document|photo|testimony|record|report|other", "strength": "strong|moderate|weak" }
-  ],
-  "legalIssues": ["Specific legal claim, violation, or cause of action identified"],
-  "openQuestions": ["Important unanswered question about facts, law, or evidence raised by this document"],
-  "notes": "Any additional observations — inconsistencies, red flags, or strategic considerations"
-}
-
-Rules:
-- Extract only what is actually in the document or clearly implied. Do not fabricate.
-- parties: include every named individual and organization
-- timeline: include every date, deadline, or time reference
-- legalIssues: name specific statutes, amendments, or legal theories where identifiable
-- Return only the JSON object, no explanation`;
-
-    const start = Date.now();
-    const response = await withRetry(() => this.client.messages.create({
-      model: MODEL,
-      max_tokens: 2500,
-      system: "You are HyperLaw AI, a precise legal document analyst. Extract structured information accurately. Never fabricate facts not present in the document.",
-      messages: [{ role: "user", content: prompt }],
-    }));
-
-    return {
-      data: this.parseJsonResponse<DocumentIntakeAnalysis>(response),
-      meta: this.buildMeta(response.usage, Date.now() - start),
-    };
   }
 
   /**

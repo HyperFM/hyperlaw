@@ -643,6 +643,21 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
     const libEntries = await searchLibrary({ query: queryText, limit: 3 });
     const libContext = formatLibraryContext(libEntries) || undefined;
 
+    // Ground the draft in the case's already-extracted Case Memory (server-authoritative).
+    // The generator reads stored analysis instead of re-deriving facts from raw documents.
+    if (caseId) {
+      try {
+        const [caseRow] = await db
+          .select({ caseData: casesTable.caseData })
+          .from(casesTable)
+          .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+        const storedMemory = (caseRow?.caseData as Record<string, unknown> | undefined)?.caseMemory;
+        if (storedMemory) caseData.caseMemory = storedMemory as typeof caseData.caseMemory;
+      } catch (memErr) {
+        console.warn(`[generate-document] WARN: could not load caseMemory — proceeding without`, (memErr as Error).message);
+      }
+    }
+
     const aiResult = await aiService.generateLegalDocument(documentType, caseData, { libraryContext: libContext });
 
     void logAiCall({
@@ -871,8 +886,21 @@ router.post("/ai/organize", requireAuth, async (req: Request, res: Response): Pr
     } catch { /* non-critical */ }
   }
 
+  // Load the case's stored Case Memory so the Index is built from the single
+  // authoritative analysis rather than re-deriving everything from scratch.
+  let caseMemory: unknown = null;
+  if (caseId) {
+    try {
+      const [caseRow] = await db
+        .select({ caseData: casesTable.caseData })
+        .from(casesTable)
+        .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+      caseMemory = (caseRow?.caseData as Record<string, unknown> | undefined)?.caseMemory ?? null;
+    } catch { /* non-critical */ }
+  }
+
   try {
-    const result = await aiService.organizeCase({ ...hlCase, extractedDocs: docs });
+    const result = await aiService.organizeCase({ ...hlCase, extractedDocs: docs, caseMemory: (caseMemory ?? undefined) as Parameters<typeof aiService.organizeCase>[0]["caseMemory"] });
     await logAiCall({ userId, feature: "organize_case", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
     res.json(result.data);
   } catch (err) {

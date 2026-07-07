@@ -6,7 +6,7 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
-  Camera,
+  Camera, LifeBuoy,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -20,6 +20,7 @@ import {
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory } from "./lib/aiApi";
 import { api } from "./lib/api";
+import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
@@ -450,7 +451,6 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
     .filter(c => c.status !== "closed")
     .sort((a, b) => b.createdAt - a.createdAt);
   const primaryCase = activeCases[0] ?? null;
-  const otherActiveCases = activeCases.slice(1);
   const closedCases = data.cases.filter(c => c.status === "closed");
 
   const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
@@ -533,8 +533,13 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
         </div>
       ) : (
         <>
-          {/* ── Primary case ─────────────────────────────────────────────────── */}
-          {primaryCase && (
+          {/* ── Your cases — circular slider (swipe / loop through active cases) ── */}
+          {activeCases.length >= 2 ? (
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Your Cases</div>
+              <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} />
+            </div>
+          ) : primaryCase && (
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Continue Your Case</div>
               <PrimaryCaseCard
@@ -568,28 +573,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
             </div>
           )}
 
-          {/* ── Other open cases ─────────────────────────────────────────────── */}
-          {otherActiveCases.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" }}>Other Cases</div>
-              {otherActiveCases.map(c => (
-                <button key={c.id} onClick={() => onOpenCase(c)}
-                  style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-                  <Folder size={18} color="#444" style={{ flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
-                    <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{formatDate(c.createdAt)}</div>
-                  </div>
-                  <div style={{ background: `${STATUS_COLORS[c.status]}22`, border: `1px solid ${STATUS_COLORS[c.status]}55`, borderRadius: 5, padding: "2px 7px", fontSize: 10, fontWeight: 700, color: STATUS_COLORS[c.status], flexShrink: 0 }}>
-                    {STATUS_LABELS[c.status]}
-                  </div>
-                  <ChevronRight size={14} color="#333" style={{ flexShrink: 0 }} />
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Active cases now live in the circular slider above. */}
 
           {/* ── Closed cases ─────────────────────────────────────────────────── */}
           {closedCases.length > 0 && (
@@ -637,6 +621,67 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
             <Plus size={15} /> New Case
           </button>
         </>
+      )}
+    </div>
+  );
+}
+
+// ── Circular case slider (home screen) — swipe / loop through active cases ────
+function CaseSlider({ cases, onOpenCase, onContinueCase }: {
+  cases: HLCase[];
+  onOpenCase: (c: HLCase) => void;
+  onContinueCase: (c: HLCase, stage: WorkflowStage) => void;
+}) {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: cases.length > 1, align: "center" });
+  const [selected, setSelected] = useState(0);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    const onSel = () => setSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSel);
+    onSel();
+    return () => { emblaApi.off("select", onSel); };
+  }, [emblaApi]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={emblaRef} style={{ overflow: "hidden" }}>
+        <div style={{ display: "flex" }}>
+          {cases.map(c => (
+            <div key={c.id} style={{ flex: "0 0 100%", minWidth: 0, boxSizing: "border-box" }}>
+              <PrimaryCaseCard
+                hlCase={c}
+                onOpen={() => onOpenCase(c)}
+                onContinue={(stage) => onContinueCase(c, stage)}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Nav arrows */}
+      {cases.length > 1 && (
+        <>
+          <button onClick={() => emblaApi?.scrollPrev()} aria-label="Previous case"
+            style={{ position: "absolute", left: -8, top: 46, background: "#141414ee", border: "1px solid #2a2a2a", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <ChevronLeft size={16} color="#aaa" />
+          </button>
+          <button onClick={() => emblaApi?.scrollNext()} aria-label="Next case"
+            style={{ position: "absolute", right: -8, top: 46, background: "#141414ee", border: "1px solid #2a2a2a", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <ChevronRight size={16} color="#aaa" />
+          </button>
+        </>
+      )}
+
+      {/* Dots */}
+      {cases.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 14 }}>
+          {cases.map((c, i) => (
+            <button key={c.id} onClick={() => emblaApi?.scrollTo(i)} aria-label={`Go to case ${i + 1}`}
+              style={{ width: i === selected ? 20 : 6, height: 6, borderRadius: 3, border: "none", padding: 0, cursor: "pointer",
+                background: i === selected ? ORANGE : "#333", transition: "width 0.2s, background 0.2s" }} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1772,6 +1817,97 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 }
 
 // ─── TUTOR VIEW ───────────────────────────────────────────────────────────────
+// ── HoldCloud — press-and-hold to "unlock" an Index concept; glows orange as it fills ──
+function HoldCloud({ cloud, color, idx, onUnlock }: {
+  cloud: IndexCloud;
+  color: string;
+  idx: number;
+  onUnlock: () => void;
+}) {
+  const HOLD_MS = 800;
+  const [progress, setProgress] = useState(0);
+  const [holding, setHolding] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const startRef = useRef(0);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
+  const doneRef = useRef(false);
+
+  const stop = () => {
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+  };
+  const reset = () => {
+    stop();
+    originRef.current = null;
+    setHolding(false);
+    if (!doneRef.current) setProgress(0);
+  };
+  const tick = (now: number) => {
+    const p = Math.min(1, (now - startRef.current) / HOLD_MS);
+    setProgress(p);
+    if (p >= 1) {
+      doneRef.current = true;
+      stop();
+      onUnlock();
+      window.setTimeout(() => { doneRef.current = false; setProgress(0); setHolding(false); }, 180);
+      return;
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  };
+  const begin = (e: React.PointerEvent) => {
+    doneRef.current = false;
+    originRef.current = { x: e.clientX, y: e.clientY };
+    startRef.current = performance.now();
+    setHolding(true);
+    stop();
+    rafRef.current = requestAnimationFrame(tick);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const o = originRef.current;
+    if (!o) return;
+    // If the pointer travels (a scroll gesture), abandon the hold.
+    if (Math.abs(e.clientX - o.x) > 10 || Math.abs(e.clientY - o.y) > 10) reset();
+  };
+  useEffect(() => () => stop(), []);
+
+  const p = progress;
+  return (
+    <button
+      onPointerDown={begin}
+      onPointerUp={reset}
+      onPointerLeave={reset}
+      onPointerCancel={reset}
+      onPointerMove={onMove}
+      onContextMenu={e => e.preventDefault()}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        background: color + "18",
+        border: `1.5px solid ${holding ? ORANGE : color + "55"}`,
+        borderRadius: 28,
+        padding: "10px 20px",
+        color: holding ? ORANGE : color,
+        fontSize: 14, fontWeight: 700,
+        cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 8,
+        WebkitTapHighlightColor: "transparent",
+        userSelect: "none",
+        animation: holding ? "none" : `cloudFloat ${2.8 + (idx % 5) * 0.35}s ease-in-out ${(idx % 7) * 0.28}s infinite`,
+        boxShadow: holding ? `0 0 ${10 + p * 26}px ${p * 7}px rgba(217,113,31,${0.18 + p * 0.5})` : "0 0 0 0 rgba(217,113,31,0)",
+        transform: holding ? `scale(${1 + p * 0.05})` : "scale(1)",
+        transition: "border-color 0.12s, color 0.12s, transform 0.08s",
+      }}
+    >
+      <div style={{ width: 7, height: 7, borderRadius: "50%", background: holding ? ORANGE : color, flexShrink: 0 }} />
+      {cloud.label}
+      {holding && p < 1 && (
+        <div style={{ position: "absolute", left: 10, right: 10, bottom: 5, height: 2, background: "rgba(217,113,31,0.22)", borderRadius: 2 }}>
+          <div style={{ width: `${p * 100}%`, height: "100%", background: ORANGE, borderRadius: 2 }} />
+        </div>
+      )}
+    </button>
+  );
+}
+
 function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   data: AppData;
   initialIncident?: Incident | null;
@@ -1947,6 +2083,23 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         )}
       </div>
 
+      {/* ── Static crisis-support line (988) — always visible in the Index ─── */}
+      <a
+        href="tel:988"
+        style={{
+          flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 14px", borderBottom: "1px solid #111",
+          background: "#0c0b09", textDecoration: "none",
+        }}
+      >
+        <LifeBuoy size={13} color="#8a7448" style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 11.5, color: "#6d6a63", lineHeight: 1.4 }}>
+          In crisis? Call or text{" "}
+          <span style={{ color: "#d9a05b", fontWeight: 800 }}>988</span>
+          {" "}— Suicide &amp; Crisis Lifeline · 24/7, free &amp; confidential
+        </span>
+      </a>
+
       {/* ── Cloud canvas ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "28px 18px 140px" }}>
 
@@ -2022,32 +2175,22 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
                   </div>
                 )}
 
-                {/* Floating cloud bubbles */}
+                {/* Hold-to-unlock hint */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: "#5a5750", fontSize: 11.5 }}>
+                  <Lock size={11} color="#5a5750" />
+                  Press &amp; hold a concept to unlock it
+                </div>
+
+                {/* Floating cloud bubbles — hold to unlock (glows orange as it fills) */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                   {filteredClouds.map((cloud, idx) => (
-                    <button
+                    <HoldCloud
                       key={cloud.id}
-                      onClick={() => setSelectedCloud(cloud)}
-                      style={{
-                        background: CLOUD_COLORS[cloud.category] + "18",
-                        border: `1.5px solid ${CLOUD_COLORS[cloud.category]}55`,
-                        borderRadius: 28,
-                        padding: "10px 20px",
-                        color: CLOUD_COLORS[cloud.category],
-                        fontSize: 14, fontWeight: 700,
-                        cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 8,
-                        WebkitTapHighlightColor: "transparent",
-                        animation: `cloudFloat ${2.8 + (idx % 5) * 0.35}s ease-in-out ${(idx % 7) * 0.28}s infinite`,
-                        boxShadow: `0 0 0 0 ${CLOUD_COLORS[cloud.category]}00`,
-                        transition: "box-shadow 0.2s, transform 0.1s",
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 0 16px 4px ${CLOUD_COLORS[cloud.category]}33`)}
-                      onMouseLeave={e => (e.currentTarget.style.boxShadow = `0 0 0 0 ${CLOUD_COLORS[cloud.category]}00`)}
-                    >
-                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: CLOUD_COLORS[cloud.category], flexShrink: 0 }} />
-                      {cloud.label}
-                    </button>
+                      cloud={cloud}
+                      color={CLOUD_COLORS[cloud.category]}
+                      idx={idx}
+                      onUnlock={() => setSelectedCloud(cloud)}
+                    />
                   ))}
                 </div>
               </>

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Info, ChevronRight, CheckCircle2, AlertCircle, XCircle, Folder, Film } from "lucide-react";
+import { Info, ChevronRight, CheckCircle2, AlertCircle, XCircle, Folder, Film, PencilRuler } from "lucide-react";
 import type { HLCase } from "../../types";
 
 const ORANGE = "#d9711f";
@@ -7,9 +7,10 @@ const ORANGE = "#d9711f";
 interface Props {
   cases: HLCase[];
   onOpenStudio: (caseId: string) => void;
+  onOpenScreenBuilder: () => void;
 }
 
-export default function ExhibitStudioView({ cases, onOpenStudio }: Props) {
+export default function ExhibitStudioView({ cases, onOpenStudio, onOpenScreenBuilder }: Props) {
   const [showInfo, setShowInfo] = useState(false);
 
   const sorted = [...cases].sort((a, b) => b.createdAt - a.createdAt);
@@ -50,6 +51,21 @@ export default function ExhibitStudioView({ cases, onOpenStudio }: Props) {
           </div>
         )}
       </div>
+
+      {/* ── Manual Screen Builder entry ───────────────────────────────── */}
+      <button onClick={onOpenScreenBuilder}
+        style={{ background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%", marginBottom: 24 }}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = ORANGE + "44")}>
+        <div style={{ width: 44, height: 44, background: "#1a1200", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <PencilRuler size={20} color={ORANGE} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: "#fff", marginBottom: 3 }}>Manual Screen Builder</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Build an exhibit screen by hand — no video needed</div>
+        </div>
+        <ChevronRight size={16} color={ORANGE} style={{ flexShrink: 0 }} />
+      </button>
 
       {/* ── Case List ─────────────────────────────────────────────────── */}
       {sorted.length === 0 ? (

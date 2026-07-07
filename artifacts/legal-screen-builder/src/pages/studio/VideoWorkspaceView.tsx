@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
-  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info,
+  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification } from "../../types";
 import { aiApi } from "../../lib/aiApi";
+import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 
 const ORANGE = "#d9711f";
 
@@ -323,6 +324,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Info panel ─────────────────────────────────────────────────
   const [showInfo, setShowInfo] = useState(false);
 
+  // ── Video export ───────────────────────────────────────────────
+  const [showExport, setShowExport] = useState(false);
+
   // ── Helpers ────────────────────────────────────────────────────
   function getOrCreateProject(): StudioProject {
     return hlCase.studioProject ?? {
@@ -343,6 +347,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
     setMarkersRaw(updated);
     triggerAutosave(updated);
+  }
+
+  /** Update how long an exhibit screen holds in the exported video (persists via autosave, no undo entry). */
+  function updateMarkerHold(markerId: string, sec: number) {
+    setMarkers(markers.map(m => (m.id === markerId ? { ...m, holdSec: sec } : m)), false);
   }
 
   function triggerAutosave(updatedMarkers: ExhibitMarker[]) {
@@ -731,6 +740,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </button>
         </div>
 
+        {/* ── Export Exhibit Video ──────────────────────────────────── */}
+        {sortedMarkers.length > 0 && (
+          <button onClick={() => setShowExport(true)}
+            style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 20 }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = ORANGE + "44")}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#1a1200", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Clapperboard size={18} color={ORANGE} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Export Exhibit Video</div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>
+                {videoUrl
+                  ? `Source clip + ${sortedMarkers.length} exhibit hold${sortedMarkers.length !== 1 ? "s" : ""}`
+                  : "Relink your video to export"}
+              </div>
+            </div>
+            <Download size={16} color={ORANGE} style={{ flexShrink: 0 }} />
+          </button>
+        )}
+
         {/* ── Exhibits list ─────────────────────────────────────────── */}
         {sortedMarkers.length > 0 && (
           <>
@@ -849,6 +879,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Export Exhibit Video modal ─────────────────────────────── */}
+      {showExport && (
+        <ExhibitVideoExportModal
+          videoUrl={videoUrl}
+          durationSec={duration}
+          markers={markers}
+          caseTitle={hlCase.title}
+          onClose={() => setShowExport(false)}
+          onUpdateHold={updateMarkerHold}
+        />
       )}
     </div>
   );

@@ -23,6 +23,7 @@ import { api } from "./lib/api";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
+import ScreenBuilderView from "./pages/studio/ScreenBuilderView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
@@ -3872,7 +3873,9 @@ type AppView =
   | { type: "case_assembly"; caseId: string }
   | { type: "case_learning"; caseId: string }
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase }
+  | { type: "studio" }
   | { type: "studio_workspace"; caseId: string }
+  | { type: "screen_builder" }
   | { type: "about_creator" }
   | { type: "document_intake"; docId: string; caseId: string; fileName: string };
 
@@ -4397,9 +4400,12 @@ export default function App() {
     }
 
     if (navTab === "builder") {
+      if (view.type === "screen_builder") {
+        return <ScreenBuilderView onBack={() => setView({ type: "studio" })} />;
+      }
       if (view.type === "studio_workspace") {
         const studioCase = data.cases.find(c => c.id === view.caseId);
-        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} />;
+        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} />;
         return (
           <VideoWorkspaceView
             hlCase={studioCase}
@@ -4408,7 +4414,7 @@ export default function App() {
           />
         );
       }
-      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} />;
+      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} />;
     }
 
     return (

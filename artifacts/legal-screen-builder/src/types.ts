@@ -178,6 +178,8 @@ export interface ExhibitMarker {
   extraction?: ExhibitExtraction;
   draft?: ExhibitDraft;
   status: "draft" | "extracting" | "ready" | "error";
+  /** Seconds this exhibit screen holds on-screen in the exported video (default 10) */
+  holdSec?: number;
   createdAt: number;
 }
 
@@ -197,6 +199,58 @@ export interface StudioProject {
   jurisdictionVerification?: JurisdictionVerification;
   createdAt: number;
   updatedAt: number;
+}
+
+// ── Screen Builder engine (Manual Screen Builder) ──────────────────────────────
+// Types consumed by src/engine.ts (question trees + block generator) and
+// src/BlockCanvas.tsx (renderer). Kept here so both compile as live modules.
+
+export type ScreenType =
+  | "contradiction"
+  | "quote"
+  | "prior_incident"
+  | "admission"
+  | "policy_violation";
+
+export type BlockType =
+  | "eyebrow" | "headline" | "subheadline" | "divider"
+  | "quote_card" | "evidence_card" | "comparison"
+  | "fact_list" | "icon_bullets" | "legal_box"
+  | "callout" | "policy_row" | "spacer";
+
+export interface Block {
+  id: string;
+  type: BlockType;
+  data: Record<string, string>;
+  flex?: number;
+}
+
+/** Flat map of question key → collected answer */
+export type DataMap = Record<string, string>;
+
+export interface QChoice { label: string; value: string; }
+
+export interface QNode {
+  id: string;
+  key: string;
+  question: string;
+  subtext?: string;
+  type: "text" | "textarea" | "choice";
+  choices?: QChoice[];
+  /** Optional evidence-source hints — metadata only, not used by the renderer */
+  evidenceTypes?: string[];
+  /** Next node id, a resolver based on the answer, or null to end the flow */
+  next: string | null | ((answer: string) => string | null);
+}
+
+export interface Screen {
+  id: string;
+  title: string;
+  screenType: ScreenType;
+  screenNumber: string;
+  footerCitations: string[];
+  blocks: Block[];
+  createdAt: number;
 }
 
 // ── Structured Case (Organization Engine output) ──────────────────────────────

@@ -11,6 +11,7 @@
 - [HyperLaw Admin & Gates](hyperlaw-admin-gates.md) — Admin email = hypermodula@gmail.com (5 files); PAYG gate = 2-case hard limit → showUpgradeGate modal (not credits); CasesView has onDeleteCase prop + trash button on each card.
 - [HyperLaw Index Clouds](hyperlaw-index-clouds.md) — TutorAnalysis defined in 2 files (must stay in sync); cloud color system; HoldToUnlockButton cleanup + credit-loading rules.
 - [HyperLaw Exhibit Studio](hyperlaw-exhibit-studio.md) — Studio tab (formerly Builder); video workspace; object URL ref cleanup; functional setState for in-flight AI; empty-dictation guard; jurisdiction verify hold+cache.
+- [HyperLaw Screen Builder + video export](hyperlaw-screen-builder-export.md) — builder types must stay in types.ts + engine/BlockCanvas un-excluded; export is canvas+MediaRecorder (play before record, audio best-effort, stall watchdog, all presets 16:9).
 - [HyperLaw Creator Page](hyperlaw-creator-page.md) — Profile photo (localStorage base64 + profilePhotoChanged event); creator button; AboutCreatorView with hero/carousel/CTA; about_creator AppView type.
 - [HyperLaw Document Intake](hyperlaw-document-intake.md) — upload stores only (no AI); 5-step wizard; credit deducted at hold-to-analyze; Party/TimelineEvent types prevent direct AI merge (notes only).
 - [HyperLaw Case Memory](hyperlaw-case-memory.md) — buildCaseMemory() replaces analyzeDocumentWithIntake; CaseMemory schema; 11-step logging; success phase UI; goHome() nav fix.

@@ -364,9 +364,10 @@ Summary: ${cc.summary ?? "none"}`;
       messages,
     }));
 
-    const text = response.content[0].type === "text"
-      ? response.content[0].text
-      : "I couldn't generate a response. Please try again.";
+    const text = this.firstText(
+      response,
+      "I couldn't generate a response. Please try again.",
+    );
 
     return {
       data: text,
@@ -433,7 +434,7 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
       }],
     }));
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const text = this.firstText(response);
     return {
       data: text,
       meta: this.buildMeta(response.usage, Date.now() - start),
@@ -562,12 +563,14 @@ Important rules:
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 4000,
+      // 8000: full complaints/motions exceed 4000 output tokens and were silently
+      // truncated (stop_reason=max_tokens), persisting an incomplete legal document.
+      max_tokens: 8000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     }));
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const text = this.firstText(response);
     return {
       data: text,
       meta: this.buildMeta(response.usage, Date.now() - start),
@@ -603,7 +606,7 @@ Rules:
       messages: [{ role: "user", content: prompt }],
     }));
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "[]";
+    const text = this.firstText(response, "[]");
     const events = this.parseJsonArray<{ title: string; description: string }>(text) ?? [];
 
     return {
@@ -1061,8 +1064,18 @@ Return only the JSON object.`;
     };
   }
 
+  // Extract the first text block from a response. Some models intermittently
+  // emit a leading `thinking` (or other non-text) block, so `content[0]` is not
+  // guaranteed to be the text — scan for it instead of assuming index 0.
+  private firstText(response: Anthropic.Message, fallback = ""): string {
+    for (const block of response.content) {
+      if (block.type === "text") return block.text;
+    }
+    return fallback;
+  }
+
   private parseJsonResponse<T>(response: Anthropic.Message): T {
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const text = this.firstText(response);
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("AI returned invalid JSON format");
@@ -1196,7 +1209,9 @@ Extraction rules:
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
       model: MODEL,
-      max_tokens: 3000,
+      // 8000: buildCaseMemory emits the full 10-field JSON schema; 3000 truncated
+      // mid-array on large complaints (stop_reason=max_tokens) → JSON.parse failure.
+      max_tokens: 8000,
       system: "You are HyperLaw's case analysis engine. Your sole job is to extract and organize factual and legal information from documents into structured JSON. Never fabricate. Never draft a complaint. Return only valid JSON.",
       messages: [{ role: "user", content: prompt }],
     }));

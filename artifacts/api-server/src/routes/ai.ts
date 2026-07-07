@@ -338,6 +338,7 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
 
   const userId = auth.userId;
   let failStep = "pre-validation";
+  let creditDeducted = false; // only true when a real credit was charged (not admin/Apex)
 
   // Helper — log a failure to errorLogsTable so it's visible in the Admin Errors tab
   async function logFailure(step: string, err: unknown) {
@@ -452,6 +453,7 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: 0 });
         return;
       }
+      creditDeducted = true;
       console.log(`[analyze-document] STEP 5: 1 credit deducted`);
     }
 
@@ -483,8 +485,9 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         promptTemplate: "build_case_memory",
       });
     } catch (claudeErr) {
-      // Refund credit on Claude failure (non-admin only)
-      if (!isAdminUser) {
+      // Refund only if a credit was actually charged — admin & Apex users are never deducted,
+      // so refunding them would inflate their balance on every failure.
+      if (creditDeducted) {
         await db.execute(sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${userId}`);
         console.log(`[analyze-document] credit refunded after Claude failure`);
       }

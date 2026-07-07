@@ -14,3 +14,5 @@
 - [HyperLaw Creator Page](hyperlaw-creator-page.md) — Profile photo (localStorage base64 + profilePhotoChanged event); creator button; AboutCreatorView with hero/carousel/CTA; about_creator AppView type.
 - [HyperLaw Document Intake](hyperlaw-document-intake.md) — upload stores only (no AI); 5-step wizard; credit deducted at hold-to-analyze; Party/TimelineEvent types prevent direct AI merge (notes only).
 - [HyperLaw Case Memory](hyperlaw-case-memory.md) — buildCaseMemory() replaces analyzeDocumentWithIntake; CaseMemory schema; 11-step logging; success phase UI; goHome() nav fix.
+- [Claude AI robustness](claude-ai-robustness.md) — claude-sonnet-5 routinely leads with a thinking block (scan for first text block); size max_tokens to full JSON/doc output or it truncates silently; refunds must mirror deduction.
+- [Secrets need server restart](secrets-runtime.md) — requestSecrets is write-only (no values to sandbox); process.env picks up rotated secrets only after a workflow restart.

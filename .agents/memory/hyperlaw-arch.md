@@ -54,3 +54,9 @@ Previously: cases were localStorage-only (no server table).
 - `ORANGE = "#d9711f"` everywhere
 - Admin email = `hypermodula@gmail.com`
 - Cloud colors: Blue=amendment, Orange=statute, Green=evidence, Purple=party, Red=violation, Gray=deadline, Yellow=concept
+
+## Assembly screen (CaseDetailView) — drafting is inline, not a routed phase
+- `onGoToPhase` routes ONLY the 4 pre-assembly workflow phases: parties/court/story/timeline. No branch for assembly/documents.
+- Drafting (complaint/motion/…), the VerifyPanel, and the AssemblyProgress strip all live ON CaseDetailView. Drafting is NOT a separate routed screen.
+- **Why:** the AssemblyProgress "Draft" step must scroll within the screen (to `#draft-documents-section`), NOT call `onGoToPhase("documents")`. A code review WILL suggest wiring it to onGoToPhase — that recommendation is wrong here; keep it an in-screen scroll.
+- VerifyPanel displays the Organization Engine's organize-time `structuredCase.gapQuestions`. It does NOT call `/ai/gap-detect` (that endpoint is still unwired to any live trigger).

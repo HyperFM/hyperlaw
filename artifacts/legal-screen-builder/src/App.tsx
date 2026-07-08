@@ -57,6 +57,9 @@ const ADMIN_EMAIL = "hypermodula@gmail.com";
 // ─── Constants ────────────────────────────────────────────────────────────────
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ORANGE = "#d9711f";
+const MILK_BG = "#0e0b09";
+const MILK_LABEL = "#7a6a5c";
+const MILK_TEXT = "#c9b7a8";
 const BG = "#0a0a0a";
 
 const CATEGORY_LABELS: Record<IncidentCategory, string> = {
@@ -723,54 +726,41 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
   const donePct = Math.round((miniChecks.filter(c => c.done).length / miniChecks.length) * 100);
 
   return (
-    <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 16, padding: "20px" }}>
-      {/* Title + stage badge + view all */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
-        <Folder size={20} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+    <div style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "15px 16px" }}>
+      {/* Title + stage + view */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 17, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hlCase.title}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 11, color: "#555" }}>
-              {formatDate(hlCase.createdAt)}
-              {hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
-            </div>
-            <div style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 10, fontWeight: 800, color: ORANGE, flexShrink: 0 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{hlCase.title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10.5, color: "#7a6a5c" }}>
+              {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
+            </span>
+            <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: ORANGE }}>
               {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
-            </div>
+            </span>
           </div>
         </div>
-        <button onClick={onOpen} style={{ background: "none", border: "1px solid #2a2521", borderRadius: 8, padding: "5px 10px", color: "#555", fontSize: 12, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
-          View All
+        <button onClick={onOpen} style={{ background: "none", border: "none", color: "#8a7666", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0, padding: 4, whiteSpace: "nowrap" }}>
+          View
         </button>
       </div>
 
-      {/* Mini 5-item health checklist */}
-      <div style={{ background: "#0d0d0d", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 10, color: "#444", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Case Progress</span>
-          <span style={{ fontSize: 11, color: donePct === 100 ? "#4ade80" : ORANGE, fontWeight: 800 }}>{donePct}%</span>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
+      {/* Slim segmented progress */}
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+        <div style={{ flex: 1, display: "flex", gap: 4 }}>
           {miniChecks.map(c => (
-            <div key={c.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{ width: "100%", height: 3, borderRadius: 2, background: c.done ? "#4ade80" : "#1e1e1e", transition: "background 0.3s" }} />
-              <span style={{ fontSize: 9, color: c.done ? "#4ade80" : "#333", fontWeight: 700, textAlign: "center", letterSpacing: 0.2 }}>{c.label}</span>
-            </div>
+            <div key={c.label} title={c.label} style={{ flex: 1, height: 4, borderRadius: 2, background: c.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#241d17", boxShadow: c.done ? `0 0 5px ${ORANGE}55` : "none", transition: "all 0.3s" }} />
           ))}
         </div>
+        <span style={{ fontSize: 11, fontWeight: 800, color: donePct === 100 ? "#4ade80" : ORANGE, flexShrink: 0 }}>{donePct}%</span>
       </div>
 
       {/* Next step CTA */}
       <button
         onClick={() => onContinue(next.stage)}
-        style={{
-          width: "100%",
-          background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`,
-          border: "none", borderRadius: 12, padding: "14px",
-          color: "#000", fontSize: 15, fontWeight: 900, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        }}>
-        {next.label} <ChevronRight size={16} />
+        style={{ width: "100%", background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none", borderRadius: 10, padding: "11px", color: "#000", fontSize: 14, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+        {next.label} <ChevronRight size={15} />
       </button>
     </div>
   );
@@ -903,12 +893,12 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
         {sorted.map(c => {
           const stageLabel = STAGE_LABELS[c.workflowStage] ?? c.workflowStage;
           return (
-            <div key={c.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, display: "flex", overflow: "hidden" }}
+            <div key={c.id} style={{ background: "linear-gradient(180deg, #141110 0%, #0f0d0c 100%)", border: "1px solid #241d17", borderRadius: 14, display: "flex", overflow: "hidden" }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#241d17")}>
               {/* Main tap area — opens case */}
               <button onClick={() => onOpenCase(c)}
-                style={{ flex: 1, background: "none", border: "none", padding: "18px 16px", textAlign: "left", cursor: "pointer", display: "flex", gap: 14, minWidth: 0 }}>
+                style={{ flex: 1, background: "none", border: "none", padding: "14px 16px", textAlign: "left", cursor: "pointer", display: "flex", gap: 13, minWidth: 0 }}>
                 <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
@@ -1019,6 +1009,128 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
 const NEEDS_SOURCE: DocumentType[] = ["strengthen", "answer", "opposition", "defense_response"];
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
+// ─── ASSEMBLY PROGRESS — milky-orange case-journey strip (Sections 1–3) ────────
+function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
+  hlCase: HLCase;
+  hasDrafts: boolean;
+  onGoToPhase?: (stage: WorkflowStage) => void;
+}) {
+  const health = computeCaseHealth(hlCase);
+  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean }[] = [
+    { label: "Parties", done: health.parties, stage: "parties" },
+    { label: "Court", done: health.court, stage: "court" },
+    { label: "Story", done: health.story, stage: "story" },
+    { label: "Timeline", done: health.timeline, stage: "timeline" },
+    { label: "Draft", done: hasDrafts, scrollToDraft: true },
+  ];
+  const doneCount = steps.filter(s => s.done).length;
+  const pct = Math.round((doneCount / steps.length) * 100);
+  const next = steps.find(s => !s.done);
+
+  return (
+    <div style={{
+      background: "linear-gradient(180deg, #1b1613 0%, #120f0d 100%)",
+      border: `1px solid ${ORANGE}2e`, borderRadius: 16, padding: "15px 16px 14px", marginBottom: 22,
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: MILK_LABEL, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase" }}>Case Progress</span>
+        <span style={{ fontSize: 12, fontWeight: 900, color: pct === 100 ? "#4ade80" : ORANGE }}>{pct}%</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+        {steps.map(s => {
+          const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
+          return (
+            <button
+              key={s.label}
+              disabled={!clickable}
+              onClick={() => {
+                if (s.stage && onGoToPhase) onGoToPhase(s.stage);
+                else if (s.scrollToDraft) document.getElementById("draft-documents-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              style={{ flex: 1, background: "none", border: "none", padding: 0, cursor: clickable ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 5 }}
+            >
+              <div style={{ height: 5, borderRadius: 3, background: s.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#2a2019", boxShadow: s.done ? `0 0 6px ${ORANGE}66` : "none", transition: "all 0.3s" }} />
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: s.done ? "#e8c9a8" : "#5a4a3d" }}>{s.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {next && (
+        <div style={{ marginTop: 12, fontSize: 11.5, color: MILK_TEXT, display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4 }}>
+          <span style={{ color: ORANGE, fontWeight: 800, flexShrink: 0 }}>Next:</span>
+          <span>{next.label === "Draft" ? "Generate your first document below." : `Complete ${next.label.toLowerCase()} to strengthen your case.`}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── VERIFY PANEL — pre-draft readiness + gap check (Section 3) ────────────────
+function VerifyPanel({ hlCase, hasFacts }: {
+  hlCase: HLCase;
+  hasFacts: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const checks = [
+    { label: "Jurisdiction set", done: !!hlCase.jurisdiction?.trim(), hint: "Required before drafting — set it below." },
+    { label: "Facts captured", done: hasFacts, hint: "Add incidents or notes so drafts have substance." },
+    { label: "Case organized", done: !!hlCase.structuredCase, hint: "Run Discover to structure your facts." },
+  ];
+  const gaps = hlCase.structuredCase?.gapQuestions ?? [];
+  const readyCount = checks.filter(c => c.done).length;
+  const allReady = readyCount === checks.length && gaps.length === 0;
+
+  return (
+    <div style={{
+      background: allReady ? "linear-gradient(180deg, #10190f 0%, #0d130c 100%)" : "linear-gradient(180deg, #1b1613 0%, #120f0d 100%)",
+      border: `1px solid ${allReady ? "#2f5a2a" : ORANGE + "33"}`, borderRadius: 16, padding: "14px 16px", marginBottom: 22,
+    }}>
+      <button onClick={() => setOpen(v => !v)} style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+        {allReady
+          ? <CheckCircle2 size={18} color="#4ade80" style={{ flexShrink: 0 }} />
+          : <AlertCircle size={18} color={ORANGE} style={{ flexShrink: 0 }} />}
+        <div style={{ flex: 1, textAlign: "left" }}>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: allReady ? "#8ff0a0" : "#f0dcc9" }}>{allReady ? "Ready to draft" : "Verify before drafting"}</div>
+          <div style={{ fontSize: 11, color: MILK_LABEL, marginTop: 1 }}>
+            {allReady ? "All checks passed — your drafts will be well-grounded." : `${readyCount}/${checks.length} checks passed${gaps.length ? ` · ${gaps.length} open question${gaps.length !== 1 ? "s" : ""}` : ""}`}
+          </div>
+        </div>
+        {open ? <ChevronUp size={15} color="#7a6a5c" /> : <ChevronDown size={15} color="#7a6a5c" />}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+          {checks.map(c => (
+            <div key={c.label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+              {c.done
+                ? <Check size={15} color="#4ade80" style={{ flexShrink: 0, marginTop: 1 }} />
+                : <div style={{ width: 13, height: 13, borderRadius: "50%", border: `1.5px solid ${ORANGE}88`, flexShrink: 0, marginTop: 2 }} />}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: c.done ? "#cfc0b3" : "#f0dcc9" }}>{c.label}</div>
+                {!c.done && <div style={{ fontSize: 11, color: MILK_LABEL, marginTop: 1, lineHeight: 1.45 }}>{c.hint}</div>}
+              </div>
+            </div>
+          ))}
+          {gaps.length > 0 && (
+            <div style={{ marginTop: 4, borderTop: `1px solid ${ORANGE}22`, paddingTop: 11 }}>
+              <div style={{ fontSize: 10.5, color: MILK_LABEL, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 9 }}>Open questions to strengthen your case</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {gaps.map((q, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, color: MILK_TEXT, lineHeight: 1.5 }}>
+                    <span style={{ color: ORANGE, fontWeight: 800, flexShrink: 0 }}>{i + 1}.</span>
+                    <span>{q}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, isApex, onGoToPhase }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
@@ -1194,7 +1306,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px", background: MILK_BG, backgroundImage: `radial-gradient(130% 55% at 50% 0%, ${ORANGE}14 0%, rgba(0,0,0,0) 62%)` }}>
         {editingTitle ? (
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             <input value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
@@ -1220,6 +1332,9 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             {STATUS_LABELS[hlCase.status]} ▾
           </button>
         </div>
+
+        {/* Case progress journey (Sections 1–3) */}
+        <AssemblyProgress hlCase={hlCase} hasDrafts={genDocs.length > 0} onGoToPhase={onGoToPhase} />
 
         {/* Jurisdiction */}
         <div style={{ marginBottom: 20 }}>
@@ -1622,8 +1737,11 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
+        {/* Verify readiness before drafting (Section 3) */}
+        <VerifyPanel hlCase={hlCase} hasFacts={incidents.length > 0 || hlCase.notes.trim().length > 0} />
+
         {/* Draft Documents (Sections 5, 6, 9, 10, 11) */}
-        <div style={{ marginBottom: 28 }}>
+        <div id="draft-documents-section" style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>DRAFT DOCUMENTS</div>
             {creditBalance !== undefined && (

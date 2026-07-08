@@ -1,0 +1,277 @@
+HyperLaw Update — Guidance Session System, Usage-Based Credits & Drafting Pipeline
+
+Objective
+
+Implement a new Guidance Session workflow that replaces rigid interviews and allows HyperLaw to gather additional information through a conversational experience whenever additional context would improve analysis, drafting quality, or case accuracy.
+
+This is not a questionnaire.
+
+This is a guided conversation between the user and HyperLaw.
+
+⸻
+
+1. Create Guidance Session Experience
+
+Replace any language that refers to:
+
+* Interview
+* Intake Interview
+* Questionnaire
+* Additional Questions
+
+With:
+
+Guidance Session
+
+The purpose is to make the experience feel helpful, conversational, and low pressure.
+
+Intro Text
+
+Title:
+
+Guidance Session Recommended
+
+Body:
+
+I’ve reviewed the information available and have a few questions that may help improve the accuracy of your analysis and drafted documents.
+
+Answer in your own words. There are no right or wrong answers.
+
+Buttons:
+
+* Start Guidance Session
+* Not Right Now
+
+⸻
+
+2. Guidance Session Assistant Character
+
+Create a new HyperLaw assistant mascot.
+
+Requirements:
+
+* Orange brain design
+* Friendly appearance
+* Modern and polished
+* Not childish
+* Not medical
+* White and orange glow
+* Soft floating animation
+* Gentle breathing effect
+* White underglow beneath mascot
+
+Visual goal:
+
+The assistant should lighten the mood and reduce anxiety during legal document preparation.
+
+⸻
+
+3. Guidance Session Modal Experience
+
+When launched:
+
+* Screen gently darkens
+* Brain mascot appears
+* Chat panel slides upward from bottom
+* Fade-in animation
+* Maintain HyperLaw visual style
+
+Conversation should feel like a natural discussion rather than a form.
+
+Session closes automatically when complete.
+
+⸻
+
+4. AI Decision Layer
+
+Before drafting begins, HyperLaw should evaluate whether additional information is needed.
+
+Possible outcomes:
+
+Ready To Draft
+
+No session needed.
+
+Proceed directly to generation.
+
+Guidance Session Recommended
+
+Additional information would improve results.
+
+User may continue or skip.
+
+Guidance Session Required
+
+Critical information missing.
+
+Session must be completed before drafting.
+
+System should determine this dynamically.
+
+⸻
+
+5. Structured Case Data Integration
+
+All Guidance Session answers must:
+
+* Be saved to the case record
+* Be added to the case data object
+* Be available to future drafting actions
+* Improve future analysis
+
+The conversation should not be discarded after completion.
+
+The system should continuously enrich the user’s case profile.
+
+⸻
+
+6. Usage-Based Credit System
+
+Move away from document-type pricing.
+
+Users are not paying for a motion, complaint, or guidance session.
+
+Users are paying for AI work performed.
+
+Examples:
+
+* Analysis
+* Fact extraction
+* Drafting
+* Legal reasoning
+* Revisions
+* Guidance Sessions
+
+⸻
+
+7. Usage Logging System
+
+Create per-account usage tracking.
+
+Log:
+
+* User ID
+* Case ID
+* Session ID
+* Feature Used
+* Model Used
+* Input Tokens
+* Output Tokens
+* API Cost
+* Credits Charged
+* Timestamp
+
+This data must be retained for auditing, billing, analytics, and future pricing improvements.
+
+⸻
+
+8. Credit Estimation
+
+Before any billable action:
+
+Display:
+
+Estimated Cost: X Credits
+
+With supporting text:
+
+Based on the amount of analysis and drafting expected for this request.
+
+Users should know the estimated cost before proceeding.
+
+⸻
+
+9. Credit Protection
+
+Implement a maximum estimate system.
+
+The user should never be charged beyond the displayed estimate without approval.
+
+Example:
+
+Estimated Cost: 2 Credits
+
+Actual usage may be lower.
+
+Additional charges require user approval.
+
+This is intended to build trust and prevent surprise costs.
+
+⸻
+
+10. Drafting Workflow Integration
+
+New workflow:
+
+User Selects Action
+
+↓
+
+HyperLaw Reviews Existing Case Data
+
+↓
+
+AI Determines:
+
+* Ready To Draft
+* Guidance Session Recommended
+* Guidance Session Required
+
+↓
+
+Guidance Session (if needed)
+
+↓
+
+Answers Saved To Case Data
+
+↓
+
+Analysis Updated
+
+↓
+
+Document Drafted
+
+↓
+
+Credits Charged
+
+↓
+
+Return User To Assembly
+
+⸻
+
+11. Defensive Motion Integration
+
+For defensive motions and other strategy-heavy filings:
+
+Default behavior should strongly favor Guidance Sessions before drafting.
+
+These filings typically benefit from additional context and strategic discussion.
+
+The AI should determine whether the session is recommended or required based on available information.
+
+⸻
+
+12. Final Requirement
+
+Investigate the entire end-to-end implementation.
+
+Do not create placeholder UI.
+
+Do not partially implement this feature.
+
+Verify:
+
+* Frontend
+* Backend
+* Database
+* Credit calculations
+* Session storage
+* Drafting integration
+* Case data enrichment
+* Logging
+
+Implement all required wiring and provide a complete summary of changes after deployment.

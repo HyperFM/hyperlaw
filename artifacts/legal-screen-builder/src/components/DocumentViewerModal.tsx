@@ -1,23 +1,16 @@
-// DocumentViewerModal — Phase 4
-// Displays a generated legal document with preview paywall, TTS pre-verification,
-// download verification checklist, and PDF export via print window.
+// DocumentViewerModal
+// Displays a generated legal document in full (usage-based billing — no paywall),
+// with TTS pre-verification, a download verification checklist, and PDF export.
 
 import React, { useState, useEffect, useRef } from "react";
 import { COMPLIANCE, VERIFICATION_CHECKLIST } from "../lib/compliance";
 import {
-  X, Lock, Trash2, Volume2, Download, Check, Loader2,
+  X, Volume2, Download, Check, Loader2,
   Pause, Play, Square, AlertCircle,
 } from "lucide-react";
 import { aiApi, ServerGeneratedDoc } from "../lib/aiApi";
 
 const ORANGE = "#d9711f";
-const PREVIEW_WORD_COUNT = 150;
-
-function truncateWords(text: string, n: number): string {
-  const words = text.split(/\s+/);
-  if (words.length <= n) return text;
-  return words.slice(0, n).join(" ");
-}
 
 function printDocumentAsPDF(title: string, content: string) {
   const lines = content.split("\n");
@@ -121,157 +114,18 @@ function WaveBar({ index, active }: { index: number; active: boolean }) {
   );
 }
 
-// ── HoldToUnlockButton ────────────────────────────────────────────────────────
-// 3-second hold with orange glow + phone vibration.
-// Uses native touch listeners (passive:false) so scroll doesn't steal the touch.
-
-function HoldToUnlockButton({ onComplete, disabled }: { onComplete: () => void; disabled?: boolean }) {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const isHoldingRef = useRef(false);
-  const startTimeRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [active, setActive] = useState(false);
-  const HOLD_MS = 3000;
-
-  function vibrate(pattern: number | number[]) {
-    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch {}
-  }
-
-  function begin() {
-    if (isHoldingRef.current || disabled) return;
-    isHoldingRef.current = true;
-    setActive(true);
-    setProgress(0);
-    startTimeRef.current = performance.now();
-    vibrate([25]);
-    function tick(now: number) {
-      if (!isHoldingRef.current) return;
-      const p = Math.min(1, (now - (startTimeRef.current ?? now)) / HOLD_MS);
-      setProgress(p);
-      if (p >= 1) {
-        isHoldingRef.current = false;
-        setActive(false);
-        vibrate([40, 25, 80]);
-        onComplete();
-        return;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }
-
-  function cancel() {
-    if (!isHoldingRef.current) return;
-    isHoldingRef.current = false;
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    startTimeRef.current = null;
-    setProgress(0);
-    setActive(false);
-  }
-
-  useEffect(() => {
-    const el = btnRef.current;
-    if (!el) return;
-    function onTouchStart(e: TouchEvent) { e.preventDefault(); begin(); }
-    function onTouchEnd() { cancel(); }
-    function onTouchCancel() { cancel(); }
-    el.addEventListener("touchstart", onTouchStart, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchCancel);
-    return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchCancel);
-      // Cancel any in-flight RAF/hold on unmount
-      cancel();
-    };
-  }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const secsLeft = Math.max(0, Math.ceil((1 - progress) * (HOLD_MS / 1000)));
-  const circ = 2 * Math.PI * 30;
-  const glowSize = active ? Math.round(6 + progress * 20) : 0;
-
-  return (
-    <button
-      ref={btnRef}
-      onMouseDown={begin}
-      onMouseUp={cancel}
-      onMouseLeave={cancel}
-      disabled={disabled}
-      style={{
-        width: "100%",
-        padding: active ? "18px 14px" : "13px 16px",
-        borderRadius: 10,
-        background: active ? "rgba(217,113,31,0.12)" : ORANGE,
-        border: `2px solid ${active ? ORANGE : "transparent"}`,
-        color: active ? ORANGE : "#fff",
-        fontSize: 14, fontWeight: 800,
-        cursor: disabled ? "not-allowed" : "pointer",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        touchAction: "none",
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        boxShadow: active
-          ? `0 0 ${glowSize}px rgba(217,113,31,0.9), 0 0 ${glowSize * 2}px rgba(217,113,31,0.4), inset 0 0 ${glowSize}px rgba(217,113,31,0.08)`
-          : "none",
-        transition: "background 0.15s, border-color 0.15s, box-shadow 0.08s",
-        opacity: disabled ? 0.45 : 1,
-      }}
-    >
-      {!active ? (
-        <>
-          <Trash2 size={15} color="#999" />
-          Hold to Unlock (1 credit)
-        </>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <div style={{ position: "relative", width: 72, height: 72 }}>
-            <svg width={72} height={72} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
-              <circle cx={36} cy={36} r={30} fill="none" stroke="rgba(217,113,31,0.2)" strokeWidth={4} />
-              <circle
-                cx={36} cy={36} r={30} fill="none" stroke={ORANGE} strokeWidth={4}
-                strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
-                strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 8px ${ORANGE})` }}
-              />
-            </svg>
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 900, color: ORANGE }}>
-              {secsLeft}s
-            </div>
-          </div>
-          <span style={{ fontSize: 12, color: "rgba(217,113,31,0.85)" }}>Keep holding…</span>
-        </div>
-      )}
-    </button>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface DocumentViewerModalProps {
   doc: ServerGeneratedDoc;
-  creditBalance?: number;
-  onBuyCredits?: () => void;
   onClose: () => void;
-  /** Called when unlock succeeds — provides the updated doc (paymentStatus: "paid") */
-  onDocUnlocked?: (updatedDoc: ServerGeneratedDoc) => void;
-  /** Admin accounts bypass the paywall and are never charged */
-  isAdmin?: boolean;
 }
 
 type FooterPanel = "actions" | "tts" | "checklist";
 
 export default function DocumentViewerModal({
-  doc, creditBalance, onBuyCredits, onClose, onDocUnlocked, isAdmin,
+  doc, onClose,
 }: DocumentViewerModalProps) {
-  // Admins always see full content — treat any doc as paid for UI purposes
-  const isPaid = doc.paymentStatus === "paid" || !!isAdmin;
-
-  // Unlock state
-  const [unlocking, setUnlocking] = useState(false);
-  const [unlockError, setUnlockError] = useState<string | null>(null);
-
   // Footer panel
   const [footerPanel, setFooterPanel] = useState<FooterPanel>("actions");
 
@@ -340,43 +194,7 @@ export default function DocumentViewerModal({
     utteranceRef.current = null;
   }
 
-  // ── Auto-unlock for admin ────────────────────────────────────────────────────
-  // If admin opens a doc that's still in "preview" state in the DB, silently
-  // flip it to "paid" on the server so future reads also return full content.
-  useEffect(() => {
-    if (isAdmin && doc.paymentStatus === "preview") {
-      aiApi.generatedDocs.unlock(doc.id)
-        .then(updated => onDocUnlocked?.(updated))
-        .catch(() => { /* no-op — server may already have updated */ });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Unlock ───────────────────────────────────────────────────────────────────
-
-  async function handleUnlock() {
-    setUnlocking(true);
-    setUnlockError(null);
-    try {
-      const updated = await aiApi.generatedDocs.unlock(doc.id);
-      onDocUnlocked?.(updated);
-    } catch (err: unknown) {
-      const e = err as { message?: string; code?: string };
-      if (e.code === "insufficient_credits") {
-        onClose();
-        onBuyCredits?.();
-      } else {
-        setUnlockError(e.message || "Unlock failed. Please try again.");
-      }
-    } finally {
-      setUnlocking(false);
-    }
-  }
-
-  const previewText = truncateWords(doc.content, PREVIEW_WORD_COUNT);
   const docTypeLabel = doc.documentType.replace(/_/g, " ").toUpperCase();
-  // Treat undefined balance as "loading" — don't block the button until we know for sure
-  const hasCredits = creditBalance === undefined || creditBalance > 0;
 
   return (
     <div
@@ -409,19 +227,6 @@ export default function DocumentViewerModal({
               <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "#1a1a1a", borderRadius: 4, padding: "2px 6px" }}>
                 {docTypeLabel}
               </span>
-              {isAdmin ? (
-                <span style={{ fontSize: 10, fontWeight: 700, color: ORANGE, display: "flex", alignItems: "center", gap: 3 }}>
-                  ADMIN ACCESS
-                </span>
-              ) : isPaid ? (
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", display: "flex", alignItems: "center", gap: 3 }}>
-                  <Check size={10} /> UNLOCKED
-                </span>
-              ) : (
-                <span style={{ fontSize: 10, fontWeight: 700, color: ORANGE, display: "flex", alignItems: "center", gap: 3 }}>
-                  <Lock size={10} /> PREVIEW
-                </span>
-              )}
               <span style={{ fontSize: 10, color: "#444" }}>
                 {new Date(doc.createdAt).toLocaleDateString()}
               </span>
@@ -439,27 +244,8 @@ export default function DocumentViewerModal({
         {/* ── Document content ───────────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: "auto", position: "relative", minHeight: 0 }}>
 
-          {/* Preview — truncated with fade */}
-          {!isPaid && (
-            <div style={{ position: "relative" }}>
-              <div style={{
-                padding: "20px 20px 0", color: "#bbb", fontSize: 13, lineHeight: 1.85,
-                whiteSpace: "pre-wrap", wordBreak: "break-word",
-              }}>
-                {previewText}
-                <span style={{ color: "#555" }}> …</span>
-              </div>
-              <div style={{
-                position: "sticky", bottom: 0, left: 0, right: 0, height: 120,
-                background: "linear-gradient(to bottom, transparent 0%, #0d0d0d 75%)",
-                pointerEvents: "none",
-              }} />
-            </div>
-          )}
-
-          {/* Paid — full content */}
-          {isPaid && (
-            <div style={{ padding: "20px 20px 8px" }}>
+          {/* Full document content (usage-based billing — always shown) */}
+          <div style={{ padding: "20px 20px 8px" }}>
               <div style={{
                 color: "#c8c8c8", fontSize: 13, lineHeight: 1.85,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
@@ -478,58 +264,13 @@ export default function DocumentViewerModal({
                 {COMPLIANCE.AI_GENERATED_SHORT}
               </div>
             </div>
-          )}
         </div>
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         <div style={{ borderTop: "1px solid #1a1a1a", padding: "14px 16px", flexShrink: 0 }}>
 
-          {/* Preview paywall */}
-          {!isPaid && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 12, color: "#555", lineHeight: 1.55 }}>
-                Verify the formatting above matches your case, then unlock the full document. Unlocking permanently saves the complete document to your case with read-aloud review and PDF download.
-              </div>
-              {unlockError && (
-                <div style={{ fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "7px 10px" }}>
-                  {unlockError}
-                </div>
-              )}
-              {unlocking ? (
-                <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                  padding: "16px", background: "rgba(217,113,31,0.08)",
-                  border: "1px solid rgba(217,113,31,0.3)", borderRadius: 10,
-                  color: ORANGE, fontSize: 14, fontWeight: 700,
-                }}>
-                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
-                  Unlocking document…
-                </div>
-              ) : (
-                <HoldToUnlockButton onComplete={handleUnlock} disabled={!hasCredits} />
-              )}
-              {!hasCredits && !unlocking && (
-                <button
-                  onClick={() => { onClose(); onBuyCredits?.(); }}
-                  style={{
-                    background: ORANGE, border: "none", borderRadius: 10,
-                    padding: "12px 16px", color: "#fff", fontWeight: 800, fontSize: 14,
-                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  }}
-                >
-                  + Buy Credits to Unlock
-                </button>
-              )}
-              {creditBalance !== undefined && (
-                <div style={{ fontSize: 11, color: hasCredits ? "#555" : "#ef4444", textAlign: "center" }}>
-                  {creditBalance} credit{creditBalance !== 1 ? "s" : ""} available
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Paid — action bar */}
-          {isPaid && footerPanel === "actions" && (
+          {/* Action bar */}
+          {footerPanel === "actions" && (
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => { setFooterPanel("tts"); }}
@@ -557,7 +298,7 @@ export default function DocumentViewerModal({
           )}
 
           {/* Paid — TTS Pre-Verification */}
-          {isPaid && footerPanel === "tts" && (
+          {footerPanel === "tts" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5 }}>PRE-VERIFICATION READER</div>
@@ -652,7 +393,7 @@ export default function DocumentViewerModal({
           )}
 
           {/* Paid — Download verification checklist */}
-          {isPaid && footerPanel === "checklist" && (
+          {footerPanel === "checklist" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: 0.5 }}>BEFORE YOU DOWNLOAD</div>

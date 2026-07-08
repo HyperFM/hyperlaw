@@ -50,7 +50,8 @@ import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
 import ConfirmDeleteButton from "./components/ConfirmDeleteButton";
 import PinGateModal from "./components/PinGateModal";
 import ManageCasesModal from "./components/ManageCasesModal";
-import DraftQuestionsModal from "./components/DraftQuestionsModal";
+import DraftDecisionModal from "./components/DraftDecisionModal";
+import GuidanceSessionModal from "./components/GuidanceSessionModal";
 import IfpWizard from "./components/IfpWizard";
 import DefenseModal from "./components/DefenseModal";
 
@@ -1278,7 +1279,9 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [lastGenerateArgs, setLastGenerateArgs] = useState<GenArgs | null>(null);
   const [viewingDoc, setViewingDoc] = useState<ServerGeneratedDoc | null>(null);
   // Drafting / fee-waiver / defense flow modals (Sections 5, 6, 10, 11)
-  const [draftModal, setDraftModal] = useState<{ docType: DocumentType; label: string; needsSource: boolean } | null>(null);
+  // Decision layer → optional guidance session → confirm → draft (usage-based).
+  const [decisionModal, setDecisionModal] = useState<{ docType: DocumentType; label: string; needsSource: boolean; guidanceJustCompleted?: boolean } | null>(null);
+  const [guidanceModal, setGuidanceModal] = useState<{ docType: DocumentType; label: string; needsSource: boolean; topics: string[] } | null>(null);
   const [showIfp, setShowIfp] = useState(false);
   const [showDefense, setShowDefense] = useState(false);
   const [showMoreDocs, setShowMoreDocs] = useState(false);
@@ -1377,7 +1380,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         },
       });
       setGenDocs(prev => [doc, ...prev]);
-      setViewingDoc(doc); // auto-open preview so user can verify formatting
+      setViewingDoc(doc); // auto-open so the user can verify formatting
+      onDocGenerated?.(); // refresh credit balance after the usage-based charge
     } catch (err: unknown) {
       const e = err as { message?: string };
       setGenerateError(e.message || "Generation failed. Try again.");
@@ -1386,14 +1390,14 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     }
   }
 
-  // Open the guided upfront-questions modal for a document type (Section 10), gating on jurisdiction.
+  // Open the AI decision layer for a document type (Section 10), gating on jurisdiction.
   function openDraft(docType: DocumentType, label: string) {
     if (!hlCase.jurisdiction?.trim()) {
       setGenerateError("Please add a jurisdiction first — set it in the Jurisdiction field above.");
       return;
     }
     setGenerateError(null);
-    setDraftModal({ docType, label, needsSource: NEEDS_SOURCE.includes(docType) });
+    setDecisionModal({ docType, label, needsSource: NEEDS_SOURCE.includes(docType) });
   }
 
   const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id))
@@ -1845,18 +1849,14 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                         <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 10, fontWeight: 700, color: "#444", background: "#1a1a1a", borderRadius: 4, padding: "2px 6px" }}>{doc.documentType.replace("_", " ").toUpperCase()}</span>
-                          {doc.paymentStatus === "paid"
-                            ? <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>UNLOCKED</span>
-                            : <span style={{ fontSize: 10, fontWeight: 700, color: ORANGE, display: "flex", alignItems: "center", gap: 2 }}><Lock size={9} /> PREVIEW</span>
-                          }
                           <span style={{ fontSize: 11, color: "#444" }}>{new Date(doc.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         <button
-                          title={doc.paymentStatus === "paid" ? "View document" : "View preview"}
+                          title="View document"
                           onClick={() => setViewingDoc(doc)}
-                          style={{ background: "none", border: `1px solid ${doc.paymentStatus === "paid" ? "#2a3a2a" : "#2a2a1a"}`, borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: doc.paymentStatus === "paid" ? "#22c55e" : ORANGE, display: "flex", alignItems: "center" }}
+                          style={{ background: "none", border: "1px solid #2a3a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#22c55e", display: "flex", alignItems: "center" }}
                         ><Eye size={13} /></button>
                         <ConfirmDeleteButton
                           onDelete={async () => {
@@ -1898,7 +1898,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             )}
           </div>
           <div style={{ color: "#444", fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-            Answer a few guided questions, then generate a free preview. Unlock the full document for 1 credit.
+            We'll check if your case is ready, then show a credit estimate before drafting. You're only charged for what's generated — never more than the estimate.
           </div>
 
           {/* Primary group of four */}
@@ -1934,7 +1934,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                       : <FileText size={14} color={ORANGE} />}
                     <span style={{ fontWeight: 800, fontSize: 13, color: "#eee" }}>{label}</span>
                   </div>
-                  <span style={{ fontSize: 10, color: "#6a5c50" }}>Free preview · guided questions</span>
+                  <span style={{ fontSize: 10, color: "#6a5c50" }}>Estimate shown first</span>
                 </button>
               );
             })}
@@ -1973,7 +1973,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               <Swords size={16} color="#ef6a4a" />
               <div style={{ textAlign: "left" }}>
                 <div style={{ fontWeight: 800, fontSize: 12, color: "#eee" }}>Respond to filing</div>
-                <div style={{ fontSize: 10, color: "#6a5c50" }}>Upload · 1 credit</div>
+                <div style={{ fontSize: 10, color: "#6a5c50" }}>Uses your case docs</div>
               </div>
             </button>
             <button
@@ -2073,21 +2073,48 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         </>
       </div>
 
-      {/* Guided drafting questions (Section 10) */}
-      {draftModal && (
-        <DraftQuestionsModal
-          open={!!draftModal}
-          documentType={draftModal.docType}
-          documentLabel={draftModal.label}
-          jurisdiction={hlCase.jurisdiction}
+      {/* AI decision layer — ready / guidance-recommended / guidance-required (Sections 3, 10) */}
+      {decisionModal && (
+        <DraftDecisionModal
+          open
+          documentType={decisionModal.docType}
+          documentLabel={decisionModal.label}
           caseId={hlCase.id}
-          needsSource={draftModal.needsSource}
+          needsSource={decisionModal.needsSource}
+          creditBalance={creditBalance}
+          waived={isAdmin || isApex}
+          guidanceJustCompleted={decisionModal.guidanceJustCompleted}
           onBuyCredits={onBuyCredits}
-          onClose={() => setDraftModal(null)}
-          onReady={({ draftContext, sourceDocument }) => {
-            const dm = draftModal;
-            setDraftModal(null);
-            if (dm) handleGenerateDoc(dm.docType, { draftContext, sourceDocument, title: dm.label });
+          onClose={() => setDecisionModal(null)}
+          onStartGuidance={(topics) => {
+            const dm = decisionModal;
+            setDecisionModal(null);
+            if (dm) setGuidanceModal({ docType: dm.docType, label: dm.label, needsSource: dm.needsSource, topics });
+          }}
+          onConfirmDraft={({ sourceDocument }) => {
+            const dm = decisionModal;
+            setDecisionModal(null);
+            if (dm) handleGenerateDoc(dm.docType, { sourceDocument, title: dm.label });
+          }}
+        />
+      )}
+      {/* Guidance Session — conversational, mascot-led context gathering (Sections 1, 2, 7) */}
+      {guidanceModal && (
+        <GuidanceSessionModal
+          open
+          caseId={hlCase.id}
+          action={guidanceModal.docType}
+          documentLabel={guidanceModal.label}
+          topics={guidanceModal.topics}
+          creditBalance={creditBalance}
+          onBuyCredits={onBuyCredits}
+          onClose={() => setGuidanceModal(null)}
+          onCompleted={() => {
+            const gm = guidanceModal;
+            setGuidanceModal(null);
+            onDocGenerated?.(); // refresh balance after the session charge
+            // Re-open the decision — now enriched by the session — ready to draft.
+            if (gm) setDecisionModal({ docType: gm.docType, label: gm.label, needsSource: gm.needsSource, guidanceJustCompleted: true });
           }}
         />
       )}
@@ -2117,19 +2144,11 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         onDrafted={(doc) => { setGenDocs(prev => [doc, ...prev]); setViewingDoc(doc); onDocGenerated?.(); }}
       />
 
-      {/* Document viewer / paywall / TTS / download */}
+      {/* Document viewer — full content, TTS, download */}
       {viewingDoc && (
         <DocumentViewerModal
           doc={viewingDoc}
-          creditBalance={creditBalance}
-          onBuyCredits={onBuyCredits}
-          isAdmin={isAdmin}
           onClose={() => setViewingDoc(null)}
-          onDocUnlocked={(updatedDoc) => {
-            setGenDocs(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
-            setViewingDoc(updatedDoc);
-            onDocGenerated?.(); // refreshes credit balance in parent
-          }}
         />
       )}
 
@@ -2706,13 +2725,13 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
   const plans = [
     {
       id: "firstfiling", name: "First Filing", tagline: "You don't have to be fearless. Doing it afraid is just as brave.",
-      price: "Pay As You Go", cycle: null as string | null, priceNote: "No subscription · 1 credit unlocks one full document",
+      price: "Pay As You Go", cycle: null as string | null, priceNote: "No subscription · credits are spent only as you draft",
       badge: null as string | null,
       quote: '"You\'ll make mistakes. That\'s not disqualifying — quitting is. Stay determined and the scale tips your way eventually, even when it doesn\'t look like it yet."',
       features: [
         { text: "<b>Cases, incidents & timelines — always free</b> — build and document everything at no cost", tbd: false },
-        { text: "<b>AI document previews — always free</b> — generate any complaint, motion, or timeline and review it before spending a cent", tbd: false },
-        { text: "<b>Unlock full documents à la carte</b> — spend 1 credit per document only when you're ready to download", tbd: false },
+        { text: "<b>See the price before you draft</b> — every AI document shows a clear credit estimate up front, so you decide before anything is generated", tbd: false },
+        { text: "<b>Pay only for what you generate</b> — credits are spent by usage, and never above the estimate we show first", tbd: false },
         { text: "Guided case Index included — plain-English answers to your legal questions", tbd: false },
       ],
       ctaLabel: "Start Building Your Case", ctaStyle: "secondary" as const,
@@ -2897,7 +2916,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
         </div>
 
         <p style={{ textAlign: "center", color: "#4a4542", fontSize: 11, marginTop: 32, lineHeight: 1.6 }}>
-          No subscription required · Pay only for what you unlock · Cancel paid plans anytime
+          No subscription required · Pay only for what you use · Cancel paid plans anytime
         </p>
       </div>
     </div>
@@ -3633,7 +3652,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         <Star size={18} color={ORANGE} style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Membership</div>
-          <div style={{ color: "#555", fontSize: 12 }}>Pay As You Go · Buy credits to unlock documents</div>
+          <div style={{ color: "#555", fontSize: 12 }}>Pay As You Go · Buy credits, spend as you draft</div>
         </div>
         <ChevronRight size={15} color="#333" />
       </button>

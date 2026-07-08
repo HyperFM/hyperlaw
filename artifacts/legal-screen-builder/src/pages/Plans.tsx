@@ -24,14 +24,14 @@ const plans = [
     tagline: "You don't have to be fearless. Doing it afraid is just as brave.",
     price: "Pay As You Go",
     cycle: null as string | null,
-    priceNote: "No subscription · 1 credit unlocks one full document",
+    priceNote: "No subscription · credits are spent only as you draft",
     badge: null as string | null,
     quote:
       '"You\'ll make mistakes. That\'s not disqualifying — quitting is. Stay determined and the scale tips your way eventually, even when it doesn\'t look like it yet."',
     features: [
       { text: "<b>Cases, incidents & timelines — always free</b> — build and document everything at no cost", tbd: false },
-      { text: "<b>AI document previews — always free</b> — generate any complaint, motion, or timeline and review it before spending a cent", tbd: false },
-      { text: "<b>Unlock full documents à la carte</b> — spend 1 credit per document only when you're ready to download", tbd: false },
+      { text: "<b>See the price before you draft</b> — every AI document shows a clear credit estimate up front, so you decide before anything is generated", tbd: false },
+      { text: "<b>Pay only for what you generate</b> — credits are spent by usage, and never above the estimate we show first", tbd: false },
       { text: "Guided case tutor included — plain-English answers to your legal questions", tbd: false },
       { text: "A document & evidence checklist: keep the camera rolling, save every receipt", tbd: false },
     ],
@@ -225,7 +225,7 @@ export default function Plans() {
         </div>
 
         <p style={{ textAlign: "center", color: "#4a4542", fontSize: 11, marginTop: 36, lineHeight: 1.6 }}>
-          No subscription required · Pay only for what you unlock · Cancel paid plans anytime
+          No subscription required · Pay only for what you use · Cancel paid plans anytime
         </p>
       </div>
     </div>

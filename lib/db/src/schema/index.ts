@@ -61,6 +61,8 @@ export const aiLogsTable = pgTable("ai_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id").notNull(),
   caseId: text("case_id"),
+  /** Guidance Session this call belongs to (null for one-off calls). */
+  sessionId: text("session_id"),
   /** e.g. "analyze_incident" | "analyze_case" | "chat" | "extract_document" | "ocr_image" */
   feature: text("feature").notNull(),
   model: text("model").notNull().default("claude-opus-4-5"),
@@ -71,6 +73,8 @@ export const aiLogsTable = pgTable("ai_logs", {
   responseTimeMs: integer("response_time_ms").notNull().default(0),
   cacheHit: boolean("cache_hit").notNull().default(false),
   promptTemplate: text("prompt_template"),
+  /** Credits actually charged for this call (0 = free / cached / waived). */
+  creditsCharged: integer("credits_charged").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -159,6 +163,38 @@ export const casesTable = pgTable("cases", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   casesUserIdx: index("cases_user_idx").on(table.userId),
+}));
+
+// ── Guidance Sessions (conversational context-gathering, usage-billed) ─────────
+// A calm chat that gathers only the context that improves analysis / drafting.
+// Charged AFTER completion by conversation length (word-count → credits, capped).
+
+export const guidanceSessionsTable = pgTable("guidance_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id"),
+  /** The drafting action that prompted the session (documentType) or "general". */
+  action: text("action").notNull().default("general"),
+  /** "active" | "completed" | "abandoned" */
+  status: text("status").notNull().default("active"),
+  /** Topics the session should cover (from the decision layer). */
+  topics: jsonb("topics").notNull().$type<string[]>().default([]),
+  /** Full conversation transcript. */
+  messages: jsonb("messages").notNull().$type<Array<{ role: "user" | "assistant"; content: string }>>().default([]),
+  /** Structured answers extracted on completion and merged into case memory. */
+  extractedAnswers: jsonb("extracted_answers").$type<Record<string, unknown>>(),
+  /** Running total words of the conversation (user + assistant). */
+  wordCount: integer("word_count").notNull().default(0),
+  /** Hard spend cap (in credits) approved for this session. */
+  creditCap: integer("credit_cap").notNull().default(1),
+  /** Credits actually charged on completion. */
+  creditsCharged: integer("credits_charged").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  guidanceUserIdx: index("guidance_sessions_user_idx").on(table.userId),
+  guidanceCaseIdx: index("guidance_sessions_case_idx").on(table.caseId),
 }));
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -251,5 +287,6 @@ export type UploadedDocument = typeof uploadedDocumentsTable.$inferSelect;
 export type GeneratedDocument = typeof generatedDocumentsTable.$inferSelect;
 export type UserSecurity = typeof userSecurityTable.$inferSelect;
 export type IfpTemplate = typeof ifpTemplatesTable.$inferSelect;
+export type GuidanceSession = typeof guidanceSessionsTable.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;

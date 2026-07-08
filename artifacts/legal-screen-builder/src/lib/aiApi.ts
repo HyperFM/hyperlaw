@@ -126,6 +126,66 @@ export interface DefenseAnalysis {
   deadlinesMentioned: string[];
 }
 
+// ── Guidance sessions, decision layer & credit estimates ────────────────────────
+
+/** AI Decision Layer verdict shown before a billable draft. */
+export type DraftDecision = "ready" | "recommended" | "required";
+
+export interface CreditEstimate {
+  /** Credits shown to the user AND enforced as the hard spend cap. */
+  estimatedCredits: number;
+  /** Expected output size (words) that drove the estimate. */
+  expectedWords: number;
+  /** Plain-language explanation for the confirm prompt. */
+  note: string;
+}
+
+export interface DraftDecisionResult {
+  decision: DraftDecision;
+  rationale: string;
+  /** Topics a guidance session would cover to strengthen this document. */
+  topics: string[];
+  estimate: CreditEstimate;
+}
+
+export interface EstimateResult extends CreditEstimate {
+  /** True when the plan waives credit charges (apex/admin). */
+  waived: boolean;
+  creditBalance: number;
+  /** True when the balance covers the estimate (or it's waived). */
+  sufficient: boolean;
+}
+
+export interface GuidanceStartResult {
+  sessionId: string;
+  greeting: string;
+  topics: string[];
+  estimate: CreditEstimate;
+  creditBalance: number;
+  creditCap: number;
+  wordCount: number;
+}
+
+export interface GuidanceMessageResult {
+  /** null only when capReached (awaiting approval to continue). */
+  reply: string | null;
+  done: boolean;
+  wordCount: number;
+  creditCap: number;
+  estimatedCredits: number;
+  /** True when the running estimate hit the approved cap — needs approval to continue. */
+  capReached: boolean;
+}
+
+export interface GuidanceCompleteResult {
+  ok: boolean;
+  creditsCharged: number;
+  creditBalance?: number;
+  summary: string;
+  extractedAnswers?: Record<string, unknown> | null;
+  alreadyCompleted?: boolean;
+}
+
 // ── Security & IFP templates ────────────────────────────────────────────────────
 
 export interface SecurityStatus {
@@ -258,7 +318,7 @@ export interface ServerGeneratedDoc {
   content: string;
   version: number;
   status: string;         // "draft" | "verified" | "filed"
-  paymentStatus: string;  // "preview" (generated, not yet unlocked) | "paid" (credit spent, full access)
+  paymentStatus: string;  // legacy field — usage-based billing no longer gates access; docs are always returned in full
   verifiedAt: string | null; // ISO timestamp set when TTS pre-verification is completed
   createdAt: string;      // ISO timestamp from server
   updatedAt: string;
@@ -608,7 +668,7 @@ export const aiApi = {
         location?: string;
       }>;
     };
-  }): Promise<ServerGeneratedDoc> {
+  }): Promise<ServerGeneratedDoc & { creditsCharged?: number; creditBalance?: number }> {
     return aiFetch("/ai/generate-document", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -635,6 +695,34 @@ export const aiApi = {
   /** 1 CREDIT — analyze an opposing party's filing from document(s) and/or photo(s) */
   defenseAnalyze(form: FormData): Promise<DefenseAnalysis> {
     return aiFetch("/ai/defense-analyze", { method: "POST", body: form });
+  },
+
+  // ── Usage-based credits: estimates, decision layer & guidance sessions ────────
+
+  /** FREE — up-front credit estimate (also the enforced spend cap) for a billable action. */
+  estimate(payload: { kind: "document" | "guidance"; documentType?: DocumentType }): Promise<EstimateResult> {
+    return aiFetch("/ai/estimate", { method: "POST", body: JSON.stringify(payload) });
+  },
+
+  /** FREE — AI decision layer: ready-to-draft / guidance-recommended / guidance-required. */
+  draftDecision(payload: { caseId?: string; documentType: DocumentType; documentLabel?: string }): Promise<DraftDecisionResult> {
+    return aiFetch("/ai/draft-decision", { method: "POST", body: JSON.stringify(payload) });
+  },
+
+  /** Guidance Sessions — a warm, conversational context-gathering chat, charged by length. */
+  guidance: {
+    /** Open a session — returns the session id and the guide's opening message. */
+    start(payload: { caseId?: string; action?: string; documentLabel?: string; topics?: string[] }): Promise<GuidanceStartResult> {
+      return aiFetch("/ai/guidance/start", { method: "POST", body: JSON.stringify(payload) });
+    },
+    /** Send a message. When capReached is true, resend with extendCap to approve more. */
+    message(sessionId: string, payload: { message: string; extendCap?: boolean }): Promise<GuidanceMessageResult> {
+      return aiFetch(`/ai/guidance/${sessionId}/message`, { method: "POST", body: JSON.stringify(payload) });
+    },
+    /** Finalize: extract answers, merge into the case, and charge by conversation length. */
+    complete(sessionId: string): Promise<GuidanceCompleteResult> {
+      return aiFetch(`/ai/guidance/${sessionId}/complete`, { method: "POST" });
+    },
   },
 
   // ── Generated Documents ────────────────────────────────────────────────────
@@ -670,15 +758,6 @@ export const aiApi = {
     /** Delete a document */
     remove(id: string): Promise<void> {
       return aiFetch(`/ai/generated-documents/${id}`, { method: "DELETE" });
-    },
-
-    /**
-     * Unlock a preview document. Spends 1 credit and sets paymentStatus → "paid".
-     * Idempotent: if already paid, returns the doc immediately.
-     * Throws AiError with code "insufficient_credits" if balance is 0.
-     */
-    unlock(id: string): Promise<ServerGeneratedDoc> {
-      return aiFetch(`/ai/generated-documents/${id}/unlock`, { method: "POST" });
     },
 
     /**

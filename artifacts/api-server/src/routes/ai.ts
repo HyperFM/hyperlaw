@@ -13,9 +13,14 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable, guidanceSessionsTable } from "@workspace/db";
 import { storage } from "../storage.js";
-import { chargeOneCredit, refundOneCredit } from "../services/credits.js";
+import {
+  chargeOneCredit, refundOneCredit,
+  chargeCredits, refundCredits, checkBalanceForEstimate,
+  creditsForWords, countWords, WORDS_PER_CREDIT,
+} from "../services/credits.js";
+import { estimateForDocument, estimateForGuidance } from "../services/estimate.js";
 import { and, eq, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
 
@@ -739,9 +744,9 @@ router.post(
 );
 
 // ── POST /ai/generate-document ─────────────────────────────────────────────────
-// FREE — Generates a formal legal document and saves it as a "preview".
-// The full content is stored but gated behind paymentStatus: "preview".
-// Users spend 1 credit via POST /ai/generated-documents/:id/unlock to unlock.
+// USAGE-BASED — Generates a formal legal document and charges by output length,
+// capped at the estimate shown to the user first (see /ai/estimate). The full
+// content is saved and always returned; there is no preview/unlock gate.
 // Body: { caseId: string; documentType: "complaint"|"motion"|"timeline"; title?: string }
 router.post("/ai/generate-document", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
@@ -784,6 +789,20 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
   const userId = auth.userId;
 
   try {
+    // Usage-based billing: the estimate is also the hard spend cap. Verify the
+    // user can cover it before doing any billable work.
+    const estimate = estimateForDocument(documentType);
+    const balanceCheck = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+    if (!balanceCheck.ok) {
+      res.status(402).json({
+        error: "Insufficient credits",
+        code: "insufficient_credits",
+        creditBalance: balanceCheck.balance,
+        estimatedCredits: estimate.estimatedCredits,
+      });
+      return;
+    }
+
     // Library context for richer output
     const queryText = `${caseData.title} ${caseData.notes ?? ""} ${(caseData.incidents ?? []).map(i => `${i.title} ${i.description}`).join(" ")}`;
     const libEntries = await searchLibrary({ query: queryText, limit: 3 });
@@ -810,6 +829,29 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
       { libraryContext: libContext, draftContext, sourceDocument },
     );
 
+    const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
+
+    // Usage-based charge: credits from ACTUAL output words, capped at the estimate
+    // shown to the user (we never charge above the estimate). Admin/Apex waived.
+    const outputWords = countWords(aiResult.data);
+    const usageCredits = Math.min(creditsForWords(outputWords), estimate.estimatedCredits);
+    const charge = await chargeCredits(userId, usageCredits);
+
+    // Persist as fully paid — the usage-based model has no preview/unlock gate.
+    const inserted = await db.insert(generatedDocumentsTable).values({
+      userId,
+      caseId: caseId ?? null,
+      title: docTitle,
+      documentType,
+      content: aiResult.data,
+      paymentStatus: "paid",
+    }).returning().catch(async (saveErr) => {
+      // Save failed after charging — refund so we never take credits for nothing.
+      if (charge.charged) await refundCredits(userId, charge.chargedAmount ?? 0);
+      throw saveErr;
+    });
+    const savedDoc = inserted[0];
+
     void logAiCall({
       userId,
       caseId: caseId ?? null,
@@ -821,39 +863,10 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
       responseTimeMs: aiResult.meta.responseTimeMs,
       cacheHit: false,
       promptTemplate: `generate_${documentType}`,
+      creditsCharged: charge.chargedAmount ?? 0,
     });
 
-    const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
-
-    // Admin accounts always get full access — check before deciding truncation
-    const adminInfo = await getClerkUserEmail(userId).catch(() => null);
-    const isAdminUser = ADMIN_EMAILS.has(adminInfo?.email ?? "");
-
-    // Save as "preview" — full content stored in DB
-    const [savedDoc] = await db.insert(generatedDocumentsTable).values({
-      userId,
-      caseId: caseId ?? null,
-      title: docTitle,
-      documentType,
-      content: aiResult.data,
-      // Admin documents are saved as "paid" immediately — no credit gate
-      paymentStatus: isAdminUser ? "paid" : "preview",
-    }).returning();
-
-    if (isAdminUser) {
-      // Admin: return full content, already marked as paid
-      res.json(savedDoc);
-      return;
-    }
-
-    // Non-admin: truncate before sending to client — full content stays in DB
-    const PREVIEW_WORDS = 200;
-    const words = (savedDoc.content ?? "").split(/\s+/);
-    const clientContent = words.length > PREVIEW_WORDS
-      ? words.slice(0, PREVIEW_WORDS).join(" ") + " … [Unlock the full document to continue reading]"
-      : savedDoc.content;
-
-    res.json({ ...savedDoc, content: clientContent });
+    res.json({ ...savedDoc, creditsCharged: charge.chargedAmount ?? 0, creditBalance: charge.balance });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Document generation failed" });
   }
@@ -1088,6 +1101,385 @@ router.post("/ai/gap-detect", requireAuth, async (req: Request, res: Response): 
     res.json(result.data);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Gap detection failed" });
+  }
+});
+
+// ── Guidance Sessions & usage-based helpers ─────────────────────────────────
+
+// Build a compact, human-readable case context string from stored case data —
+// used by the decision layer and guidance sessions to ground their reasoning.
+async function loadCaseContext(userId: string, caseId?: string): Promise<{ caseTitle: string; caseContext: string }> {
+  if (!caseId) return { caseTitle: "Untitled Case", caseContext: "" };
+  try {
+    const [row] = await db
+      .select({ title: casesTable.title, caseData: casesTable.caseData })
+      .from(casesTable)
+      .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+    if (!row) return { caseTitle: "Untitled Case", caseContext: "" };
+
+    const data = (row.caseData ?? {}) as Record<string, unknown>;
+    const parts: string[] = [];
+
+    const memory = data.caseMemory as Record<string, unknown> | undefined;
+    if (memory) parts.push(`CASE MEMORY:\n${JSON.stringify(memory).slice(0, 5000)}`);
+    if (typeof data.story === "string" && data.story.trim()) parts.push(`NARRATIVE:\n${data.story.slice(0, 3000)}`);
+
+    if (Array.isArray(data.parties) && data.parties.length) {
+      const list = (data.parties as Array<{ firstName?: string; lastName?: string; type?: string; name?: string }>)
+        .map(p => {
+          const full = [p.firstName, p.lastName].filter(Boolean).join(" ").trim() || p.name || "";
+          return full ? `${full}${p.type ? ` (${p.type})` : ""}` : "";
+        })
+        .filter(Boolean).join("; ");
+      if (list) parts.push(`PARTIES: ${list}`);
+    }
+    if (Array.isArray(data.timeline) && data.timeline.length) {
+      const tl = (data.timeline as Array<{ title?: string }>).map(t => t.title).filter(Boolean).join("; ");
+      if (tl) parts.push(`TIMELINE: ${tl}`);
+    }
+    if (Array.isArray(data.incidents) && data.incidents.length) {
+      const inc = (data.incidents as Array<{ title?: string }>).map(i => i.title).filter(Boolean).join("; ");
+      if (inc) parts.push(`INCIDENTS: ${inc}`);
+    }
+    const court = data.court as { name?: string; state?: string } | undefined;
+    if (court?.name) parts.push(`COURT: ${court.name}${court.state ? `, ${court.state}` : ""}`);
+    if (typeof data.jurisdiction === "string" && data.jurisdiction) parts.push(`JURISDICTION: ${data.jurisdiction}`);
+
+    if (Array.isArray(data.guidanceSessions) && data.guidanceSessions.length) {
+      const summaries = (data.guidanceSessions as Array<{ summary?: string }>).map(g => g.summary).filter(Boolean);
+      if (summaries.length) parts.push(`PRIOR GUIDANCE FINDINGS:\n${summaries.join("\n")}`);
+    }
+
+    return { caseTitle: (row.title as string) || "Untitled Case", caseContext: parts.join("\n\n") };
+  } catch {
+    return { caseTitle: "Untitled Case", caseContext: "" };
+  }
+}
+
+// Merge a completed guidance session's extracted answers into the case's stored
+// memory. Enrichment is additive: append new array items (deduped) and fill only
+// empty scalar fields — never clobber facts the user already has.
+async function mergeGuidanceIntoCase(userId: string, caseId: string, sessionId: string, extracted: Record<string, unknown>): Promise<void> {
+  const [row] = await db.select({ caseData: casesTable.caseData })
+    .from(casesTable)
+    .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+  if (!row) return;
+
+  const data = (row.caseData ?? {}) as Record<string, unknown>;
+  const memory = ((data.caseMemory as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+
+  const appendUnique = (existing: unknown, incoming: unknown, keyFn: (x: any) => string): unknown[] => {
+    const base = Array.isArray(existing) ? [...existing] : [];
+    const seen = new Set(base.map(keyFn).map(s => (s ?? "").toLowerCase()).filter(Boolean));
+    for (const item of (Array.isArray(incoming) ? incoming : [])) {
+      const k = (keyFn(item) ?? "").toLowerCase();
+      if (k && !seen.has(k)) { base.push(item); seen.add(k); }
+    }
+    return base;
+  };
+
+  memory.parties = appendUnique(memory.parties, extracted.parties, (p) => p?.name ?? "");
+  memory.events = appendUnique(memory.events, extracted.events, (e) => `${e?.description ?? ""}${e?.date ?? ""}`);
+  memory.evidence = appendUnique(memory.evidence, extracted.evidence, (e) => e?.description ?? "");
+  memory.witnesses = appendUnique(memory.witnesses, extracted.witnesses, (w) => w?.name ?? "");
+  memory.claims = appendUnique(memory.claims, extracted.claims, (c) => (typeof c === "string" ? c : ""));
+  memory.locations = appendUnique(memory.locations, extracted.locations, (l) => (typeof l === "string" ? l : ""));
+  memory.openQuestions = appendUnique(memory.openQuestions, extracted.openQuestions, (q) => (typeof q === "string" ? q : ""));
+
+  // Durable guidance findings block (summary + new facts) for future drafting.
+  const findings = Array.isArray(memory.guidanceFindings) ? memory.guidanceFindings as unknown[] : [];
+  const newFacts = Array.isArray(extracted.newFacts) ? extracted.newFacts : [];
+  if (extracted.summary || newFacts.length) {
+    findings.push({ sessionId, summary: extracted.summary ?? "", facts: newFacts, at: new Date().toISOString() });
+    memory.guidanceFindings = findings;
+  }
+  if (!memory.caseSummary && typeof extracted.summary === "string") memory.caseSummary = extracted.summary;
+
+  data.caseMemory = memory;
+
+  const sessions = Array.isArray(data.guidanceSessions) ? data.guidanceSessions as unknown[] : [];
+  sessions.push({ sessionId, summary: extracted.summary ?? "", completedAt: new Date().toISOString() });
+  data.guidanceSessions = sessions;
+
+  await db.update(casesTable)
+    .set({ caseData: data, updatedAt: new Date() })
+    .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+}
+
+// ── POST /ai/estimate ───────────────────────────────────────────────────────
+// Up-front credit estimate for a billable action (also the enforced spend cap).
+router.post("/ai/estimate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { kind, documentType } = req.body as { kind?: "document" | "guidance"; documentType?: string };
+
+  const estimate = kind === "guidance" ? estimateForGuidance() : estimateForDocument(documentType ?? "motion");
+  const check = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+  res.json({ ...estimate, waived: check.waived, creditBalance: check.balance, sufficient: check.ok });
+});
+
+// ── POST /ai/draft-decision ─────────────────────────────────────────────────
+// AI Decision Layer: ready-to-draft / guidance-recommended / guidance-required.
+router.post("/ai/draft-decision", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI not configured", code: "ai_not_configured" }); return; }
+
+  const { caseId, documentType, documentLabel } = req.body as { caseId?: string; documentType?: string; documentLabel?: string };
+  if (!documentType) { res.status(400).json({ error: "documentType is required" }); return; }
+
+  try {
+    const { caseTitle, caseContext } = await loadCaseContext(userId, caseId);
+    const result = await aiService.draftReadiness({
+      documentType,
+      documentLabel: documentLabel || documentType,
+      caseTitle,
+      caseContext,
+    });
+
+    void logAiCall({
+      userId, caseId: caseId ?? null, feature: "draft_decision" as AiFeature,
+      model: result.meta.model, inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens,
+      estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs,
+      cacheHit: false, promptTemplate: "draft_decision", creditsCharged: 0,
+    });
+
+    res.json({ ...result.data, estimate: estimateForDocument(documentType) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Decision failed" });
+  }
+});
+
+// ── POST /ai/guidance/start ─────────────────────────────────────────────────
+// Open a Guidance Session: create the row and generate a warm opening message.
+router.post("/ai/guidance/start", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI not configured", code: "ai_not_configured" }); return; }
+
+  const { caseId, action, documentLabel, topics } = req.body as {
+    caseId?: string; action?: string; documentLabel?: string; topics?: string[];
+  };
+
+  // Verify the user can cover the guidance estimate (the spend cap) before starting.
+  const estimate = estimateForGuidance();
+  const balanceCheck = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+  if (!balanceCheck.ok) {
+    res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balanceCheck.balance, estimatedCredits: estimate.estimatedCredits });
+    return;
+  }
+
+  try {
+    const { caseTitle, caseContext } = await loadCaseContext(userId, caseId);
+    const sessionTopics = Array.isArray(topics) ? topics.filter(t => typeof t === "string" && t.trim()).slice(0, 8) : [];
+
+    const opening = await aiService.guidanceChat({ caseTitle, caseContext, topics: sessionTopics, documentLabel, history: [] });
+    const greeting = opening.data.reply;
+
+    const [session] = await db.insert(guidanceSessionsTable).values({
+      userId,
+      caseId: caseId ?? null,
+      action: action || "general",
+      status: "active",
+      topics: sessionTopics,
+      messages: [{ role: "assistant", content: greeting }],
+      wordCount: countWords(greeting),
+      creditCap: estimate.estimatedCredits,
+    }).returning();
+
+    void logAiCall({
+      userId, caseId: caseId ?? null, sessionId: session.id, feature: "guidance_session" as AiFeature,
+      model: opening.meta.model, inputTokens: opening.meta.inputTokens, outputTokens: opening.meta.outputTokens,
+      estimatedCostMicroUsd: opening.meta.estimatedCostMicroUsd, responseTimeMs: opening.meta.responseTimeMs,
+      cacheHit: false, promptTemplate: "guidance_start", creditsCharged: 0,
+    });
+
+    res.json({
+      sessionId: session.id,
+      greeting,
+      topics: sessionTopics,
+      estimate,
+      creditBalance: balanceCheck.balance,
+      wordCount: session.wordCount,
+      creditCap: session.creditCap,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Could not start guidance session" });
+  }
+});
+
+// ── POST /ai/guidance/:id/message ───────────────────────────────────────────
+// Continue a session. Enforces the spend cap: when the conversation nears the
+// cap we stop and ask the user to approve more before continuing.
+router.post("/ai/guidance/:id/message", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI not configured", code: "ai_not_configured" }); return; }
+
+  const sessionId = String(req.params.id);
+  const { message, extendCap } = req.body as { message?: string; extendCap?: boolean };
+  if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
+
+  try {
+    const [session] = await db.select().from(guidanceSessionsTable)
+      .where(and(eq(guidanceSessionsTable.id, sessionId), eq(guidanceSessionsTable.userId, userId)));
+    if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+    if (session.status !== "active") { res.status(409).json({ error: "This guidance session has already ended.", code: "session_closed" }); return; }
+
+    let creditCap = session.creditCap;
+    if (extendCap) {
+      const newCap = creditCap + estimateForGuidance().estimatedCredits;
+      const check = await checkBalanceForEstimate(userId, newCap);
+      if (!check.ok) { res.status(402).json({ error: "Insufficient credits to extend", code: "insufficient_credits", creditBalance: check.balance }); return; }
+      creditCap = newCap;
+      await db.update(guidanceSessionsTable).set({ creditCap, updatedAt: new Date() }).where(eq(guidanceSessionsTable.id, sessionId));
+    }
+
+    const history = (session.messages ?? []) as Array<{ role: "user" | "assistant"; content: string }>;
+
+    // Pause at the cap and ask to approve more (unless the user just approved).
+    const projectedWords = session.wordCount + countWords(message);
+    if (!extendCap && projectedWords >= creditCap * WORDS_PER_CREDIT) {
+      res.json({
+        capReached: true,
+        reply: null,
+        done: false,
+        wordCount: session.wordCount,
+        creditCap,
+        estimatedCredits: Math.min(creditsForWords(session.wordCount), creditCap),
+      });
+      return;
+    }
+
+    const { caseTitle, caseContext } = await loadCaseContext(userId, session.caseId ?? undefined);
+    const turn = await aiService.guidanceChat({
+      caseTitle, caseContext,
+      topics: (session.topics ?? []) as string[],
+      documentLabel: session.action !== "general" ? session.action : undefined,
+      history,
+      userMessage: message,
+    });
+
+    const reply = turn.data.reply;
+    const newMessages = [...history, { role: "user" as const, content: message }, { role: "assistant" as const, content: reply }];
+    const newWordCount = session.wordCount + countWords(message) + countWords(reply);
+
+    await db.update(guidanceSessionsTable).set({ messages: newMessages, wordCount: newWordCount, updatedAt: new Date() }).where(eq(guidanceSessionsTable.id, sessionId));
+
+    void logAiCall({
+      userId, caseId: session.caseId, sessionId, feature: "guidance_session" as AiFeature,
+      model: turn.meta.model, inputTokens: turn.meta.inputTokens, outputTokens: turn.meta.outputTokens,
+      estimatedCostMicroUsd: turn.meta.estimatedCostMicroUsd, responseTimeMs: turn.meta.responseTimeMs,
+      cacheHit: false, promptTemplate: "guidance_message", creditsCharged: 0,
+    });
+
+    res.json({
+      reply,
+      done: turn.data.done,
+      wordCount: newWordCount,
+      creditCap,
+      estimatedCredits: Math.min(creditsForWords(newWordCount), creditCap),
+      capReached: false,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Guidance message failed" });
+  }
+});
+
+// ── POST /ai/guidance/:id/complete ──────────────────────────────────────────
+// Finalize a session: extract structured answers, merge into case memory, charge
+// by conversation length (capped), and log usage with the session id.
+router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const sessionId = String(req.params.id);
+
+  try {
+    const [session] = await db.select().from(guidanceSessionsTable)
+      .where(and(eq(guidanceSessionsTable.id, sessionId), eq(guidanceSessionsTable.userId, userId)));
+    if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+    if (session.status === "completed" || session.status === "abandoned") {
+      res.json({ ok: true, alreadyCompleted: true, creditsCharged: session.creditsCharged, summary: (session.extractedAnswers as { summary?: string } | null)?.summary ?? "" });
+      return;
+    }
+
+    const history = (session.messages ?? []) as Array<{ role: "user" | "assistant"; content: string }>;
+    const hasUserContent = history.some(m => m.role === "user");
+    const transcript = history.map(m => `${m.role === "user" ? "User" : "Guide"}: ${m.content}`).join("\n\n");
+
+    // Extract structured answers (best-effort — a failure still lets us charge & close).
+    let extracted: Record<string, unknown> | null = null;
+    let extractMeta: { model: string; inputTokens: number; outputTokens: number; estimatedCostMicroUsd: number; responseTimeMs: number } | null = null;
+    if (aiService.isConfigured() && hasUserContent) {
+      try {
+        const { caseTitle } = await loadCaseContext(userId, session.caseId ?? undefined);
+        const ex = await aiService.extractGuidanceAnswers({ caseTitle, topics: (session.topics ?? []) as string[], transcript });
+        extracted = ex.data as unknown as Record<string, unknown>;
+        extractMeta = ex.meta;
+      } catch (exErr) {
+        console.warn(`[guidance/complete] extraction failed session=${sessionId}:`, (exErr as Error).message);
+      }
+    }
+
+    // Charge by conversation length, capped. Sessions with no user input are free.
+    const usageCredits = hasUserContent ? Math.min(creditsForWords(session.wordCount), session.creditCap) : 0;
+
+    // Atomically claim completion: only the request that transitions the session out
+    // of "active" is allowed to charge. This makes /complete idempotent under retries
+    // and concurrent calls — a losing request never double-charges the same session.
+    const [claimed] = await db.update(guidanceSessionsTable).set({
+      status: hasUserContent ? "completed" : "abandoned",
+      extractedAnswers: extracted ?? undefined,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(and(
+      eq(guidanceSessionsTable.id, sessionId),
+      eq(guidanceSessionsTable.status, "active"),
+    )).returning();
+
+    if (!claimed) {
+      // Another request already finalized this session — return its result, never re-charge.
+      const [fresh] = await db.select().from(guidanceSessionsTable).where(eq(guidanceSessionsTable.id, sessionId));
+      res.json({
+        ok: true,
+        alreadyCompleted: true,
+        creditsCharged: fresh?.creditsCharged ?? 0,
+        summary: (fresh?.extractedAnswers as { summary?: string } | null)?.summary ?? "",
+      });
+      return;
+    }
+
+    // We own the completion — safe to charge exactly once, then record the actual amount.
+    const charge = await chargeCredits(userId, usageCredits);
+    const creditsCharged = charge.chargedAmount ?? 0;
+    if (creditsCharged > 0) {
+      await db.update(guidanceSessionsTable).set({ creditsCharged, updatedAt: new Date() })
+        .where(eq(guidanceSessionsTable.id, sessionId));
+    }
+
+    if (extracted && session.caseId) {
+      try { await mergeGuidanceIntoCase(userId, session.caseId, sessionId, extracted); }
+      catch (mErr) { console.warn(`[guidance/complete] case merge failed session=${sessionId}:`, (mErr as Error).message); }
+    }
+
+    if (extractMeta) {
+      void logAiCall({
+        userId, caseId: session.caseId, sessionId, feature: "guidance_session" as AiFeature,
+        model: extractMeta.model, inputTokens: extractMeta.inputTokens, outputTokens: extractMeta.outputTokens,
+        estimatedCostMicroUsd: extractMeta.estimatedCostMicroUsd, responseTimeMs: extractMeta.responseTimeMs,
+        cacheHit: false, promptTemplate: "guidance_complete", creditsCharged,
+      });
+    }
+
+    res.json({
+      ok: true,
+      creditsCharged,
+      creditBalance: charge.balance,
+      summary: (extracted as { summary?: string } | null)?.summary ?? "",
+      extractedAnswers: extracted,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Could not complete guidance session" });
   }
 });
 

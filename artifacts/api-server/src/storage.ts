@@ -56,6 +56,21 @@ export class Storage {
     return rows.length > 0;
   }
 
+  /** Atomically deduct N credits. Returns true only if the full amount was covered. */
+  async deductCredits(userId: string, amount: number): Promise<boolean> {
+    if (amount <= 0) return true;
+    await this.ensureUser(userId);
+    const rows = await db
+      .update(usersTable)
+      .set({
+        creditBalance: sql`${usersTable.creditBalance} - ${amount}`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(usersTable.id, userId), gte(usersTable.creditBalance, amount)))
+      .returning({ creditBalance: usersTable.creditBalance });
+    return rows.length > 0;
+  }
+
   // ── Stripe product queries (from stripe-replit-sync stripe schema) ──────────
 
   async listProductsWithPrices() {

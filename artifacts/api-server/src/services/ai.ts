@@ -1354,6 +1354,171 @@ Return only the JSON object.`;
     };
   }
 
+  // ── AI Decision Layer (draft readiness) ────────────────────────────────────
+  // Reviews existing case data for a chosen drafting action and decides whether
+  // to proceed, recommend a Guidance Session, or require one first.
+  async draftReadiness(input: {
+    documentLabel: string;
+    documentType: string;
+    caseTitle: string;
+    caseContext: string;
+  }): Promise<AiResult<{ decision: "ready" | "recommended" | "required"; rationale: string; topics: string[] }>> {
+    const prompt = `You are HyperLaw's pre-draft reviewer. A self-represented (pro se) litigant wants to draft: "${input.documentLabel}".
+
+Review the case information below and decide whether there is enough concrete, case-specific context to produce a strong draft, or whether a short Guidance Session (a friendly conversation that gathers missing context) should happen first.
+
+=== CASE: ${input.caseTitle} ===
+${(input.caseContext || "No case information recorded yet.").slice(0, 8000)}
+
+Return ONLY valid JSON:
+{
+  "decision": "ready" | "recommended" | "required",
+  "rationale": "1-2 warm, plain-language sentences explaining the decision to the user",
+  "topics": ["Short label of a specific topic a guidance session should cover to strengthen THIS document"]
+}
+
+Decision rules:
+- "ready": the case already contains specific facts, parties, dates, and context sufficient for this document. topics may be empty.
+- "recommended": draftable now, but a few targeted questions would meaningfully improve the result. Provide 2-5 topics.
+- "required": key information needed for this document type is missing (e.g. no facts, no opposing filing to respond to, no dates). Provide 2-6 topics.
+- Base the decision ONLY on what is present below. Do not invent facts. This is procedural guidance, not legal advice.
+Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 800,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: prompt }],
+    }));
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  // ── Guidance Session chat turn ─────────────────────────────────────────────
+  // A calm, conversational context-gatherer. Returns the assistant's next
+  // message plus a `done` flag once it has gathered what it needs.
+  async guidanceChat(input: {
+    caseTitle: string;
+    caseContext: string;
+    topics: string[];
+    documentLabel?: string;
+    history: Array<{ role: "user" | "assistant"; content: string }>;
+    userMessage?: string;
+  }): Promise<AiResult<{ reply: string; done: boolean }>> {
+    const topicsBlock = input.topics.length
+      ? input.topics.map((t, i) => `${i + 1}. ${t}`).join("\n")
+      : "General context that would strengthen the case.";
+
+    const system = `You are HyperLaw's Guidance Assistant — a warm, calm, encouraging companion (represented by a friendly orange brain) that helps a self-represented (pro se) litigant talk through their case. You are NOT a lawyer: you never give legal advice, never predict outcomes, and never tell the user what they "should" legally do. You gather facts and context through natural conversation.
+
+Style:
+- Warm, plain-language, and human. ONE focused question at a time — never interrogate.
+- Briefly acknowledge what the user just shared before asking the next thing.
+- Never dump a list of questions. Keep each message short (1-3 sentences).
+- Do not draft documents or cite statutes here — just understand their situation.
+- When you have covered the important topics (or the user signals they're done or has nothing more to add), thank them warmly, give a one-sentence recap, and set done=true.
+
+Every reply MUST be a single valid JSON object (no markdown, no code fences):
+{ "reply": "your next conversational message to the user", "done": boolean }`;
+
+    const contextPrimer = `=== CASE: ${input.caseTitle} ===
+${(input.caseContext || "No case details recorded yet.").slice(0, 6000)}
+
+=== ${input.documentLabel ? `PREPARING: ${input.documentLabel}\n` : ""}TOPICS TO EXPLORE (cover the important ones, then finish) ===
+${topicsBlock}`;
+
+    const messages: Anthropic.MessageParam[] = [];
+    if (input.history.length === 0) {
+      const opening = input.userMessage
+        ? `${contextPrimer}\n\nThe user opened with: "${input.userMessage}"\n\nRespond warmly and ask your first gentle question. Return JSON.`
+        : `${contextPrimer}\n\n(Start the session: greet the user warmly, acknowledge in one sentence what you can see about their case, then ask your first gentle question about the most important missing topic. Return JSON.)`;
+      messages.push({ role: "user", content: opening });
+    } else {
+      messages.push({ role: "user", content: `${contextPrimer}\n\n(The guidance conversation so far follows. Reply with JSON for your next message only.)` });
+      for (const m of input.history) messages.push({ role: m.role, content: m.content });
+      if (input.userMessage) messages.push({ role: "user", content: input.userMessage });
+    }
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 800,
+      system,
+      messages,
+    }));
+
+    let data: { reply: string; done: boolean };
+    try {
+      data = this.parseJsonResponse<{ reply: string; done: boolean }>(response);
+    } catch {
+      // Model didn't return JSON — treat the raw text as the reply, keep going.
+      data = { reply: this.firstText(response), done: false };
+    }
+    if (typeof data.reply !== "string" || !data.reply.trim()) {
+      data.reply = "Thanks for sharing that. Is there anything else you think is important?";
+    }
+    data.done = data.done === true;
+    return { data, meta: this.buildMeta(response.usage, Date.now() - start) };
+  }
+
+  // ── Guidance Session extraction ────────────────────────────────────────────
+  // On completion, distill the transcript into structured answers to merge into
+  // the case's memory so future analysis and drafts benefit.
+  async extractGuidanceAnswers(input: {
+    caseTitle: string;
+    topics: string[];
+    transcript: string;
+  }): Promise<AiResult<{
+    summary: string;
+    newFacts: string[];
+    parties: Array<{ name: string; role: string; details?: string }>;
+    events: Array<{ date: string; description: string; significance?: string }>;
+    evidence: Array<{ description: string; type: string; strength?: string }>;
+    witnesses: Array<{ name: string; relevance?: string }>;
+    claims: string[];
+    locations: string[];
+    resolvedQuestions: string[];
+    openQuestions: string[];
+  }>> {
+    const prompt = `A self-represented litigant just completed a Guidance Session (a conversation) about their case "${input.caseTitle}". Distill everything they shared into structured case data. Extract ONLY what the user actually stated in the transcript — never infer or invent.
+
+TOPICS THE SESSION AIMED TO COVER:
+${input.topics.length ? input.topics.map(t => `- ${t}`).join("\n") : "- General context"}
+
+TRANSCRIPT:
+${input.transcript.slice(0, 14000)}
+
+Return ONLY valid JSON:
+{
+  "summary": "2-3 sentence recap of what this session established",
+  "newFacts": ["Specific new fact the user stated"],
+  "parties": [{ "name": "", "role": "plaintiff|defendant|witness|officer|agency|attorney|other", "details": "" }],
+  "events": [{ "date": "as stated", "description": "", "significance": "" }],
+  "evidence": [{ "description": "", "type": "document|photo|testimony|record|report|other", "strength": "strong|moderate|weak" }],
+  "witnesses": [{ "name": "", "relevance": "" }],
+  "claims": ["Legal claim or issue the user described in plain terms"],
+  "locations": ["Relevant place mentioned"],
+  "resolvedQuestions": ["An open question this session answered"],
+  "openQuestions": ["A question still unanswered after this session"]
+}
+Use empty arrays where nothing applies. Do not fabricate. Return only the JSON object.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      system: "You extract structured case facts from a conversation transcript. Return only valid JSON. Never fabricate — extract only what the user stated.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+    return {
+      data: this.parseJsonResponse(response),
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   // Throw if the model stopped because it hit the token ceiling. A truncated
   // response yields invalid JSON or a half-written document; failing loudly is
   // far better than silently persisting or parsing partial output.

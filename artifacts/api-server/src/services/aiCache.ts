@@ -31,7 +31,10 @@ export type AiFeature =
   | "gap_detect"
   | "procedural_info"
   | "ifp_find_form"
-  | "defense_analyze";
+  | "defense_analyze"
+  | "draft_decision"
+  | "guidance_session"
+  | "estimate";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 
@@ -96,6 +99,7 @@ export async function setCache(
 export interface LogCallParams {
   userId: string;
   caseId?: string | null;
+  sessionId?: string | null;
   feature: AiFeature;
   model: string;
   inputTokens: number;
@@ -104,6 +108,7 @@ export interface LogCallParams {
   responseTimeMs: number;
   cacheHit: boolean;
   promptTemplate?: string;
+  creditsCharged?: number;
 }
 
 export async function logAiCall(params: LogCallParams): Promise<void> {
@@ -111,6 +116,7 @@ export async function logAiCall(params: LogCallParams): Promise<void> {
     await db.insert(aiLogsTable).values({
       userId: params.userId,
       caseId: params.caseId ?? null,
+      sessionId: params.sessionId ?? null,
       feature: params.feature,
       model: params.model,
       inputTokens: params.inputTokens,
@@ -119,6 +125,7 @@ export async function logAiCall(params: LogCallParams): Promise<void> {
       responseTimeMs: params.responseTimeMs,
       cacheHit: params.cacheHit,
       promptTemplate: params.promptTemplate ?? null,
+      creditsCharged: params.creditsCharged ?? 0,
     });
   } catch {
     // Logging is never allowed to break the main flow

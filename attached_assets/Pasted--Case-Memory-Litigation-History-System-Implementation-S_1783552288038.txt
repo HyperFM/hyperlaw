@@ -1,0 +1,114 @@
+# Case Memory & Litigation History System — Implementation Spec
+
+**For:** HyperLaw (Replit / Fable agent)
+**Purpose:** Give the AI persistent, structured memory of each case so every Guidance Session, draft, or analysis is informed by everything that's already happened — not treated as a first encounter.
+
+---
+
+## 0. Design Principle
+
+The AI should behave like co-counsel who has been on the case since day one, not a fresh associate reading a file cold. That means: **retrieve before you generate.** Every drafting or guidance call pulls a compact case memory summary first, then reasons from it — the same way a person re-reads their own notes before continuing a conversation instead of starting over.
+
+Two hard constraints:
+- **No clutter.** The user should see just enough to reorient, not a full case file dump.
+- **Move forward, not backward.** Resolved issues get summarized and archived, not re-surfaced. The system should let the user close a chapter and have the AI stop treating it as open.
+
+---
+
+## 1. Data Model
+
+Each case (`case_id`) owns five related tables. Use Postgres/Drizzle (or whatever ORM is already wired into the app) with `case_id` as the foreign key on all of them.
+
+```
+case_facts
+  id, case_id, fact_type (what_happened | party | key_date | damages | claim),
+  content, source (upload | ai_extracted | user_entered), created_at, superseded_by
+
+case_history
+  id, case_id, item_type (document_generated | document_uploaded | guidance_session | analysis),
+  title, content_ref (pointer to full doc/session), short_summary, created_at
+
+litigation_timeline
+  id, case_id, event_type (filing | response | hearing | discovery | deadline),
+  event_date, description, status (upcoming | completed | missed), created_at
+
+case_strategy_memory
+  id, case_id, category (issue_identified | argument_used | weakness | evidence_gap),
+  content, status (open | resolved | superseded), created_at, resolved_at
+
+memory_summaries
+  id, case_id, summary_type (rolling_case_summary | strategy_summary),
+  content, token_count, last_updated_from (id of last history/timeline row folded in), updated_at
+```
+
+`case_facts` and `case_strategy_memory` both carry a status/supersede field so old entries aren't deleted — just marked resolved and excluded from the live summary. This preserves full history for audit/discovery purposes while keeping what gets fed to the model lean.
+
+---
+
+## 2. Context Injection Pipeline
+
+Before **any** Guidance Session, drafting task, or analysis call to the model:
+
+1. Pull the current `memory_summaries.rolling_case_summary` for the case (should be a few hundred tokens, not thousands).
+2. Pull open (non-resolved) rows from `case_strategy_memory`.
+3. Pull the last 3–5 `litigation_timeline` events plus any upcoming/未resolved deadlines.
+4. Assemble into a single system-context block, e.g.:
+
+```
+CASE CONTEXT — [Case Name / Number]
+Summary: {rolling_case_summary}
+Open strategic issues: {bulleted open strategy_memory rows}
+Recent timeline: {last few timeline events}
+Upcoming/unresolved: {any status=upcoming or missed}
+```
+
+5. Prepend this block to the actual user request before sending to Claude. The model never starts from a blank slate.
+
+**Never send full raw history on every call.** Full records stay queryable (for "show me exactly what I argued in the MTD") but the default context is the summary.
+
+---
+
+## 3. Memory Summarization Strategy
+
+- After each new `case_history` row or `litigation_timeline` event is written, trigger a lightweight summarization pass: feed the new item + current `rolling_case_summary` to the model with an instruction to fold it in, not append — output stays roughly constant length.
+- Summarization should preserve: what happened, who's involved, key dates, current claims/damages, how prior issues were handled, and what's still open. It should actively **drop** resolved procedural noise (e.g., a scheduling issue that got resolved doesn't need to persist once resolved).
+- Store both the rolling summary (always current) and timestamped snapshots if you want version history later — optional, not required for v1.
+
+---
+
+## 4. Smart Referencing
+
+Once context injection is working, prompt the model (in the system instructions for drafting/guidance) to reference prior work naturally when relevant, e.g.:
+- "In your previous Motion to Dismiss, you argued that…"
+- "During a prior Guidance Session, you indicated that…"
+- "The document uploaded on [date] appears relevant to this issue."
+
+This should fall out naturally once the context block above is present — it doesn't need separate engineering beyond making sure the model is told it *has* this history and should use it rather than treat the request in isolation.
+
+---
+
+## 5. UI Fixes (from current build)
+
+**Bug 1 — Case ID/status disappears after creation.**
+Right now the case number/status toast appears once immediately after case creation, then vanishes. Fix: replace the one-off toast with a **persistent status bar** pinned to the bottom of the case screen, always visible, showing at minimum:
+- Case name / number
+- Case status (active / awaiting response / etc.)
+
+This is what makes the screen read as "finished" rather than mid-render.
+
+**Bug 2 — No recent/previous history visible.**
+Add a compact history strip (not a full log) to the case screen, showing something like 3–5 most recent items pulled from `case_history` + `litigation_timeline`, each as a single line (date + short_summary), tappable to expand into the full record if needed. This is the visible surface of the memory system — it's what lets the user glance and reorient without scrolling a full file.
+
+Keep both additions minimal — status bar + short history strip, nothing more. No dashboards, no extra panels.
+
+---
+
+## 6. Acceptance Criteria
+
+- [ ] All five tables exist and are linked to `case_id`
+- [ ] Any drafting/guidance/analysis call includes the context injection block before the user's actual request
+- [ ] Rolling summary updates after new history/timeline entries without growing unbounded
+- [ ] Resolved strategy/fact items are excluded from live context but remain queryable
+- [ ] Case status bar persists at bottom of case screen (not just post-creation toast)
+- [ ] Recent/previous history strip visible on case screen, 3–5 items, expandable
+- [ ] Model output demonstrably references prior documents/sessions when relevant (spot-check a few drafts)

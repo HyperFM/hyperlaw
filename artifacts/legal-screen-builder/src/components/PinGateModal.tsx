@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { useUser } from "@clerk/react";
 import { aiApi } from "../lib/aiApi";
-import { hasPlatformAuthenticator, verifyDevice, enrollDevice, isWebauthnAvailable } from "../lib/webauthnClient";
 
 const ORANGE = "#d9711f";
 
 /**
- * Security gate for destructive actions. Handles first-time PIN creation and
- * PIN verification, plus an optional Face ID / Touch ID gesture when the device
- * supports it. The verified PIN is handed back via onSuccess so the caller can
- * pass it to a PIN-guarded endpoint. WebAuthn is additive and fails soft — the
- * PIN is always the enforced gate.
+ * Security gate for destructive actions. Handles first-time PIN creation and PIN
+ * verification, and hands the verified PIN back via onSuccess so the caller can
+ * pass it to a PIN-guarded endpoint.
+ *
+ * The PIN is the SOLE factor — no passkey / Face ID / Touch ID is ever requested.
+ * A user who knows their PIN can always delete; we never make them clear two
+ * separate gates for one action.
  */
 export default function PinGateModal({ open, title, description, confirmLabel = "Confirm", onClose, onSuccess }: {
   open: boolean;
@@ -20,39 +20,23 @@ export default function PinGateModal({ open, title, description, confirmLabel = 
   onClose: () => void;
   onSuccess: (pin: string) => void;
 }) {
-  const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [hasPin, setHasPin] = useState(false);
-  const [webauthnEnabled, setWebauthnEnabled] = useState(false);
-  const [deviceCapable, setDeviceCapable] = useState(false);
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [offerDevice, setOfferDevice] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setPin(""); setConfirm(""); setError(null); setOfferDevice(false); setLoading(true);
+    setPin(""); setConfirm(""); setError(null); setLoading(true);
     aiApi.security.status()
-      .then(async s => {
-        setHasPin(s.hasPin);
-        setWebauthnEnabled(s.webauthnEnabled);
-        setDeviceCapable(await hasPlatformAuthenticator());
-      })
+      .then(s => setHasPin(s.hasPin))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [open]);
 
   if (!open) return null;
-
-  async function runDeviceGesture(): Promise<void> {
-    if (!webauthnEnabled || !isWebauthnAvailable()) return;
-    try {
-      const { challenge, credentialIds } = await aiApi.security.webauthnChallenge();
-      await verifyDevice(challenge, credentialIds);
-    } catch { /* fail soft — PIN is the enforced gate */ }
-  }
 
   async function submit() {
     setError(null);
@@ -62,11 +46,9 @@ export default function PinGateModal({ open, title, description, confirmLabel = 
       if (!hasPin) {
         if (pin !== confirm) { setError("PINs do not match"); setBusy(false); return; }
         await aiApi.security.setPin(pin);
-        if (deviceCapable) { setOfferDevice(true); setBusy(false); return; }
         onSuccess(pin);
       } else {
         await aiApi.security.verifyPin(pin);
-        await runDeviceGesture();
         onSuccess(pin);
       }
     } catch (e) {
@@ -74,21 +56,6 @@ export default function PinGateModal({ open, title, description, confirmLabel = 
     } finally {
       setBusy(false);
     }
-  }
-
-  async function enrollAndFinish() {
-    setBusy(true);
-    try {
-      const { challenge } = await aiApi.security.webauthnChallenge();
-      const id = await enrollDevice(
-        challenge,
-        user?.id ?? "user",
-        user?.primaryEmailAddress?.emailAddress ?? "HyperLaw User",
-      );
-      if (id) await aiApi.security.webauthnEnroll(id);
-    } catch { /* best-effort */ }
-    setBusy(false);
-    onSuccess(pin);
   }
 
   const inputStyle: React.CSSProperties = {
@@ -110,28 +77,6 @@ export default function PinGateModal({ open, title, description, confirmLabel = 
       }}>
         {loading ? (
           <div style={{ textAlign: "center", color: "#666", fontSize: 14, padding: "20px 0" }}>Loading…</div>
-        ) : offerDevice ? (
-          <>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#fff", margin: "0 0 8px", textAlign: "center" }}>
-              Add Face ID / Touch ID?
-            </h3>
-            <p style={{ fontSize: 13, color: "#888", lineHeight: 1.6, textAlign: "center", marginBottom: 22 }}>
-              Add your device's biometric as an extra layer before any deletion. You can skip this and use your PIN alone.
-            </p>
-            <button onClick={enrollAndFinish} disabled={busy} style={{
-              width: "100%", padding: "14px", background: `linear-gradient(90deg, ${ORANGE}, #FF7A1A)`,
-              border: "none", borderRadius: 12, color: "#0a0908", fontWeight: 800, fontSize: 14,
-              cursor: busy ? "default" : "pointer", marginBottom: 10, opacity: busy ? 0.6 : 1,
-            }}>
-              {busy ? "Setting up…" : "Enable device unlock"}
-            </button>
-            <button onClick={() => onSuccess(pin)} disabled={busy} style={{
-              width: "100%", padding: "12px", background: "none", border: "1px solid #2a2a2a",
-              borderRadius: 12, color: "#888", fontWeight: 600, fontSize: 13, cursor: "pointer",
-            }}>
-              Skip — use PIN only
-            </button>
-          </>
         ) : (
           <>
             <h3 style={{ fontSize: 18, fontWeight: 800, color: "#fff", margin: "0 0 8px", textAlign: "center" }}>

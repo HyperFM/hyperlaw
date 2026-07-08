@@ -50,6 +50,25 @@ are explicit directives the user cares about; re-violating them reads as "you ig
   self-clears via a 2600ms `setTimeout` effect. Skipped AssemblyProgress steps (`!done &&
   hlCase.structuredCase`) render WHITE (auto-organized from a doc), not dark (still to-do).
 
+## Case Progress bar — court health + "auto-organized" (white) logic
+- `computeCaseHealth`'s `court` must count a non-empty `jurisdiction` STRING, not just the
+  structured `court` object. Document intake fills `jurisdiction` (e.g. "U.S. District Court,
+  E.D. Ky."), never `court`, so keying court-done only off `court` wrongly nagged "Complete
+  court" on cases whose court was clearly in the uploaded complaint.
+- The white "auto-organized"/skipped bar state must be PER-STEP, not a global flag. Gate =
+  `organizedFromDoc` (`structuredCase` exists OR `notes` has content — notes is AI-summary-only,
+  so it's honest proof a document was analyzed) AND a step-level `autoCoverable` flag. ONLY
+  **Story** is autoCoverable: analysis stores the narrative as the case summary in `notes`,
+  never in the `story` field, so an empty story after upload is by-design. Parties/Timeline get
+  their own fields → empty = a real gap (stay dark).
+- **Court is a hard drafting gate — NEVER mark it skipped/handled.** A global skip once let
+  Court show white while jurisdiction was actually missing, and "Next" jumped to Draft even
+  though drafting blocks on jurisdiction. Skipped steps count toward pct AND are bypassed by
+  the "Next" hint, so faking a hard gate silently strands the user at a blocked draft.
+- **Why:** a paying user uploaded a full complaint and raged that court wasn't recognized and
+  the bars stayed dark instead of white. **How to apply:** only add `autoCoverable` for facts
+  whose empty field is by-design; keep required-for-drafting facts (jurisdiction/court) honest.
+
 ## MSJ drafting gates (DraftQuestionsModal, `isMSJ`)
 - Motion for Summary Judgment shows two upfront gates before the single generate call:
   (1) "is your complaint strong enough?" — "Not yet" blocks and tells them to Strengthen first;

@@ -1103,16 +1103,32 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
   onGoToPhase?: (stage: WorkflowStage) => void;
 }) {
   const health = computeCaseHealth(hlCase);
-  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean }[] = [
+  // A source document was uploaded & analyzed → the AI already pulled the case
+  // facts in. `notes` is AI-summary-only (no manual Notes UI) and `structuredCase`
+  // is engine-only, so either one is honest proof the case was auto-organized. (§2)
+  const organizedFromDoc = !!hlCase.structuredCase || (hlCase.notes?.trim().length ?? 0) > 0;
+  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean; autoCoverable?: boolean }[] = [
     { label: "Parties", done: health.parties, stage: "parties" },
     { label: "Court", done: health.court, stage: "court" },
-    { label: "Story", done: health.story, stage: "story" },
+    // Story is the ONLY step a document auto-covers: analysis stores the narrative
+    // as the case summary (in `notes`), never in the `story` field, so an empty
+    // story after an upload is by-design, not a gap. Parties/Timeline get their own
+    // fields when extracted, so empty = a real gap (stays dark). Court is a hard
+    // drafting gate — never fake it; it's done only when a jurisdiction/court
+    // actually exists (see computeCaseHealth), otherwise it must surface as a to-do.
+    { label: "Story", done: health.story, stage: "story", autoCoverable: true },
     { label: "Timeline", done: health.timeline, stage: "timeline" },
     { label: "Draft", done: hasDrafts, scrollToDraft: true },
   ];
-  const doneCount = steps.filter(s => s.done).length;
-  const pct = Math.round((doneCount / steps.length) * 100);
-  const next = steps.find(s => !s.done);
+  // An auto-coverable step the user hasn't filled but the analyzed document supplies
+  // is "auto-organized" (white) — handled, not a red to-do. It counts as handled
+  // progress and "Next" skips over it. Non-auto-coverable steps (Court, Parties,
+  // Timeline, Draft) surface normally when empty, so genuine gaps — above all the
+  // jurisdiction gate — are never hidden and drafting is never suggested prematurely.
+  const isSkipped = (s: { done: boolean; autoCoverable?: boolean }) => !s.done && organizedFromDoc && !!s.autoCoverable;
+  const handledCount = steps.filter(s => s.done || isSkipped(s)).length;
+  const pct = Math.round((handledCount / steps.length) * 100);
+  const next = steps.find(s => !s.done && !isSkipped(s));
 
   return (
     <div style={{
@@ -1127,9 +1143,7 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
         {steps.map(s => {
           const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
-          // Not done by hand, but the AI already organized it from an uploaded
-          // document → show it "skipped" (white), not "to-do" (dark). (brief §2)
-          const skipped = !s.done && !!hlCase.structuredCase;
+          const skipped = isSkipped(s);
           return (
             <button
               key={s.label}

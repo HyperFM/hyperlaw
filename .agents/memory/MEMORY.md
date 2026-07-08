@@ -15,7 +15,8 @@
 - [HyperLaw Creator Page](hyperlaw-creator-page.md) — Profile photo (localStorage base64 + profilePhotoChanged event); creator button; AboutCreatorView with hero/carousel/CTA; about_creator AppView type.
 - [HyperLaw Document Intake](hyperlaw-document-intake.md) — upload stores only (no AI); 5-step wizard; credit deducted at hold-to-analyze; AI parties/timeline/jurisdiction now merged into case (see case-sync).
 - [HyperLaw case sync clobber](hyperlaw-case-sync.md) — full-blob upsert + local-wins hydration; case merges MUST fill empty fields only.
-- [Assembly screen & case card redesign](hyperlaw-assembly-redesign.md) — card stays slim (NO next-step/"Add Parties" CTA, NO health checklist); Notes UI removed from case screen (hlCase.notes data kept); MSJ upfront gates in DraftQuestionsModal.
+- [Assembly screen & case card redesign](hyperlaw-assembly-redesign.md) — card stays slim (NO next-step/"Add Parties" CTA, NO health checklist); Notes UI removed from case screen (hlCase.notes data kept); MSJ upfront gates; Progress bar court-health counts jurisdiction + per-step auto-organized(white) rule.
+- [HyperLaw PIN gate](hyperlaw-pin-gate.md) — destructive actions (case/account delete) are PIN-only; never add a passkey/biometric second factor.
 - [HyperLaw Case Memory](hyperlaw-case-memory.md) — buildCaseMemory() replaces analyzeDocumentWithIntake; CaseMemory schema; 11-step logging; success phase UI; goHome() nav fix.
 - [Claude AI robustness](claude-ai-robustness.md) — claude-sonnet-5 routinely leads with a thinking block (scan for first text block); size max_tokens to full JSON/doc output or it truncates silently; refunds must mirror deduction.
 - [Secrets need server restart](secrets-runtime.md) — requestSecrets is write-only (no values to sandbox); process.env picks up rotated secrets only after a workflow restart.

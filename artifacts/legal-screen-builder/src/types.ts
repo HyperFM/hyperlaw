@@ -365,7 +365,11 @@ export interface CaseHealth {
 export function computeCaseHealth(c: HLCase, hasDocuments = false): CaseHealth {
   return {
     parties: c.parties.length > 0,
-    court: c.court !== null,
+    // Court is "known" if the structured court is set OR a jurisdiction string is
+    // present. The complaint intake fills `jurisdiction` (e.g. "U.S. District
+    // Court, E.D. Ky."), not the structured `court`, so keying only off `court`
+    // wrongly nagged "Complete court" on cases whose court was clearly provided.
+    court: c.court !== null || (c.jurisdiction?.trim().length ?? 0) > 0,
     story: c.story.trim().length > 0,
     timeline: c.timeline.length > 0,
     documents: hasDocuments,

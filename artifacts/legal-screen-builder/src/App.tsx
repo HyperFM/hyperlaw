@@ -11,7 +11,7 @@ import {
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
   Party, TimelineEvent,
-  computeCaseHealth, getNextStep, caseCompletionPct,
+  computeCaseHealth,
 } from "./types";
 import {
   loadData, saveData, addIncident, updateIncident, deleteIncident,
@@ -848,68 +848,45 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
   return { ...hlCase, ...patch };
 }
 
-function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
+function PrimaryCaseCard({ hlCase, onOpen }: {
   hlCase: HLCase;
   onOpen: () => void;
-  onContinue: (stage: WorkflowStage) => void;
+  onContinue: (stage: WorkflowStage) => void; // kept for call-site compatibility (unused)
 }) {
-  const health = computeCaseHealth(hlCase);
-  const next = getNextStep(hlCase, health);
   const photo = useCasePhoto(hlCase.id);
 
-  const miniChecks = [
-    { label: "Parties", done: health.parties },
-    { label: "Court", done: health.court },
-    { label: "Story", done: health.story },
-    { label: "Timeline", done: health.timeline },
-    { label: "Assembly", done: !!hlCase.assembly },
-  ];
-  const donePct = Math.round((miniChecks.filter(c => c.done).length / miniChecks.length) * 100);
-
+  // Slim card (brief §4): date above, photo + name + stage, then one long document
+  // line as the primary action. No "Add Parties" CTA, no bulky health checklist.
   return (
-    <div style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "15px 16px" }}>
-      {/* Title + stage + view */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+    <div style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "13px 14px" }}>
+      {/* Date / court, sitting neatly above the card content */}
+      <div style={{ fontSize: 10.5, color: "#7a6a5c", fontWeight: 600, marginBottom: 9 }}>
+        {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
+      </div>
+
+      {/* Photo + title + stage — tapping opens the case */}
+      <button onClick={onOpen}
+        style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, marginBottom: 12, textAlign: "left" }}>
         {photo
-          ? <img src={photo} alt="" style={{ width: 26, height: 26, borderRadius: 7, objectFit: "cover", flexShrink: 0, border: `1px solid ${ORANGE}55` }} />
-          : <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />}
+          ? <img src={photo} alt="" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${ORANGE}55` }} />
+          : <Folder size={20} color={ORANGE} style={{ flexShrink: 0 }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{hlCase.title}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10.5, color: "#7a6a5c" }}>
-              {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
-            </span>
+          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
+          <div style={{ marginTop: 4 }}>
             <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: ORANGE }}>
               {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
             </span>
           </div>
         </div>
-        <button onClick={onOpen} style={{ background: "none", border: "none", color: "#8a7666", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0, padding: 4, whiteSpace: "nowrap" }}>
-          View
-        </button>
-      </div>
+        <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
+      </button>
 
-      {/* 5-phase Case Health checklist */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6, color: "#7a6a5c", textTransform: "uppercase" }}>Case Health</span>
-        <span style={{ fontSize: 11, fontWeight: 800, color: donePct === 100 ? "#4ade80" : ORANGE }}>{donePct}%</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 14px", marginBottom: 13 }}>
-        {miniChecks.map(c => (
-          <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            {c.done
-              ? <CheckCircle2 size={14} color="#4ade80" style={{ flexShrink: 0 }} />
-              : <div style={{ width: 13, height: 13, borderRadius: "50%", border: "1.5px solid #3a2f26", flexShrink: 0 }} />}
-            <span style={{ fontSize: 12, fontWeight: 600, color: c.done ? "#cfc0b3" : "#6f6156" }}>{c.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Next step CTA */}
-      <button
-        onClick={() => onContinue(next.stage)}
-        style={{ width: "100%", background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none", borderRadius: 10, padding: "11px", color: "#000", fontSize: 14, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-        {next.label} <ChevronRight size={15} />
+      {/* One long document line — the primary action, with a subtle drifting color */}
+      <button onClick={onOpen}
+        style={{ width: "100%", border: "none", borderRadius: 10, padding: "12px", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#000", fontSize: 13.5, fontWeight: 900,
+          background: `linear-gradient(90deg, ${ORANGE}, #ff8c00, ${ORANGE})`, backgroundSize: "220% 100%", animation: "hlDocLine 5s linear infinite" }}>
+        <FileText size={15} /> Open case &amp; documents
       </button>
     </div>
   );
@@ -1243,7 +1220,7 @@ function VerifyPanel({ hlCase, hasFacts }: {
   const [open, setOpen] = useState(false);
   const checks = [
     { label: "Jurisdiction set", done: !!hlCase.jurisdiction?.trim(), hint: "Required before drafting — set it below." },
-    { label: "Facts captured", done: hasFacts, hint: "Add parties, a timeline, or notes so drafts have substance." },
+    { label: "Facts captured", done: hasFacts, hint: "Add parties, a timeline, or your story so drafts have substance." },
     { label: "Case organized", done: !!hlCase.structuredCase, hint: "Run Discover to structure your facts." },
   ];
   const gaps = hlCase.structuredCase?.gapQuestions ?? [];
@@ -1316,10 +1293,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [notes, setNotes] = useState(hlCase.notes);
-  // Keep the notes editor in sync when the case's notes change externally (e.g. AI
-  // analysis appends a summary) so a later blur doesn't write stale text back.
-  useEffect(() => { setNotes(hlCase.notes); }, [hlCase.notes]);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "receiving" | "received" | "intake" | "gate" | "analyzing" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
@@ -1461,10 +1434,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   function saveTitle() {
     onUpdateCase({ ...hlCase, title: editTitle.trim() || hlCase.title });
     setEditingTitle(false);
-  }
-
-  function saveNotes(val: string) {
-    onUpdateCase({ ...hlCase, notes: val });
   }
 
   // Relevant templates based on incident categories in this case
@@ -2097,17 +2066,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           onAdd={onAddReminder}
           onDelete={onDeleteReminder}
         />
-
-        {/* Notes */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>NOTES</div>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={6}
-            placeholder="Add any notes about this case — context, questions, next steps..."
-            style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#ccc", fontSize: 14, fontFamily: "Georgia, serif", outline: "none", boxSizing: "border-box", resize: "vertical", lineHeight: 1.65 }}
-            onFocus={e => (e.target.style.borderColor = ORANGE)}
-            onBlur={e => { e.target.style.borderColor = "#2a2a2a"; saveNotes(notes); }}
-          />
-        </div>
 
         {/* Templates */}
         {relevantTemplates.length > 0 && (

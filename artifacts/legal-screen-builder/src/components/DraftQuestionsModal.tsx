@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, Loader2, Upload } from "lucide-react";
+import { X, Loader2, Upload, Check } from "lucide-react";
 import { aiApi, type ProceduralInfo, type DocumentType } from "../lib/aiApi";
 import { COMPLIANCE } from "../lib/compliance";
 
@@ -28,6 +28,7 @@ export default function DraftQuestionsModal(props: {
     open, documentType, documentLabel, jurisdiction, caseId, needsSource,
     onClose, onReady, onBuyCredits,
   } = props;
+  const isMSJ = documentType === "motion_summary_judgment";
 
   const [procLoading, setProcLoading] = useState(false);
   const [proc, setProc] = useState<ProceduralInfo | null>(null);
@@ -37,6 +38,11 @@ export default function DraftQuestionsModal(props: {
   const [filed, setFiled] = useState<FiledAnswer>(null);
   const [deadline, setDeadline] = useState("");
   const [conferred, setConferred] = useState<ConferredAnswer>(null);
+  // Motion-for-Summary-Judgment upfront gates (brief §10): the complaint is the
+  // entire foundation of an MSJ, so confirm it's complete and that the user accepts
+  // the motion will be built from it before we draft.
+  const [complaintStrong, setComplaintStrong] = useState<FiledAnswer>(null);
+  const [evidenceAck, setEvidenceAck] = useState(false);
 
   const [sourceContent, setSourceContent] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
@@ -53,6 +59,8 @@ export default function DraftQuestionsModal(props: {
     setFiled(null);
     setDeadline("");
     setConferred(null);
+    setComplaintStrong(null);
+    setEvidenceAck(false);
     setSourceContent("");
     setFileNote(null);
     setError(null);
@@ -89,6 +97,16 @@ export default function DraftQuestionsModal(props: {
 
   function handleContinue() {
     setError(null);
+    if (isMSJ && complaintStrong !== "yes") {
+      setError(complaintStrong === "no"
+        ? "A motion for summary judgment is built entirely from your complaint. Strengthen your complaint first, then come back to draft this motion."
+        : "Please answer whether your complaint is strong enough before drafting.");
+      return;
+    }
+    if (isMSJ && !evidenceAck) {
+      setError("Please confirm you want the motion drafted from your complaint before continuing.");
+      return;
+    }
     if (!relief.trim()) { setError("Please describe the outcome you're asking the court for."); return; }
     if (!disputedFacts.trim()) { setError("Please list the key facts you dispute or want to establish."); return; }
     if (needsSource && !sourceContent.trim()) { setError("Please paste the document you're responding to."); return; }
@@ -103,6 +121,10 @@ export default function DraftQuestionsModal(props: {
       "UPFRONT DRAFTING ANSWERS\n" +
       `Document: ${documentLabel}\n` +
       `Jurisdiction: ${jurisdiction || "unspecified"}\n` +
+      (isMSJ
+        ? "Complaint confirmed complete by the user: Yes\n" +
+          "User confirmed the motion may be built from the complaint, treating stated evidence as accurate: Yes\n"
+        : "") +
       `Relief sought: ${relief.trim()}\n` +
       `Disputed/target facts: ${disputedFacts.trim()}\n` +
       `Already filed: ${filedText}\n` +
@@ -178,6 +200,40 @@ export default function DraftQuestionsModal(props: {
             </ul>
           </div>
         ) : null}
+
+        {isMSJ && (
+          <>
+            <div style={fieldWrap}>
+              <label style={labelStyle}>First — is your complaint strong enough, with nothing else you'd add?</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button style={chip(complaintStrong === "yes")} onClick={() => setComplaintStrong("yes")}>Yes</button>
+                <button style={chip(complaintStrong === "no")} onClick={() => { setComplaintStrong("no"); setEvidenceAck(false); }}>Not yet</button>
+              </div>
+              {complaintStrong === "no" && (
+                <div style={{ background: "#1a1207", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: "12px 14px", marginTop: 10, color: "#e8c89a", fontSize: 13, lineHeight: 1.6 }}>
+                  A motion for summary judgment is built entirely from your complaint. Strengthen your complaint first (use the “Strengthen a document” option), then come back to draft this motion.
+                </div>
+              )}
+            </div>
+
+            {complaintStrong === "yes" && (
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Confirm before drafting</label>
+                <button
+                  onClick={() => setEvidenceAck(v => !v)}
+                  style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 10, textAlign: "left",
+                    background: "#0d0d0d", border: `1px solid ${evidenceAck ? ORANGE : "#2a2a2a"}`, borderRadius: 12, padding: "12px 14px", cursor: "pointer" }}>
+                  <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, border: `1px solid ${evidenceAck ? ORANGE : "#3a3a3a"}`, background: evidenceAck ? ORANGE : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                    {evidenceAck && <Check size={14} color="#0a0908" />}
+                  </span>
+                  <span style={{ color: "#ccc", fontSize: 13, lineHeight: 1.55 }}>
+                    Draft this motion using everything in my complaint, treating the evidence I've described as accurate.
+                  </span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Questions */}
         <div style={fieldWrap}>

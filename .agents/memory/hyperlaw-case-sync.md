@@ -29,8 +29,10 @@ reconciliation — last full-blob write wins. Until a revisioning/server-merge
 scheme is added, "fill-empty-only on write" + "hydration fills empty-local only"
 is the guardrail. A proper fix would add per-field revisioning.
 
-**Related gotcha:** CaseDetailView holds `notes` in local `useState`; it must
-sync from `hlCase.notes` via `useEffect(..., [hlCase.notes])`, or a later
-textarea blur writes the stale local notes back and erases external appends
-(like the AI case summary). Same pattern applies to any always-mounted local
-editor whose source prop can change underneath it.
+**Related pattern (general):** any always-mounted local editor whose `useState`
+seeds from a prop must re-sync via `useEffect(..., [prop])`, or a later blur
+writes stale local text back and erases external appends. The old Assembly
+`notes` textarea was the canonical case, but it has since been **removed** from
+the case screen per the redesign brief (see hyperlaw-assembly-redesign.md); the
+`hlCase.notes` data field still exists as background context (AI summary, verify
+readiness, doc-gen payload).

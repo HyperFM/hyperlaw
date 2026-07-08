@@ -39,6 +39,30 @@
   0%   { background-position: 0% 0; }
   100% { background-position: 220% 0; }
 }
+/* Two thin glowing orange side lines framing the Assembly screen (brief §3). */
+@keyframes hlSideGlow {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.75; }
+}
+
+/* Milky-orange gloss that slowly drifts across the Assembly screen (brief §3). */
+@keyframes hlMilkDrift {
+  0%, 100% { background-position: 42% 0%; }
+  50%      { background-position: 58% 0%; }
+}
+
+/* "Case details confirmed" moment — appears, holds, then fades (brief §2). */
+@keyframes hlConfirmFlash {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.96); }
+  14%  { opacity: 1; transform: translateY(0)    scale(1);    }
+  82%  { opacity: 1; transform: translateY(0)    scale(1);    }
+  100% { opacity: 0; transform: translateY(-6px) scale(0.97); }
+}
+
+/* Unified glossy press feedback for every button on the Assembly (case) screen (brief §9). */
+.hl-assembly button { transition: transform 0.09s ease, filter 0.09s ease; }
+.hl-assembly button:active:not(:disabled) { transform: scale(0.975); filter: brightness(1.12); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; }
 }

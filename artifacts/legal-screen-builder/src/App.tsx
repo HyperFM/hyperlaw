@@ -854,6 +854,7 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
   onContinue: (stage: WorkflowStage) => void; // kept for call-site compatibility (unused)
 }) {
   const photo = useCasePhoto(hlCase.id);
+  const cardPhotoInputRef = useRef<HTMLInputElement>(null);
 
   // Slim card (brief §4): date above, photo + name + stage, then one long document
   // line as the primary action. No "Add Parties" CTA, no bulky health checklist.
@@ -864,22 +865,32 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
         {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
       </div>
 
-      {/* Photo + title + stage — tapping opens the case */}
-      <button onClick={onOpen}
-        style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, marginBottom: 12, textAlign: "left" }}>
-        {photo
-          ? <img src={photo} alt="" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${ORANGE}55` }} />
-          : <Folder size={20} color={ORANGE} style={{ flexShrink: 0 }} />}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
-          <div style={{ marginTop: 4 }}>
-            <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: ORANGE }}>
-              {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
-            </span>
+      {/* Photo (changeable here on the card) + title + stage — tapping the text opens the case */}
+      <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 12 }}>
+        <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
+        <button onClick={e => { e.stopPropagation(); cardPhotoInputRef.current?.click(); }} title="Set a photo for this case"
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, position: "relative", borderRadius: 8, lineHeight: 0 }}>
+          {photo
+            ? <img src={photo} alt="" style={{ width: 34, height: 34, borderRadius: 8, objectFit: "cover", border: `1px solid ${ORANGE}55`, display: "block" }} />
+            : <div style={{ width: 34, height: 34, borderRadius: 8, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={17} color={ORANGE} /></div>}
+          <div style={{ position: "absolute", right: -3, bottom: -3, width: 15, height: 15, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #100e0c" }}>
+            <Camera size={8} color="#000" />
           </div>
-        </div>
-        <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
-      </button>
+        </button>
+        <button onClick={onOpen}
+          style={{ flex: 1, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, textAlign: "left" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
+            <div style={{ marginTop: 4 }}>
+              <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: ORANGE }}>
+                {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
+              </span>
+            </div>
+          </div>
+          <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
+        </button>
+      </div>
 
       {/* One long document line — the primary action, with a subtle drifting color */}
       <button onClick={onOpen}
@@ -981,76 +992,6 @@ function IncidentDetailView({ incident, cases, onDelete, onConvertToCase, onAddT
       {showDocConfirm && pendingExport && (
         <DocGenConfirmModal onConfirm={pendingExport} onClose={() => { setShowDocConfirm(false); setPendingExport(null); }} />
       )}
-    </div>
-  );
-}
-
-// ─── CASES VIEW ───────────────────────────────────────────────────────────────
-function CasesView({ data, onOpenCase, onDeleteCase }: {
-  data: AppData;
-  onOpenCase: (c: HLCase) => void;
-  onDeleteCase: (id: string) => void;
-}) {
-  const sorted = [...data.cases].sort((a, b) => b.createdAt - a.createdAt);
-
-  if (sorted.length === 0) {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
-        <Folder size={52} color="#1e1e1e" style={{ marginBottom: 16 }} />
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>No cases yet</div>
-        <div style={{ color: "#555", fontSize: 14, lineHeight: 1.6, maxWidth: 280 }}>
-          Create a new case to get started.
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 120px" }}>
-      <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>ALL CASES</div>
-      {/* Free-case quota indicator */}
-      <div style={{ marginBottom: 16, fontSize: 11, display: "flex", alignItems: "center", gap: 5,
-        color: sorted.length >= 2 ? "#f59e0b" : "#555" }}>
-        {sorted.length >= 2 && <AlertCircle size={11} />}
-        {sorted.length} / 2 free case{sorted.length !== 1 ? "s" : ""} used
-        {sorted.length >= 2 && " — upgrade to a plan for unlimited cases"}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {sorted.map(c => {
-          const stageLabel = STAGE_LABELS[c.workflowStage] ?? c.workflowStage;
-          return (
-            <div key={c.id} style={{ background: "linear-gradient(180deg, #141110 0%, #0f0d0c 100%)", border: "1px solid #241d17", borderRadius: 14, display: "flex", overflow: "hidden" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#241d17")}>
-              {/* Main tap area — opens case */}
-              <button onClick={() => onOpenCase(c)}
-                style={{ flex: 1, background: "none", border: "none", padding: "14px 16px", textAlign: "left", cursor: "pointer", display: "flex", gap: 13, minWidth: 0 }}>
-                {getCasePhoto(c.id)
-                  ? <img src={getCasePhoto(c.id) as string} alt="" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover", flexShrink: 0, marginTop: 2, border: `1px solid ${ORANGE}55` }} />
-                  : <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>{c.title}</span>
-                    {c.structuredCase && (
-                      <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: ORANGE, letterSpacing: 0.4 }}>
-                        ORGANIZED
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ color: "#555", fontSize: 13 }}>
-                    {stageLabel} · {formatDate(c.createdAt)}
-                  </div>
-                </div>
-                <ChevronRight size={16} color="#333" style={{ flexShrink: 0, marginTop: 4 }} />
-              </button>
-              {/* Delete button */}
-              <div style={{ borderLeft: "1px solid #1a1a1a", padding: "0 14px", display: "flex", alignItems: "center" }}>
-                <ConfirmDeleteButton onDelete={() => onDeleteCase(c.id)} iconSize={14} title={`Delete "${c.title}"`} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -1186,18 +1127,22 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
         {steps.map(s => {
           const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
+          // Not done by hand, but the AI already organized it from an uploaded
+          // document → show it "skipped" (white), not "to-do" (dark). (brief §2)
+          const skipped = !s.done && !!hlCase.structuredCase;
           return (
             <button
               key={s.label}
               disabled={!clickable}
+              title={skipped ? "Organized automatically from your document — tap to review or refine" : undefined}
               onClick={() => {
                 if (s.stage && onGoToPhase) onGoToPhase(s.stage);
                 else if (s.scrollToDraft) document.getElementById("draft-documents-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
               style={{ flex: 1, background: "none", border: "none", padding: 0, cursor: clickable ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 5 }}
             >
-              <div style={{ height: 5, borderRadius: 3, background: s.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#2a2019", boxShadow: s.done ? `0 0 6px ${ORANGE}66` : "none", transition: "all 0.3s" }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: s.done ? "#e8c9a8" : "#5a4a3d" }}>{s.label}</span>
+              <div style={{ height: 5, borderRadius: 3, background: s.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : skipped ? "linear-gradient(90deg, #efe6da, #fffaf3)" : "#2a2019", boxShadow: s.done ? `0 0 6px ${ORANGE}66` : skipped ? "0 0 6px rgba(255,255,255,0.30)" : "none", transition: "all 0.3s" }} />
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: s.done ? "#e8c9a8" : skipped ? "#cdbfb0" : "#5a4a3d" }}>{s.label}</span>
             </button>
           );
         })}
@@ -1297,6 +1242,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [uploadState, setUploadState] = useState<"idle" | "receiving" | "received" | "intake" | "gate" | "analyzing" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: CaseMemory } | null>(null);
+  const [showConfirmedFlash, setShowConfirmedFlash] = useState(false);
   const casePhoto = useCasePhoto(hlCase.id);
   const casePhotoInputRef = useRef<HTMLInputElement>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
@@ -1330,6 +1276,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       .catch(() => {})
       .finally(() => setGenDocsLoading(false));
   }, [hlCase.id, genDocsRefreshKey]); // genDocsRefreshKey increments when Tutor saves a doc
+
+  // Auto-dismiss the "Case details confirmed" flash after it plays (brief §2).
+  useEffect(() => {
+    if (!showConfirmedFlash) return;
+    const t = setTimeout(() => setShowConfirmedFlash(false), 2600);
+    return () => clearTimeout(t);
+  }, [showConfirmedFlash]);
 
   // Step 1 — file selected → store immediately (no AI), show received screen
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1377,6 +1330,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       onUpdateCase(merged);
       setUploadResult({ fileName: result.fileName, analysis: result.analysis });
       setUploadState("done");
+      setShowConfirmedFlash(true); // brief §2 — brief "Case details confirmed" moment
     } catch (err: unknown) {
       setUploadError((err as Error).message || "Analysis failed");
       setUploadState("error");
@@ -1441,7 +1395,19 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const relevantTemplates = TEMPLATES.filter(t => t.categories.some(c => caseCategories.has(c)));
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="hl-assembly" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
+      {/* Two thin glowing orange side lines framing the Assembly screen (brief §3) */}
+      <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 2, background: `linear-gradient(180deg, transparent, ${ORANGE}, transparent)`, boxShadow: `0 0 8px ${ORANGE}, 0 0 16px ${ORANGE}55`, opacity: 0.4, animation: "hlSideGlow 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 3 }} />
+      <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: 2, background: `linear-gradient(180deg, transparent, ${ORANGE}, transparent)`, boxShadow: `0 0 8px ${ORANGE}, 0 0 16px ${ORANGE}55`, opacity: 0.4, animation: "hlSideGlow 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 3 }} />
+      {/* "Case details confirmed" — appears then fades after an upload is organized (brief §2) */}
+      {showConfirmedFlash && (
+        <div aria-hidden style={{ position: "absolute", top: 64, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 40, pointerEvents: "none" }}>
+          <div style={{ animation: "hlConfirmFlash 2.6s ease forwards", background: "linear-gradient(180deg, #1b1613, #120f0d)", border: `1px solid ${ORANGE}66`, borderRadius: 999, padding: "9px 16px", display: "flex", alignItems: "center", gap: 8, boxShadow: `0 10px 30px rgba(0,0,0,0.55), 0 0 18px ${ORANGE}33` }}>
+            <Check size={15} color={ORANGE} />
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: "#fff" }}>Case details confirmed</span>
+          </div>
+        </div>
+      )}
       <div style={{ padding: "12px 16px 12px 16px", paddingRight: 52, borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
@@ -1451,7 +1417,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px", background: MILK_BG, backgroundImage: `radial-gradient(130% 55% at 50% 0%, ${ORANGE}14 0%, rgba(0,0,0,0) 62%)` }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px", background: MILK_BG, backgroundImage: `radial-gradient(130% 55% at 50% 0%, ${ORANGE}14 0%, rgba(0,0,0,0) 62%)`, backgroundSize: "170% 150%", backgroundRepeat: "no-repeat", animation: "hlMilkDrift 16s ease-in-out infinite" }}>
         {editingTitle ? (
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             <input value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
@@ -1472,7 +1438,10 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                 <Camera size={9} color="#000" />
               </div>
             </button>
-            <div style={{ fontSize: 22, fontWeight: 900, flex: 1, lineHeight: 1.2 }}>{hlCase.title}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.6, color: ORANGE, textTransform: "uppercase", opacity: 0.75, marginBottom: 3 }}>Assembly</div>
+              <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1.2 }}>{hlCase.title}</div>
+            </div>
             <button onClick={() => { setEditTitle(hlCase.title); setEditingTitle(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 6, marginTop: 2 }}><Edit3 size={15} /></button>
           </div>
@@ -1976,7 +1945,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               ? <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
               : <Sparkles size={16} color={ORANGE} />}
             <div style={{ textAlign: "left", flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 13, color: ORANGE }}>Strengthen a document</div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: ORANGE }}>Strengthen a Document</div>
               <div style={{ fontSize: 10, color: "#8a7566" }}>Paste an existing filing to sharpen it</div>
             </div>
           </button>
@@ -2113,6 +2082,10 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         open={showIfp}
         caseId={hlCase.id}
         jurisdiction={hlCase.jurisdiction ?? ""}
+        caseData={{
+          court: hlCase.court?.name ?? hlCase.court?.shortName ?? undefined,
+          state: hlCase.jurisdiction || undefined,
+        }}
         creditBalance={creditBalance}
         onBuyCredits={onBuyCredits}
         onClose={() => setShowIfp(false)}

@@ -1,19 +1,93 @@
 import React, { useState, useEffect } from "react";
-import { X, Loader2, Search, ExternalLink } from "lucide-react";
+import { X, Loader2, Search, ExternalLink, Check } from "lucide-react";
 import { aiApi, type ServerGeneratedDoc, type IfpFindResult, type IfpTemplate } from "../lib/aiApi";
 import SignaturePad from "./SignaturePad";
 
 const ORANGE = "#d9711f";
 
-type Field = { key: string; label: string };
+type Field = { key: string; label: string; wide?: boolean };
+type Group = { title: string; note?: string; fields: Field[] };
 
-const ALWAYS_FIELDS: Field[] = [
-  { key: "fullName", label: "Your full legal name" },
-  { key: "address", label: "Your mailing address" },
-  { key: "monthlyIncome", label: "Total monthly income ($)" },
-  { key: "dependents", label: "Number of dependents" },
-  { key: "monthlyExpenses", label: "Total monthly expenses ($)" },
-  { key: "reason", label: "Why you cannot afford the filing fee" },
+// Full Appendix A financial-affidavit question set, grouped like the federal
+// AO 240 "Application to Proceed In Forma Pauperis." Only "fullName" is required;
+// everything else is optional so the applicant can move quickly and refine later.
+const GROUPS: Group[] = [
+  {
+    title: "About you (the affiant)",
+    fields: [
+      { key: "fullName", label: "Your full legal name" },
+      { key: "dob", label: "Date of birth" },
+      { key: "phone", label: "Phone number" },
+      { key: "address", label: "Mailing address", wide: true },
+    ],
+  },
+  {
+    title: "Employment",
+    fields: [
+      { key: "employmentStatus", label: "Are you employed? (employed / unemployed / self-employed)", wide: true },
+      { key: "employerName", label: "Employer name" },
+      { key: "employerAddress", label: "Employer address", wide: true },
+      { key: "takeHomePay", label: "Monthly take-home pay ($)" },
+      { key: "lastEmployed", label: "If not employed, date last employed" },
+    ],
+  },
+  {
+    title: "Household",
+    fields: [
+      { key: "maritalStatus", label: "Marital status" },
+      { key: "spouseName", label: "Spouse's name (if any)" },
+      { key: "spouseIncome", label: "Spouse's monthly income ($)" },
+      { key: "dependents", label: "Number of dependents" },
+      { key: "dependentsDetail", label: "Dependents — names, relationship, ages", wide: true },
+    ],
+  },
+  {
+    title: "Monthly income",
+    note: "Enter 0 for anything that doesn't apply.",
+    fields: [
+      { key: "incWages", label: "Wages / salary ($)" },
+      { key: "incSelfEmployment", label: "Business / self-employment ($)" },
+      { key: "incRentInterest", label: "Rent, interest, or dividends ($)" },
+      { key: "incPensions", label: "Pensions / annuities / Social Security ($)" },
+      { key: "incDisability", label: "Disability / unemployment / workers' comp ($)" },
+      { key: "incPublicAssistance", label: "Public assistance — SNAP, TANF, etc. ($)" },
+      { key: "incOther", label: "Gifts / other income ($)" },
+    ],
+  },
+  {
+    title: "Monthly expenses",
+    note: "Enter 0 for anything that doesn't apply.",
+    fields: [
+      { key: "expHousing", label: "Rent / mortgage ($)" },
+      { key: "expUtilities", label: "Utilities — gas, electric, water, phone ($)" },
+      { key: "expFood", label: "Food / groceries ($)" },
+      { key: "expTransport", label: "Transportation / car payment ($)" },
+      { key: "expInsurance", label: "Insurance ($)" },
+      { key: "expMedical", label: "Medical / childcare ($)" },
+      { key: "expOther", label: "Other regular expenses ($)" },
+    ],
+  },
+  {
+    title: "Cash & assets",
+    fields: [
+      { key: "cashOnHand", label: "Cash on hand ($)" },
+      { key: "bankBalance", label: "Checking / savings balance ($)" },
+      { key: "realEstate", label: "Real estate you own (value)", wide: true },
+      { key: "vehicle", label: "Vehicle — make/year, value, amount owed", wide: true },
+      { key: "otherProperty", label: "Other valuable property", wide: true },
+    ],
+  },
+  {
+    title: "Debts you owe",
+    fields: [{ key: "debts", label: "Creditors and amounts owed", wide: true }],
+  },
+  {
+    title: "Anything else",
+    fields: [
+      { key: "reason", label: "Why you cannot afford the filing fee", wide: true },
+      { key: "additional", label: "Anything else the court should know", wide: true },
+    ],
+  },
 ];
 
 export default function IfpWizard(props: {
@@ -28,11 +102,12 @@ export default function IfpWizard(props: {
 }): React.JSX.Element | null {
   const { open, caseId, jurisdiction, caseData, onBuyCredits, onClose, onGenerated } = props;
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [result, setResult] = useState<IfpFindResult | null>(null);
   const [template, setTemplate] = useState<IfpTemplate | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [signature, setSignature] = useState<string | null>(null);
+  const [genDoc, setGenDoc] = useState<ServerGeneratedDoc | null>(null);
 
   const [searching, setSearching] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -47,6 +122,7 @@ export default function IfpWizard(props: {
     setTemplate(null);
     setAnswers({});
     setSignature(null);
+    setGenDoc(null);
     setError(null);
     setNeedCredits(false);
     setSearching(false);
@@ -66,6 +142,13 @@ export default function IfpWizard(props: {
     }
   };
 
+  // A successfully generated doc must always reach the parent — even if the user
+  // dismisses via the header X on the done screen — or it's lost until a reload.
+  const handleClose = () => {
+    if (genDoc) onGenerated(genDoc);
+    onClose();
+  };
+
   const runSearch = async () => {
     setSearching(true);
     setError(null);
@@ -83,21 +166,33 @@ export default function IfpWizard(props: {
     }
   };
 
-  // Build the list of fields for step 2 (dedupe by key, ALWAYS fields appended).
-  const fieldList: Field[] = (() => {
-    const base: Field[] =
-      result?.found && result.fields?.length
-        ? result.fields.map((f) => ({ key: f.key, label: f.label }))
-        : (template?.fields ?? []).map((f) => ({ key: f.key, label: f.label }));
-    const seen = new Set<string>();
-    const out: Field[] = [];
-    for (const f of [...base, ...ALWAYS_FIELDS]) {
-      if (seen.has(f.key)) continue;
-      seen.add(f.key);
-      out.push(f);
-    }
-    return out;
-  })();
+  // Any form-specific fields the located form/template asks for that aren't already
+  // covered by the standard Appendix A groups get their own extra section.
+  const knownKeys = new Set(GROUPS.flatMap((g) => g.fields.map((f) => f.key)));
+  const seenExtra = new Set<string>();
+  const extraFields: Field[] = (
+    result?.found && result.fields?.length ? result.fields : template?.fields ?? []
+  )
+    .map((f) => ({ key: f.key, label: f.label, wide: true }))
+    .filter((f) => {
+      // Drop keys already covered by the standard groups, and de-dupe any repeats
+      // the form/template metadata itself returns (avoids React key collisions).
+      if (knownKeys.has(f.key) || seenExtra.has(f.key)) return false;
+      seenExtra.add(f.key);
+      return true;
+    });
+  const allGroups: Group[] = extraFields.length
+    ? [...GROUPS, { title: "Form-specific questions", fields: extraFields }]
+    : GROUPS;
+
+  // Caption pulled straight from the case — shown read-only so we don't re-ask.
+  const captionRows = [
+    caseData?.court && { label: "Court", value: caseData.court },
+    caseData?.county && { label: "County", value: caseData.county },
+    caseData?.state && { label: "State", value: caseData.state },
+    caseData?.plaintiff && { label: "Plaintiff", value: caseData.plaintiff },
+    caseData?.caseNumber && { label: "Case No.", value: caseData.caseNumber },
+  ].filter(Boolean) as { label: string; value: string }[];
 
   const fullNameFilled = (answers.fullName ?? "").trim().length > 0;
 
@@ -108,17 +203,29 @@ export default function IfpWizard(props: {
     try {
       const formName = result?.found && result.formName ? result.formName : "generic Appendix A template";
       const sourceLine = result?.found && result.sourceUrl ? `Source URL: ${result.sourceUrl}` : "";
-      const answerLines = fieldList
-        .map((f) => `${f.label}: ${(answers[f.key] ?? "").trim()}`)
-        .join("\n");
+
+      const sections: string[] = [];
+      if (captionRows.length) {
+        sections.push("CASE CAPTION\n" + captionRows.map((r) => `${r.label}: ${r.value}`).join("\n"));
+      }
+      for (const g of allGroups) {
+        const lines = g.fields
+          .map((f) => {
+            const v = (answers[f.key] ?? "").trim();
+            return v ? `${f.label}: ${v}` : "";
+          })
+          .filter(Boolean);
+        if (lines.length) sections.push(g.title.toUpperCase() + "\n" + lines.join("\n"));
+      }
+
       const draftContext = [
         `Form: ${formName}`,
         sourceLine,
-        answerLines,
-        "Do NOT include a judge's order/ruling section and do NOT include a notary block. The applicant has captured a signature separately.",
+        sections.join("\n\n"),
+        "The applicant has reviewed the information and signed the application. Do NOT include a judge's order/ruling section and do NOT include a notary block.",
       ]
         .filter(Boolean)
-        .join("\n");
+        .join("\n\n");
 
       const doc = await aiApi.generateDocument({
         caseId,
@@ -130,8 +237,8 @@ export default function IfpWizard(props: {
           : undefined,
         caseData: { title: "Fee Waiver Application", notes: "", jurisdiction, incidents: [] },
       });
-      onGenerated(doc);
-      onClose();
+      setGenDoc(doc);
+      setStep(4);
     } catch (err) {
       handleError(err);
     } finally {
@@ -142,10 +249,17 @@ export default function IfpWizard(props: {
   // ── Styles ────────────────────────────────────────────────────────────────
   const labelStyle: React.CSSProperties = {
     fontSize: 11,
-    color: "#444",
+    color: "#8a7566",
     fontWeight: 700,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+  };
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 800,
+    color: ORANGE,
+    letterSpacing: 0.4,
     textTransform: "uppercase",
+    margin: "6px 0 2px",
   };
   const inputStyle: React.CSSProperties = {
     background: "#0d0d0d",
@@ -157,6 +271,17 @@ export default function IfpWizard(props: {
     outline: "none",
     boxSizing: "border-box",
     width: "100%",
+    fontFamily: "Arial, sans-serif",
+  };
+  const disclaimerBox: React.CSSProperties = {
+    background: `${ORANGE}0f`,
+    border: `1px solid ${ORANGE}33`,
+    borderRadius: 12,
+    padding: "12px 14px",
+    color: "#cbb8a8",
+    fontSize: 12.5,
+    lineHeight: 1.6,
+    margin: "0 0 16px",
   };
   const primaryBtn: React.CSSProperties = {
     background: `linear-gradient(90deg, ${ORANGE}, #FF7A1A)`,
@@ -184,11 +309,7 @@ export default function IfpWizard(props: {
       <div style={{ marginTop: 12 }}>
         <p style={{ color: "#ef4444", fontSize: 13, lineHeight: 1.6, margin: 0 }}>{error}</p>
         {needCredits && (
-          <button
-            type="button"
-            style={{ ...primaryBtn, marginTop: 10 }}
-            onClick={() => onBuyCredits?.()}
-          >
+          <button type="button" style={{ ...primaryBtn, marginTop: 10 }} onClick={() => onBuyCredits?.()}>
             Buy credits
           </button>
         )}
@@ -226,7 +347,7 @@ export default function IfpWizard(props: {
           <h2 style={{ margin: 0, color: "#fff", fontSize: 18, fontWeight: 800 }}>Fee Waiver Application</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close"
             style={{ background: "none", border: "none", color: "#888", cursor: "pointer", padding: 4 }}
           >
@@ -234,7 +355,11 @@ export default function IfpWizard(props: {
           </button>
         </div>
 
-        <p style={{ ...labelStyle, marginTop: 14, marginBottom: 4 }}>Step {step} of 3</p>
+        {step <= 3 && (
+          <p style={{ ...labelStyle, marginTop: 14, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Step {step} of 3
+          </p>
+        )}
 
         {/* ── STEP 1 ───────────────────────────────────────────────────────── */}
         {step === 1 && (
@@ -262,7 +387,14 @@ export default function IfpWizard(props: {
         {step === 2 && (
           <div>
             <h3 style={{ color: "#fff", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Fill it out</h3>
-            <p style={{ ...labelStyle, marginBottom: 8 }}>Free</p>
+            <p style={{ ...labelStyle, marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Free</p>
+
+            {/* Disclaimer BEFORE the questions */}
+            <div style={disclaimerBox}>
+              This is a sworn financial statement. Answer truthfully and completely — when you sign it, you are
+              declaring under penalty of perjury that everything here is true. HyperLaw is not a law firm and can't give
+              legal advice.
+            </div>
 
             {result?.found ? (
               <div style={{ marginBottom: 16 }}>
@@ -289,22 +421,67 @@ export default function IfpWizard(props: {
               </p>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {fieldList.map((f) => (
-                <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={labelStyle} htmlFor={`ifp-${f.key}`}>
-                    {f.label}
-                  </label>
-                  <input
-                    id={`ifp-${f.key}`}
-                    type="text"
-                    style={inputStyle}
-                    value={answers[f.key] ?? ""}
-                    onChange={(e) => setAnswers((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                  />
+            {/* Caption pre-filled from the case (read-only) */}
+            {captionRows.length > 0 && (
+              <div
+                style={{
+                  background: "#0d0d0d",
+                  border: "1px solid #222",
+                  borderRadius: 12,
+                  padding: "12px 14px",
+                  marginBottom: 16,
+                }}
+              >
+                <p style={{ ...labelStyle, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Case caption — from your case
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {captionRows.map((r) => (
+                    <div key={r.label} style={{ fontSize: 13, color: "#cbb8a8" }}>
+                      <span style={{ color: "#777" }}>{r.label}: </span>
+                      {r.value}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+                <p style={{ color: "#666", fontSize: 11, margin: "8px 0 0" }}>
+                  Pulled in automatically — no need to re-enter.
+                </p>
+              </div>
+            )}
+
+            {/* Grouped questions */}
+            {allGroups.map((g) => (
+              <div key={g.title} style={{ marginBottom: 10 }}>
+                <p style={sectionTitle}>{g.title}</p>
+                {g.note && <p style={{ color: "#777", fontSize: 11.5, margin: "0 0 6px" }}>{g.note}</p>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+                  {g.fields.map((f) => (
+                    <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <label style={labelStyle} htmlFor={`ifp-${f.key}`}>
+                        {f.label}
+                      </label>
+                      {f.wide ? (
+                        <textarea
+                          id={`ifp-${f.key}`}
+                          rows={2}
+                          style={{ ...inputStyle, resize: "vertical", minHeight: 44 }}
+                          value={answers[f.key] ?? ""}
+                          onChange={(e) => setAnswers((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          id={`ifp-${f.key}`}
+                          type="text"
+                          style={inputStyle}
+                          value={answers[f.key] ?? ""}
+                          onChange={(e) => setAnswers((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
 
             {!fullNameFilled && (
               <p style={{ color: "#888", fontSize: 12, lineHeight: 1.6, margin: "10px 0 0" }}>
@@ -333,13 +510,17 @@ export default function IfpWizard(props: {
         {step === 3 && (
           <div>
             <h3 style={{ color: "#fff", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Sign &amp; generate</h3>
-            <p style={{ ...labelStyle, marginBottom: 10 }}>Your signature</p>
+            <p style={{ ...labelStyle, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Your signature
+            </p>
             <SignaturePad value={signature} onChange={setSignature} />
 
-            <p style={{ color: "#888", fontSize: 13, lineHeight: 1.6, margin: "16px 0 0" }}>
+            {/* Disclaimer AFTER the intake, before generating */}
+            <div style={{ ...disclaimerBox, margin: "16px 0 0" }}>
               By signing, you affirm the financial information you provided is true and complete to the best of your
-              knowledge. Review the generated application carefully before filing it with any court.
-            </p>
+              knowledge. Review the generated application carefully before filing it with any court — HyperLaw is not a
+              law firm and this is not legal advice.
+            </div>
 
             <button
               type="button"
@@ -367,6 +548,35 @@ export default function IfpWizard(props: {
               </button>
             </div>
             {errorBlock}
+          </div>
+        )}
+
+        {/* ── STEP 4 — done ────────────────────────────────────────────────── */}
+        {step === 4 && (
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: `${ORANGE}1a`,
+                border: `1px solid ${ORANGE}55`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "8px auto 14px",
+              }}
+            >
+              <Check size={26} color={ORANGE} />
+            </div>
+            <h3 style={{ color: "#fff", fontSize: 18, fontWeight: 800, margin: "0 0 8px" }}>You're doing a good job.</h3>
+            <p style={{ color: "#cbb8a8", fontSize: 13, lineHeight: 1.65, margin: "0 auto 18px", maxWidth: 340 }}>
+              Your fee-waiver application is ready. Read it over carefully before filing — check every number and make
+              sure it matches your records. HyperLaw is not a law firm and this isn't legal advice.
+            </p>
+            <button type="button" style={primaryBtn} onClick={handleClose}>
+              View my application
+            </button>
           </div>
         )}
       </div>

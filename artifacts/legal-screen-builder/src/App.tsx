@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
+  Party, TimelineEvent,
   computeCaseHealth, getNextStep, caseCompletionPct,
 } from "./types";
 import {
@@ -20,6 +21,7 @@ import {
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
+import { assignNickname } from "./lib/nicknames";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
@@ -708,6 +710,144 @@ const STAGE_LABELS: Record<import("./types").WorkflowStage, string> = {
   documents: "Step 7 — Documents",
 };
 
+// ─── Per-case photo (localStorage; mirrors the profile-photo pattern) ─────────
+function casePhotoKey(caseId: string) { return `hl_case_photo_${caseId}`; }
+function getCasePhoto(caseId: string): string | null {
+  try { return localStorage.getItem(casePhotoKey(caseId)); } catch { return null; }
+}
+function useCasePhoto(caseId: string): string | null {
+  const [photo, setPhoto] = useState<string | null>(() => getCasePhoto(caseId));
+  useEffect(() => {
+    setPhoto(getCasePhoto(caseId));
+    const handler = () => setPhoto(getCasePhoto(caseId));
+    window.addEventListener("casePhotoChanged", handler);
+    return () => window.removeEventListener("casePhotoChanged", handler);
+  }, [caseId]);
+  return photo;
+}
+// Downscale (max 256px, JPEG) then persist to localStorage; broadcasts "casePhotoChanged".
+function saveCasePhoto(caseId: string, file: File, inputEl?: HTMLInputElement | null) {
+  if (inputEl) inputEl.value = "";
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const src = e.target?.result as string;
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 256;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      let dataUrl = src;
+      if (ctx) { ctx.drawImage(img, 0, 0, w, h); dataUrl = canvas.toDataURL("image/jpeg", 0.82); }
+      try {
+        localStorage.setItem(casePhotoKey(caseId), dataUrl);
+        window.dispatchEvent(new Event("casePhotoChanged"));
+      } catch {
+        alert("Photo is too large to save. Please choose a smaller image.");
+      }
+    };
+    img.onerror = () => alert("That image could not be loaded. Try a different file.");
+    img.src = src;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── Deadline notifications (browser Notification API) ────────────────────────
+function notificationsSupported() { return typeof window !== "undefined" && "Notification" in window; }
+function useDeadlineNotifications(reminders: Reminder[]) {
+  useEffect(() => {
+    if (!notificationsSupported()) return;
+    let cancelled = false;
+    const fireDue = () => {
+      if (cancelled || Notification.permission !== "granted") return;
+      // Local-day key (not UTC) so due/overdue + de-dupe match the user's calendar day.
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      let notified: Record<string, string> = {};
+      try { notified = JSON.parse(localStorage.getItem("hl_reminder_notified") || "{}"); } catch { notified = {}; }
+      let changed = false;
+      for (const r of reminders) {
+        const days = daysUntil(r.dueDate); // local-day aware (see daysUntil)
+        if (days <= 0 && notified[r.id] !== todayStr) {
+          try {
+            new Notification("HyperLaw deadline", {
+              body: `${days < 0 ? "Overdue" : "Due today"}: ${r.label}`,
+              tag: `hl-reminder-${r.id}`,
+            });
+          } catch { /* notification failed — ignore */ }
+          notified[r.id] = todayStr;
+          changed = true;
+        }
+      }
+      if (changed) { try { localStorage.setItem("hl_reminder_notified", JSON.stringify(notified)); } catch { /* ignore quota */ } }
+    };
+    fireDue();
+    const interval = setInterval(fireDue, 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [reminders]);
+}
+
+// ─── Merge an AI document analysis into a case ────────────────────────────────
+// Fills ONLY empty fields (notes append, jurisdiction, parties, timeline) so we
+// never overwrite the user's own edits — or clobber server-merged data on sync.
+function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
+  caseSummary?: string;
+  parties?: Array<{ name: string; role: string; details?: string }>;
+  events?: Array<{ date: string; description: string; significance?: string }>;
+  jurisdictionSuggestions?: string[];
+}): HLCase {
+  const patch: Partial<HLCase> = {};
+
+  // Notes — append the AI case summary once (idempotent: skip if already present).
+  const summary = analysis.caseSummary?.trim();
+  if (summary && !(hlCase.notes || "").includes(summary)) {
+    patch.notes = [hlCase.notes, summary].filter(Boolean).join("\n\n");
+  }
+
+  // Jurisdiction — only when the case has none yet.
+  const suggestedJurisdiction = analysis.jurisdictionSuggestions?.[0]?.trim();
+  if (!hlCase.jurisdiction?.trim() && suggestedJurisdiction) patch.jurisdiction = suggestedJurisdiction;
+
+  // Parties — only when none captured yet.
+  if (hlCase.parties.length === 0 && analysis.parties?.length) {
+    const OFFICIAL_HINTS = /\b(officer|police|deputy|sheriff|detective|sergeant|trooper|department|agency|city|county|state|federal|government|court|judge|magistrate|prosecut|district attorney|marshal|correctional|jail|prison|warden|official)\b/i;
+    const used: string[] = [];
+    patch.parties = analysis.parties.slice(0, 20).map(p => {
+      const name = (p.name || "").trim();
+      const tokens = name.split(/\s+/).filter(Boolean);
+      const firstName = tokens[0] || name || "Party";
+      const lastName = tokens.slice(1).join(" ");
+      const isOfficial = OFFICIAL_HINTS.test(`${p.role || ""} ${p.details || ""} ${name}`);
+      const { word, emoji } = assignNickname(used);
+      used.push(word);
+      const party: Party = {
+        id: crypto.randomUUID(),
+        firstName,
+        lastName,
+        type: isOfficial ? "official" : "civilian",
+        nickname: word,
+        nicknameEmoji: emoji,
+        ...(isOfficial ? { agency: (p.details || p.role || "").trim() || undefined, title: (p.role || "").trim() || undefined } : {}),
+      };
+      return party;
+    });
+  }
+
+  // Timeline — only when empty.
+  if (hlCase.timeline.length === 0 && analysis.events?.length) {
+    patch.timeline = analysis.events.slice(0, 40).map((ev, i): TimelineEvent => ({
+      id: crypto.randomUUID(),
+      title: (ev.date || "").trim() || `Event ${i + 1}`,
+      description: [ev.description, ev.significance].filter(Boolean).join(" — ").trim(),
+      order: i,
+    }));
+  }
+
+  return { ...hlCase, ...patch };
+}
+
 function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
   hlCase: HLCase;
   onOpen: () => void;
@@ -715,6 +855,7 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
 }) {
   const health = computeCaseHealth(hlCase);
   const next = getNextStep(hlCase, health);
+  const photo = useCasePhoto(hlCase.id);
 
   const miniChecks = [
     { label: "Parties", done: health.parties },
@@ -729,7 +870,9 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
     <div style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "15px 16px" }}>
       {/* Title + stage + view */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />
+        {photo
+          ? <img src={photo} alt="" style={{ width: 26, height: 26, borderRadius: 7, objectFit: "cover", flexShrink: 0, border: `1px solid ${ORANGE}55` }} />
+          : <Folder size={18} color={ORANGE} style={{ flexShrink: 0 }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2 }}>{hlCase.title}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, flexWrap: "wrap" }}>
@@ -746,14 +889,20 @@ function PrimaryCaseCard({ hlCase, onOpen, onContinue }: {
         </button>
       </div>
 
-      {/* Slim segmented progress */}
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
-        <div style={{ flex: 1, display: "flex", gap: 4 }}>
-          {miniChecks.map(c => (
-            <div key={c.label} title={c.label} style={{ flex: 1, height: 4, borderRadius: 2, background: c.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#241d17", boxShadow: c.done ? `0 0 5px ${ORANGE}55` : "none", transition: "all 0.3s" }} />
-          ))}
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 800, color: donePct === 100 ? "#4ade80" : ORANGE, flexShrink: 0 }}>{donePct}%</span>
+      {/* 5-phase Case Health checklist */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6, color: "#7a6a5c", textTransform: "uppercase" }}>Case Health</span>
+        <span style={{ fontSize: 11, fontWeight: 800, color: donePct === 100 ? "#4ade80" : ORANGE }}>{donePct}%</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 14px", marginBottom: 13 }}>
+        {miniChecks.map(c => (
+          <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            {c.done
+              ? <CheckCircle2 size={14} color="#4ade80" style={{ flexShrink: 0 }} />
+              : <div style={{ width: 13, height: 13, borderRadius: "50%", border: "1.5px solid #3a2f26", flexShrink: 0 }} />}
+            <span style={{ fontSize: 12, fontWeight: 600, color: c.done ? "#cfc0b3" : "#6f6156" }}>{c.label}</span>
+          </div>
+        ))}
       </div>
 
       {/* Next step CTA */}
@@ -899,7 +1048,9 @@ function CasesView({ data, onOpenCase, onDeleteCase }: {
               {/* Main tap area — opens case */}
               <button onClick={() => onOpenCase(c)}
                 style={{ flex: 1, background: "none", border: "none", padding: "14px 16px", textAlign: "left", cursor: "pointer", display: "flex", gap: 13, minWidth: 0 }}>
-                <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />
+                {getCasePhoto(c.id)
+                  ? <img src={getCasePhoto(c.id) as string} alt="" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover", flexShrink: 0, marginTop: 2, border: `1px solid ${ORANGE}55` }} />
+                  : <Folder size={22} color={ORANGE} style={{ flexShrink: 0, marginTop: 2 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>{c.title}</span>
@@ -937,6 +1088,14 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [notifPerm, setNotifPerm] = useState<string>(() => notificationsSupported() ? Notification.permission : "unsupported");
+  function enableAlerts() {
+    if (!notificationsSupported()) return;
+    Notification.requestPermission().then(p => {
+      setNotifPerm(p);
+      if (p === "granted") { try { new Notification("HyperLaw alerts on", { body: "You'll be reminded when deadlines are due." }); } catch { /* ignore */ } }
+    });
+  }
 
   function handleAdd() {
     if (!label.trim() || !dueDate) return;
@@ -959,6 +1118,16 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
           </button>
         )}
       </div>
+
+      {notifPerm !== "granted" && notifPerm !== "unsupported" && (
+        <button onClick={enableAlerts} disabled={notifPerm === "denied"}
+          style={{ width: "100%", background: notifPerm === "denied" ? "#140f0d" : `${ORANGE}14`, border: `1px solid ${notifPerm === "denied" ? "#2a2018" : ORANGE + "44"}`, borderRadius: 10, padding: "9px 12px", marginBottom: 10, cursor: notifPerm === "denied" ? "default" : "pointer", display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}>
+          <Bell size={13} color={notifPerm === "denied" ? "#555" : ORANGE} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: notifPerm === "denied" ? "#555" : "#d8c4b2", fontWeight: 600 }}>
+            {notifPerm === "denied" ? "Deadline alerts are blocked — enable notifications in your browser settings." : "Enable deadline alerts so you're notified when dates are due."}
+          </span>
+        </button>
+      )}
 
       {adding && (
         <div style={{ background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: "14px 16px", marginBottom: 10 }}>
@@ -1074,7 +1243,7 @@ function VerifyPanel({ hlCase, hasFacts }: {
   const [open, setOpen] = useState(false);
   const checks = [
     { label: "Jurisdiction set", done: !!hlCase.jurisdiction?.trim(), hint: "Required before drafting — set it below." },
-    { label: "Facts captured", done: hasFacts, hint: "Add incidents or notes so drafts have substance." },
+    { label: "Facts captured", done: hasFacts, hint: "Add parties, a timeline, or notes so drafts have substance." },
     { label: "Case organized", done: !!hlCase.structuredCase, hint: "Run Discover to structure your facts." },
   ];
   const gaps = hlCase.structuredCase?.gapQuestions ?? [];
@@ -1148,10 +1317,15 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [editTitle, setEditTitle] = useState(hlCase.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [notes, setNotes] = useState(hlCase.notes);
+  // Keep the notes editor in sync when the case's notes change externally (e.g. AI
+  // analysis appends a summary) so a later blur doesn't write stale text back.
+  useEffect(() => { setNotes(hlCase.notes); }, [hlCase.notes]);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "receiving" | "received" | "intake" | "gate" | "analyzing" | "done" | "error">("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: CaseMemory } | null>(null);
+  const casePhoto = useCasePhoto(hlCase.id);
+  const casePhotoInputRef = useRef<HTMLInputElement>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -1222,10 +1396,12 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     setUploadState("analyzing");
     try {
       const result = await aiApi.buildCaseMemory({ docId: pendingDocId, caseId: hlCase.id, intakeAnswers });
-      // Merge the AI summary into case notes — parties/timeline are available in
-      // the analysis result for the user to review and add manually via the workflow.
-      const updatedNotes = [hlCase.notes, result.analysis.caseSummary].filter(Boolean).join("\n\n");
-      onUpdateCase({ ...hlCase, notes: updatedNotes });
+      // Merge everything the AI extracted — summary → notes, plus jurisdiction,
+      // parties, and timeline — filling only empty fields so we never clobber the
+      // user's own edits (or the server-merged data on the next sync).
+      const merged = mergeAnalysisIntoCase(hlCase, result.analysis);
+      if (merged.jurisdiction && merged.jurisdiction !== hlCase.jurisdiction) setJurisdiction(merged.jurisdiction);
+      onUpdateCase(merged);
       setUploadResult({ fileName: result.fileName, analysis: result.analysis });
       setUploadState("done");
     } catch (err: unknown) {
@@ -1316,6 +1492,17 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+            <input ref={casePhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
+            <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 11, position: "relative" }}>
+              {casePhoto
+                ? <img src={casePhoto} alt="" style={{ width: 46, height: 46, borderRadius: 11, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
+                : <div style={{ width: 46, height: 46, borderRadius: 11, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={20} color={ORANGE} /></div>}
+              <div style={{ position: "absolute", right: -3, bottom: -3, width: 18, height: 18, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
+                <Camera size={9} color="#000" />
+              </div>
+            </button>
             <div style={{ fontSize: 22, fontWeight: 900, flex: 1, lineHeight: 1.2 }}>{hlCase.title}</div>
             <button onClick={() => { setEditTitle(hlCase.title); setEditingTitle(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 6, marginTop: 2 }}><Edit3 size={15} /></button>
@@ -1325,7 +1512,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         {/* Status badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
           <div style={{ color: "#444", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-            <Clock size={11} color="#444" /> {formatDate(hlCase.createdAt)} · {incidents.length} incident{incidents.length !== 1 ? "s" : ""}
+            <Clock size={11} color="#444" /> {formatDate(hlCase.createdAt)}
           </div>
           <button onClick={() => setShowStatusPicker(true)}
             style={{ background: `${STATUS_COLORS[hlCase.status]}22`, border: `1px solid ${STATUS_COLORS[hlCase.status]}55`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, color: STATUS_COLORS[hlCase.status], cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
@@ -1738,7 +1925,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         </div>
 
         {/* Verify readiness before drafting (Section 3) */}
-        <VerifyPanel hlCase={hlCase} hasFacts={incidents.length > 0 || hlCase.notes.trim().length > 0} />
+        <VerifyPanel hlCase={hlCase} hasFacts={hlCase.parties.length > 0 || hlCase.timeline.length > 0 || hlCase.story.trim().length > 0 || hlCase.notes.trim().length > 0 || !!hlCase.structuredCase} />
 
         {/* Draft Documents (Sections 5, 6, 9, 10, 11) */}
         <div id="draft-documents-section" style={{ marginBottom: 28 }}>
@@ -1900,48 +2087,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
-        {/* Incidents */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>INCIDENTS IN THIS CASE</div>
-          {incidents.length === 0 ? (
-            <div style={{ color: "#444", fontSize: 14, fontStyle: "italic" }}>No incidents yet. Tap "Add Incident" above.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {incidents.map(i => (
-                <button key={i.id} onClick={() => onOpenIncident(i)}
-                  style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%", display: "flex", gap: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: CATEGORY_COLORS[i.category], flexShrink: 0, marginTop: 4 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.title}</div>
-                    <div style={{ color: "#444", fontSize: 12, marginTop: 2, display: "flex", gap: 8 }}>
-                      {i.dateOfEvent ? formatEventDate(i.dateOfEvent) : formatDate(i.createdAt)}
-                      {i.location && <span>{truncate(i.location, 20)}</span>}
-                    </div>
-                  </div>
-                  <ChevronRight size={14} color="#333" style={{ flexShrink: 0, marginTop: 2 }} />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Timeline */}
-        {incidents.length > 1 && (
-          <div style={{ marginBottom: 32 }}>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }}>TIMELINE</div>
-            <div style={{ position: "relative", paddingLeft: 24 }}>
-              <div style={{ position: "absolute", left: 7, top: 0, bottom: 0, width: 2, background: "#1a1a1a" }} />
-              {incidents.map((i, idx) => (
-                <div key={i.id} style={{ position: "relative", marginBottom: 18 }}>
-                  <div style={{ position: "absolute", left: -20, top: 4, width: 10, height: 10, borderRadius: 5, background: CATEGORY_COLORS[i.category], border: `2px solid #0a0a0a` }} />
-                  <div style={{ fontSize: 11, color: "#444", marginBottom: 1 }}>{i.dateOfEvent ? formatEventDate(i.dateOfEvent) : formatDate(i.createdAt)}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#ccc" }}>{i.title}</div>
-                  {i.location && <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>{i.location}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Incidents & incident-timeline sections removed — the case now uses
+            parties / court / story / timeline + AI organization instead. */}
 
         {/* Reminders */}
         <ReminderSection
@@ -4173,6 +4320,7 @@ export default function App() {
   const isAdmin = (user?.emailAddresses?.[0]?.emailAddress || "") === ADMIN_EMAIL;
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
+  useDeadlineNotifications(data.reminders);
   const [navTab, setNavTab] = useState<NavTab>("home");
   const [view, setView] = useState<AppView>({ type: "home" });
   const [showNewIncident, setShowNewIncident] = useState(false);
@@ -4248,12 +4396,24 @@ export default function App() {
             }
             localMap.set(sc.id, caseData);
             changed = true;
-          } else if (!local.structuredCase && sc.structuredCase) {
-            // Local case lacks structuredCase — pull it in from server (server-generated only)
-            localMap.set(sc.id, { ...local, structuredCase: sc.structuredCase as unknown as HLCase["structuredCase"] });
-            changed = true;
+          } else {
+            // Local exists — pull server-side fields ONLY where local is still empty,
+            // so AI-extracted data (parties/timeline/jurisdiction/structuredCase) merged
+            // on another session/device isn't lost to "local wins". Non-empty local
+            // fields always win (user edits are never overwritten).
+            const serverCase = sc.caseData as unknown as HLCase;
+            const patch: Partial<HLCase> = {};
+            if (!local.structuredCase && sc.structuredCase) {
+              patch.structuredCase = sc.structuredCase as unknown as HLCase["structuredCase"];
+            }
+            if (local.parties.length === 0 && serverCase?.parties?.length) patch.parties = serverCase.parties;
+            if (local.timeline.length === 0 && serverCase?.timeline?.length) patch.timeline = serverCase.timeline;
+            if (!local.jurisdiction?.trim() && serverCase?.jurisdiction?.trim()) patch.jurisdiction = serverCase.jurisdiction;
+            if (Object.keys(patch).length > 0) {
+              localMap.set(sc.id, { ...local, ...patch });
+              changed = true;
+            }
           }
-          // Otherwise: local wins — user may have unsynced edits
         });
         if (!changed) return prev;
         const next = { ...prev, cases: Array.from(localMap.values()) };
@@ -4596,9 +4756,8 @@ export default function App() {
           isAdmin={isAdmin}
           isApex={planTier === "apex"}
           onComplete={(analysis) => {
-            // Merge summary into case notes; user reviews parties/timeline from analysis panel
-            const updatedNotes = [hlCase.notes, analysis.caseSummary].filter(Boolean).join("\n\n");
-            const updated: HLCase = { ...hlCase, notes: updatedNotes };
+            // Merge the AI's extraction (summary, jurisdiction, parties, timeline) into the case.
+            const updated = mergeAnalysisIntoCase(hlCase, analysis);
             setData(updateCase(data, updated));
             fetchCreditBalance();
             setView({ type: "case_detail", hlCase: updated });

@@ -29,9 +29,9 @@ The `DocumentIntakeView` component (standalone full-screen, placed before Profil
 
 ## Key constraints
 
-**Party type cannot be merged from AI output** — `Party` requires `firstName`, `lastName`, `type` (official|civilian), `nickname`, `nicknameEmoji`. AI extraction only gives us `name` + `role`. Instead, AI summary is merged into `hlCase.notes` only; server-side case merges use the flexible `caseData` JSONB.
+**Party/timeline ARE now merged from AI output** (supersedes the earlier "notes only" note). `Party` requires `firstName`, `lastName`, `type` (official|civilian), `nickname`, `nicknameEmoji`; AI gives only `name` + `role`. `mergeAnalysisIntoCase()` in App.tsx maps them (split name into first/last; infer official via keyword regex; `assignNickname()` from lib/nicknames for nickname/emoji) and fills ONLY empty case fields. Names are kept honest (no fabricated last names). See hyperlaw-case-sync.md for the fill-empty-only rule and the clobber constraint.
 
-**TimelineEvent** requires `order: number`, no `date` field. Same issue — don't directly inject AI timeline into `HLCase.timeline`.
+**TimelineEvent** requires `id/title/description/order` (no `date` field). `mergeAnalysisIntoCase()` maps AI events (title=date, description=description+significance, order=index) — only when `hlCase.timeline` is empty.
 
 **AiFeature union** in `artifacts/api-server/src/services/aiCache.ts` must include `"analyze_document_intake"` for logAiCall typing.
 

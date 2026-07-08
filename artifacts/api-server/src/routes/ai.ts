@@ -15,6 +15,7 @@ import {
 } from "../services/aiCache.js";
 import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable } from "@workspace/db";
 import { storage } from "../storage.js";
+import { chargeOneCredit, refundOneCredit } from "../services/credits.js";
 import { and, eq, sql } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
 
@@ -604,6 +605,139 @@ router.get("/ai/documents/:caseId", async (req: Request, res: Response): Promise
   }
 });
 
+// ── POST /ai/procedural-info ───────────────────────────────────────────────────
+// FREE — Informational, jurisdiction-aware procedural notes for a document type.
+// Shown while the user answers upfront drafting questions (no credit charged).
+router.post("/ai/procedural-info", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+    return;
+  }
+  const { documentType, jurisdiction, caseId } = req.body as { documentType?: string; jurisdiction?: string; caseId?: string };
+  if (!documentType) { res.status(400).json({ error: "documentType is required" }); return; }
+  const userId = getAuth(req)!.userId!;
+  try {
+    const r = await aiService.proceduralInfo(
+      documentType as Parameters<typeof aiService.proceduralInfo>[0],
+      jurisdiction ?? "",
+    );
+    void logAiCall({
+      userId,
+      caseId: caseId ?? null,
+      feature: "procedural_info" as AiFeature,
+      model: r.meta.model,
+      inputTokens: r.meta.inputTokens,
+      outputTokens: r.meta.outputTokens,
+      estimatedCostMicroUsd: r.meta.estimatedCostMicroUsd,
+      responseTimeMs: r.meta.responseTimeMs,
+      cacheHit: false,
+      promptTemplate: "procedural_info",
+    });
+    res.json(r.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Failed to load procedural info" });
+  }
+});
+
+// ── POST /ai/ifp-find-form ─────────────────────────────────────────────────────
+// 1 CREDIT — Web-searches for the official IFP / fee-waiver form for a
+// jurisdiction. found=false signals the client to fall back to the generic
+// Appendix A template.
+router.post("/ai/ifp-find-form", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+    return;
+  }
+  const { jurisdiction, caseData, caseId } = req.body as {
+    jurisdiction?: string;
+    caseData?: { court?: string; caseNumber?: string; plaintiff?: string; state?: string; county?: string };
+    caseId?: string;
+  };
+  const userId = getAuth(req)!.userId!;
+
+  const charge = await chargeOneCredit(userId);
+  if (!charge.ok) {
+    res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+    return;
+  }
+  try {
+    const r = await aiService.ifpFindForm(jurisdiction ?? "", caseData ?? {});
+    void logAiCall({
+      userId, caseId: caseId ?? null, feature: "ifp_find_form" as AiFeature,
+      model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
+      estimatedCostMicroUsd: r.meta.estimatedCostMicroUsd, responseTimeMs: r.meta.responseTimeMs,
+      cacheHit: false, promptTemplate: "ifp_find_form",
+    });
+    res.json(r.data);
+  } catch (err) {
+    if (charge.charged) await refundOneCredit(userId);
+    res.status(500).json({ error: (err as Error).message || "IFP form search failed" });
+  }
+});
+
+// ── POST /ai/defense-analyze ───────────────────────────────────────────────────
+// 1 CREDIT — Extracts the opposing party's identity + the substance of what they
+// filed, from uploaded document(s) and/or photo(s), to draft a responsive motion.
+router.post(
+  "/ai/defense-analyze",
+  requireAuth,
+  upload.array("files", 10),
+  handleMulterError,
+  async (req: Request, res: Response): Promise<void> => {
+    if (!aiService.isConfigured()) {
+      res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+      return;
+    }
+    const userId = getAuth(req)!.userId!;
+    const multerReq = req as Request & { files?: Array<{ buffer: Buffer; mimetype: string; originalname: string }> };
+    const files = multerReq.files ?? [];
+    const caseId = typeof req.body.caseId === "string" ? req.body.caseId : null;
+    const caseTitle = typeof req.body.caseTitle === "string" ? req.body.caseTitle : undefined;
+    let sourceText = typeof req.body.sourceText === "string" ? req.body.sourceText : "";
+
+    const images: Array<{ mimeType: string; base64: string }> = [];
+    for (const f of files) {
+      if (f.mimetype.startsWith("image/")) {
+        images.push({ mimeType: f.mimetype, base64: f.buffer.toString("base64") });
+      } else {
+        try {
+          const parsed = await parseDocument(f.buffer, f.mimetype, f.originalname);
+          sourceText += `\n\n[${f.originalname}]\n${parsed.text}`;
+        } catch { /* skip unparseable file */ }
+      }
+    }
+    const imgs = images.slice(0, 5); // bound vision cost
+
+    if (!imgs.length && !sourceText.trim()) {
+      res.status(400).json({ error: "Provide a document, photo, or text of the defense filing." });
+      return;
+    }
+
+    const charge = await chargeOneCredit(userId);
+    if (!charge.ok) {
+      res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+      return;
+    }
+    try {
+      const r = await aiService.defenseAnalyze({ sourceText: sourceText.trim() || undefined, images: imgs, caseTitle });
+      void logAiCall({
+        userId, caseId, feature: "defense_analyze" as AiFeature,
+        model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
+        estimatedCostMicroUsd: r.meta.estimatedCostMicroUsd, responseTimeMs: r.meta.responseTimeMs,
+        cacheHit: false, promptTemplate: "defense_analyze",
+      });
+      res.json(r.data);
+    } catch (err) {
+      if (charge.charged) await refundOneCredit(userId);
+      void db.insert(errorLogsTable).values({
+        userId, context: "defense_analyze",
+        message: (err as Error).message || "Defense analysis failed", metadata: null,
+      }).catch(() => {});
+      res.status(500).json({ error: (err as Error).message || "Defense analysis failed" });
+    }
+  },
+);
+
 // ── POST /ai/generate-document ─────────────────────────────────────────────────
 // FREE — Generates a formal legal document and saves it as a "preview".
 // The full content is stored but gated behind paymentStatus: "preview".
@@ -618,15 +752,27 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
     return;
   }
 
-  const { caseId, documentType, caseData, title } = req.body as {
+  const { caseId, documentType, caseData, title, draftContext, sourceDocument } = req.body as {
     caseId?: string;
-    documentType: "complaint" | "motion" | "timeline";
+    documentType: string;
     caseData: Parameters<typeof aiService.generateLegalDocument>[1];
     title?: string;
+    draftContext?: string | Record<string, unknown>;
+    sourceDocument?: { title?: string; content: string };
   };
 
-  if (!documentType || !["complaint", "motion", "timeline"].includes(documentType)) {
-    res.status(400).json({ error: "documentType must be complaint, motion, or timeline" });
+  const ALLOWED_DOC_TYPES = [
+    "complaint", "motion", "timeline", "discovery", "judgment_summary", "strengthen",
+    "motion_summary_judgment", "motion_compel_discovery", "motion_dismiss", "answer",
+    "opposition", "declaration", "demand_letter", "defense_response", "fee_waiver",
+  ];
+  const NEEDS_SOURCE = new Set(["strengthen", "answer", "opposition", "defense_response"]);
+  if (!documentType || !ALLOWED_DOC_TYPES.includes(documentType)) {
+    res.status(400).json({ error: "Unsupported documentType" });
+    return;
+  }
+  if (NEEDS_SOURCE.has(documentType) && !sourceDocument?.content) {
+    res.status(400).json({ error: "This document type requires a source document to work from." });
     return;
   }
 
@@ -658,7 +804,11 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
       }
     }
 
-    const aiResult = await aiService.generateLegalDocument(documentType, caseData, { libraryContext: libContext });
+    const aiResult = await aiService.generateLegalDocument(
+      documentType as Parameters<typeof aiService.generateLegalDocument>[0],
+      caseData,
+      { libraryContext: libContext, draftContext, sourceDocument },
+    );
 
     void logAiCall({
       userId,

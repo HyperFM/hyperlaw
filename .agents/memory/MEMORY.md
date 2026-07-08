@@ -8,7 +8,7 @@
 - [HyperLaw Stops 5-6-7](hyperlaw-stops567.md) — free-case gate (2 max), offline banner, generate retry, error logs table, admin Errors tab, response time chart.
 - [HyperLaw Rebuild Phase 1](hyperlaw-rebuild-phase1.md) — workflow screens complete with stepper, sticky bottom, auto-save (ref pattern), version history, CaseReviewView; Phase 1 QA done.
 - [HyperLaw Phase 2 Core](hyperlaw-phase2-core.md) — Assembly/Learning/Checklist screens, getNextStep 7-stage chain, cache call signatures (critical arg order), CaseDetailView tabs, anti-fabrication prompt constraints.
-- [HyperLaw Admin & Gates](hyperlaw-admin-gates.md) — Admin email = hypermodula@gmail.com (5 files); PAYG gate = 2-case hard limit → showUpgradeGate modal (not credits); CasesView has onDeleteCase prop + trash button on each card.
+- [HyperLaw Drafting Flow](hyperlaw-drafting-flow.md) — draftContext is a preformatted STRING end-to-end (server takes string|object); always-mounted modals need open-reset; IFP template body must flow to generation as sourceDocument.
 - [HyperLaw Index Clouds](hyperlaw-index-clouds.md) — TutorAnalysis defined in 2 files (must stay in sync); cloud color system; HoldToUnlockButton cleanup + credit-loading rules.
 - [HyperLaw Exhibit Studio](hyperlaw-exhibit-studio.md) — Studio tab (formerly Builder); video workspace; object URL ref cleanup; functional setState for in-flight AI; empty-dictation guard; jurisdiction verify hold+cache.
 - [HyperLaw Screen Builder + video export](hyperlaw-screen-builder-export.md) — builder types must stay in types.ts + engine/BlockCanvas un-excluded; export is canvas+MediaRecorder (play before record, audio best-effort, stall watchdog, all presets 16:9).

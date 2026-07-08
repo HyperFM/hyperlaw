@@ -57,6 +57,168 @@ export interface CaseExtraction {
   summary: string;
 }
 
+// ── Document drafting specs ───────────────────────────────────────────────────
+// The full set of documents the drafting system can produce. The four primary
+// "Draft" buttons map to complaint / motion / discovery / judgment_summary; the
+// remainder are reached via "More" or feature-specific flows (Strengthen,
+// Defense, IFP). Frontend mirrors these keys in aiApi.ts.
+export type DocumentType =
+  | "complaint"
+  | "motion"
+  | "timeline"
+  | "discovery"
+  | "judgment_summary"
+  | "strengthen"
+  | "motion_summary_judgment"
+  | "motion_compel_discovery"
+  | "motion_dismiss"
+  | "answer"
+  | "opposition"
+  | "declaration"
+  | "demand_letter"
+  | "defense_response"
+  | "fee_waiver";
+
+interface DocumentSpec {
+  label: string;
+  role: string;
+  instructions: string;
+  /** When true, generation requires a sourceDocument to work from. */
+  needsSource?: boolean;
+}
+
+const DRAFTER_ROLE =
+  "You are an experienced civil-litigation legal document drafter helping a self-represented (pro se) litigant. Draft a formal, court-ready document based strictly on the case information below.";
+
+export const DOCUMENT_SPECS: Record<DocumentType, DocumentSpec> = {
+  complaint: {
+    label: "Complaint",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a formal pro se complaint. Format with these sections:
+1. CAPTION (court, parties, case number)
+2. INTRODUCTION (who the plaintiff is, who the defendant is, what the complaint is about)
+3. PARTIES
+4. JURISDICTION AND VENUE
+5. STATEMENT OF FACTS (numbered paragraphs, each a distinct allegation drawn from the incidents)
+6. CAUSES OF ACTION (identify the specific rights allegedly violated — e.g., 42 U.S.C. § 1983, Title VII, ADA, 4th/14th Amendment — labeled as AI-identified possibilities)
+7. RELIEF REQUESTED
+8. CERTIFICATION / SIGNATURE BLOCK (pro se)`,
+  },
+  motion: {
+    label: "Motion",
+    role: DRAFTER_ROLE,
+    instructions: `Draft the most appropriate motion based on the facts. Format with:
+1. CAPTION
+2. NOTICE OF MOTION (what is requested)
+3. INTRODUCTION
+4. STATEMENT OF FACTS (numbered)
+5. LEGAL ARGUMENT (subsections per ground)
+6. CONCLUSION AND RELIEF REQUESTED
+7. CERTIFICATION / SIGNATURE BLOCK`,
+  },
+  timeline: {
+    label: "Incident Timeline",
+    role: "You are a civil-litigation drafter preparing a formal chronological incident timeline for a self-represented litigant.",
+    instructions: `Format the timeline document:
+1. HEADER (case name, parties, date prepared)
+2. INTRODUCTION (overall pattern and purpose)
+3. CHRONOLOGICAL INCIDENT LOG — each entry: [DATE] — [LOCATION] — [TITLE] followed by a detailed description
+4. SUMMARY OF PATTERN
+5. EVIDENCE AND DOCUMENTATION NOTE
+6. PREPARER STATEMENT
+Order entries earliest-first; where a date is unknown write "Date TBD".`,
+  },
+  discovery: {
+    label: "Discovery Requests",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a discovery request set tailored to the disputed facts and claims. Choose and include the appropriate instrument(s): INTERROGATORIES, REQUESTS FOR PRODUCTION OF DOCUMENTS, and/or REQUESTS FOR ADMISSION. Format each with: CAPTION; instrument title; DEFINITIONS AND INSTRUCTIONS; consecutively numbered requests, each grounded in a specific fact/claim and drafted to elicit admissible evidence; and a signature block. Prefer clear, single-subject requests.`,
+  },
+  judgment_summary: {
+    label: "Judgment Summary",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a Judgment Summary — a clear, structured summary of the case's current posture and the judgment sought. Sections:
+1. CASE CAPTION
+2. SUMMARY OF THE CASE
+3. PROCEDURAL POSTURE
+4. STATEMENT OF UNDISPUTED FACTS (numbered)
+5. STATEMENT OF DISPUTED FACTS (numbered)
+6. CLAIMS AND CURRENT STATUS
+7. RELIEF / JUDGMENT SOUGHT
+8. INDEX OF SUPPORTING EVIDENCE`,
+  },
+  strengthen: {
+    label: "Strengthened Document",
+    role: "You are a senior legal editor improving a self-represented litigant's existing document.",
+    needsSource: true,
+    instructions: `Revise and STRENGTHEN the source document above. Improve legal structure, clarity, persuasiveness, factual specificity, organization, and formatting. Do NOT invent new facts — preserve every factual assertion; where the document depends on facts not stated, insert [BRACKETED PLACEHOLDERS]. Tighten weak arguments, add appropriate section headings, and ensure conventional formatting. If the applicant answers describe what to strengthen, prioritize those. Return the complete improved document.`,
+  },
+  motion_summary_judgment: {
+    label: "Motion for Summary Judgment",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a Motion for Summary Judgment. Sections:
+1. CAPTION
+2. NOTICE OF MOTION AND MOTION
+3. STATEMENT OF UNDISPUTED MATERIAL FACTS (numbered; append a [record citation] placeholder to each)
+4. LEGAL STANDARD (summary-judgment standard — informational; note the governing rule may be Fed. R. Civ. P. 56 or a state analog and to confirm locally)
+5. ARGUMENT (why there is no genuine dispute of material fact and the movant is entitled to judgment as a matter of law)
+6. CONCLUSION AND RELIEF
+7. REFERENCE TO SUPPORTING DECLARATION/EVIDENCE
+8. CERTIFICATE OF SERVICE
+Incorporate the applicant's upfront answers about whether discovery is complete and which facts are disputed.`,
+  },
+  motion_compel_discovery: {
+    label: "Motion to Compel Discovery",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a Motion to Compel Discovery. Sections:
+1. CAPTION
+2. INTRODUCTION
+3. RELEVANT BACKGROUND (what was requested, when served, and the specific deficiency)
+4. MEET-AND-CONFER CERTIFICATION (based on the applicant's answers about conferral efforts)
+5. LEGAL STANDARD (informational; note rules vary by court)
+6. ARGUMENT (relevance and proportionality of the requests; inadequacy of any responses)
+7. CONCLUSION AND RELIEF (order compelling responses; fees/sanctions where appropriate)
+8. CERTIFICATE OF SERVICE`,
+  },
+  motion_dismiss: {
+    label: "Motion to Dismiss",
+    role: DRAFTER_ROLE,
+    instructions: `Draft a Motion to Dismiss. Sections: CAPTION; NOTICE OF MOTION; INTRODUCTION; STATEMENT OF RELEVANT ALLEGATIONS; LEGAL STANDARD (informational); ARGUMENT (each ground for dismissal as a separate subsection, grounded in the provided facts); CONCLUSION AND RELIEF; CERTIFICATE OF SERVICE.`,
+  },
+  answer: {
+    label: "Answer to Complaint",
+    role: DRAFTER_ROLE,
+    needsSource: true,
+    instructions: `Draft an ANSWER to the complaint in the source document above. For each numbered allegation, respond (ADMIT / DENY / LACK SUFFICIENT KNOWLEDGE) based ONLY on the provided facts; where the litigant's position on an allegation cannot be determined from the input, write "[ADMIT/DENY — CONFIRM]". Then include AFFIRMATIVE DEFENSES (as AI-identified possibilities to evaluate) and a PRAYER FOR RELIEF. Include CAPTION and SIGNATURE BLOCK.`,
+  },
+  opposition: {
+    label: "Opposition / Response",
+    role: DRAFTER_ROLE,
+    needsSource: true,
+    instructions: `Draft an OPPOSITION/RESPONSE to the motion in the source document above. Sections: CAPTION; INTRODUCTION; COUNTERSTATEMENT OF FACTS (numbered); ARGUMENT (respond to each ground raised by the moving party); CONCLUSION AND RELIEF; CERTIFICATE OF SERVICE.`,
+  },
+  declaration: {
+    label: "Declaration",
+    role: "You are drafting a sworn declaration in the first person for a self-represented litigant.",
+    instructions: `Draft a DECLARATION/AFFIDAVIT in the first person by the declarant. Format: CAPTION; opening ("I, [NAME], declare as follows:"); consecutively numbered paragraphs stating ONLY facts within the declarant's personal knowledge drawn from the input; penalty-of-perjury closing ("I declare under penalty of perjury under the laws of [JURISDICTION] that the foregoing is true and correct."); date and signature line.`,
+  },
+  demand_letter: {
+    label: "Demand Letter",
+    role: "You are drafting a formal pre-litigation demand letter for a self-represented person.",
+    instructions: `Draft a formal DEMAND LETTER. Include: sender/recipient blocks and date; a RE: line; a clear statement of the facts and the wrong; the specific demand and a reasonable deadline; the consequences of non-compliance stated factually (possible legal action) without threats; and a professional closing/signature.`,
+  },
+  defense_response: {
+    label: "Response to Defense Filing",
+    role: DRAFTER_ROLE,
+    needsSource: true,
+    instructions: `The source above summarizes a filing made by the opposing/defense party. Draft the appropriate RESPONSIVE document (opposition, reply, or responsive motion — choose based on what the defense filed). Sections: CAPTION; INTRODUCTION identifying the defense filing being responded to; RESPONSE TO EACH POINT raised by the defense (numbered); the litigant's own ARGUMENT and any counter-relief; CONCLUSION AND RELIEF; CERTIFICATE OF SERVICE.`,
+  },
+  fee_waiver: {
+    label: "Application to Proceed In Forma Pauperis",
+    role: "You are completing an Application to Proceed In Forma Pauperis (fee waiver) for a self-represented applicant.",
+    instructions: `Using the applicant's answers above (and the template in the source document if provided), produce a COMPLETED, court-ready fee-waiver / in forma pauperis application. Fill every field the applicant answered; for any required field with no answer, insert a clearly marked [BLANK — TO COMPLETE]. Preserve any required disclaimer language present in the source template. Do NOT include a judge's order/ruling section or a notary block. End with the applicant signature and date line.`,
+  },
+};
+
 // ── Usage / cost metadata returned with every AI call ─────────────────────────
 
 export const MODEL = "claude-sonnet-5";
@@ -435,7 +597,7 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
    * Returns the full document text — NOT JSON.
    */
   async generateLegalDocument(
-    documentType: 'complaint' | 'motion' | 'timeline',
+    documentType: DocumentType,
     caseData: {
       title: string;
       notes?: string;
@@ -455,7 +617,13 @@ Use null for missing string fields, [] for missing arrays. Return only the JSON.
       // when present the draft is grounded in these instead of re-derived facts.
       caseMemory?: CaseMemory;
     },
-    opts?: { libraryContext?: string },
+    opts?: {
+      libraryContext?: string;
+      /** Structured answers gathered upfront (motion gates, IFP intake, etc.). Accepts a preformatted string or a key/value object. */
+      draftContext?: string | Record<string, unknown>;
+      /** Existing document to work from (Strengthen, Answer, Opposition, Defense response). */
+      sourceDocument?: { title?: string; content: string };
+    },
   ): Promise<AiResult<string>> {
     const libBlock = opts?.libraryContext ? `${opts.libraryContext}\n\n---\n\n` : '';
     const memoryBlock = caseData.caseMemory
@@ -479,81 +647,38 @@ Case Number: ${caseData.caseNumber ?? '[CASE NUMBER]'}
 Jurisdiction: ${caseData.jurisdiction ?? 'Federal / State'}
 Date: ${today}${memoryBlock}`;
 
-    let prompt = '';
+    const draftContextText = typeof opts?.draftContext === 'string'
+      ? opts.draftContext.trim()
+      : opts?.draftContext && Object.keys(opts.draftContext).length
+        ? Object.entries(opts.draftContext).map(([k, v]) => `- ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('\n')
+        : '';
+    const draftContextBlock = draftContextText
+      ? `\n\n=== APPLICANT-PROVIDED ANSWERS (use these to tailor the draft; do not contradict them) ===\n${draftContextText.slice(0, 4000)}`
+      : '';
+    const sourceBlock = opts?.sourceDocument?.content
+      ? `\n\n=== SOURCE DOCUMENT (${opts.sourceDocument.title ?? 'provided document'}) — the material to work from ===\n${opts.sourceDocument.content.slice(0, 12000)}`
+      : '';
 
-    if (documentType === 'complaint') {
-      prompt = `${libBlock}You are a civil rights legal document drafter. Draft a formal pro se civil rights complaint letter based on the case information below.
+    const RULES = `Important rules — follow strictly:
+- Draft ONLY from the facts provided above. Never invent facts, dates, dollar amounts, names, agencies, quotations, or legal citations that are not supported by the input.
+- Where a required detail is missing, insert a clearly marked [BRACKETED PLACEHOLDER] (e.g., [COURT NAME], [CASE NUMBER], [DATE]) rather than guessing.
+- Present legal theories or claims as AI-identified possibilities for a self-represented filer to evaluate — never as established legal conclusions.
+- Any procedural or jurisdictional statement is general informational context, not legal advice.
+- Use formal, professional legal language and conventional court formatting.
+- Return ONLY the finished document text — no preamble, no meta-commentary, no trailing disclaimer.`;
 
-${header}
-
-Case Notes: ${caseData.notes || 'None'}
-
-${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
-
-Format the complaint with these sections:
-1. INTRODUCTION (1 paragraph — who the plaintiff is, who the defendant is, what this complaint is about)
-2. PARTIES (identify plaintiff and defendant with available details)
-3. JURISDICTION AND VENUE (explain why this court/body has jurisdiction)
-4. STATEMENT OF FACTS (numbered paragraphs, each covering a distinct factual allegation drawn directly from the incidents described)
-5. LEGAL CLAIMS / CAUSES OF ACTION (identify the specific rights allegedly violated — e.g., 42 U.S.C. § 1983, Title VII, ADA, 4th/14th Amendment, etc. — based on the incident categories)
-6. RELIEF REQUESTED (list specific remedies: injunctive relief, compensatory damages, declaratory relief, attorney fees where applicable)
-7. CERTIFICATION / SIGNATURE BLOCK (pro se self-representation statement)
-
-Important rules:
-- Use formal, professional legal language
-- Fill in real content from the case data — no generic placeholders for the facts
-- Where specific information is missing (case number, court), use bracketed placeholders like [COURT NAME]
-- Do not add a disclaimer at the end
-- Return only the document text, no meta-commentary`;
-    } else if (documentType === 'motion') {
-      prompt = `${libBlock}You are a civil rights legal document drafter. Draft a formal pro se motion document based on the case information below.
+    const spec = DOCUMENT_SPECS[documentType] ?? DOCUMENT_SPECS.motion;
+    const prompt = `${libBlock}${spec.role}
 
 ${header}
 
 Case Notes: ${caseData.notes || 'None'}
 
-${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
+${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}${draftContextBlock}${sourceBlock}
 
-Draft a Motion for Preliminary Relief (or appropriate motion based on the facts). Format with:
-1. CAPTION (case name, court, case number)
-2. NOTICE OF MOTION (brief statement of what the moving party requests)
-3. INTRODUCTION (1-2 paragraphs)
-4. STATEMENT OF FACTS (numbered paragraphs)
-5. LEGAL ARGUMENT (with subsections for each legal ground; cite relevant statutes, constitutional provisions, or case law where applicable)
-6. CONCLUSION AND RELIEF REQUESTED
-7. CERTIFICATION / SIGNATURE BLOCK
+${spec.instructions}
 
-Important rules:
-- Use formal, professional legal language
-- Base the motion content directly on the incidents and facts provided
-- Where court or case info is missing, use bracketed placeholders
-- Return only the document text`;
-    } else {
-      // timeline
-      prompt = `${libBlock}You are a civil rights legal document drafter. Create a formal chronological incident timeline document based on the case information below.
-
-${header}
-
-Case Notes: ${caseData.notes || 'None'}
-
-${incidentBlock ? `Incidents:\n${incidentBlock}` : ''}
-
-Format the timeline document as follows:
-1. HEADER (case name, parties, date prepared)
-2. INTRODUCTION (1 paragraph describing the overall pattern and purpose of this timeline)
-3. CHRONOLOGICAL INCIDENT LOG (each entry on its own line, formatted as:
-   [DATE] — [LOCATION] — [INCIDENT TITLE]
-   [Detailed description of what occurred, who was involved, what was said or done])
-4. SUMMARY OF PATTERN (2-3 paragraphs analyzing the overall pattern, common threads, and legal significance)
-5. EVIDENCE AND DOCUMENTATION NOTE (list what documentation should be gathered or preserved for each incident)
-6. PREPARER STATEMENT
-
-Important rules:
-- Order entries chronologically, earliest first
-- Extract and include every specific detail from the incident descriptions
-- Where dates are not provided, note "Date TBD — [approximate period if inferable]"
-- Return only the document text`;
-    }
+${RULES}`;
 
     const start = Date.now();
     const response = await withRetry(() => this.client.messages.create({
@@ -569,6 +694,166 @@ Important rules:
     const text = this.firstText(response);
     return {
       data: text,
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
+  /**
+   * Procedural information (INFORMATIONAL only, not legal advice) for a given
+   * document type and jurisdiction — shown to the user while gathering answers.
+   */
+  async proceduralInfo(
+    documentType: DocumentType,
+    jurisdiction: string,
+  ): Promise<AiResult<{ title: string; notes: string[] }>> {
+    const label = DOCUMENT_SPECS[documentType]?.label ?? String(documentType);
+    const prompt = `You are HyperLaw's procedural information assistant. A self-represented (pro se) litigant is preparing to draft: "${label}".
+Jurisdiction (as provided, may be informal): ${jurisdiction || 'Not specified'}.
+
+Provide 4-7 concise, plain-language INFORMATIONAL notes about the general procedure for this type of filing in this jurisdiction — for example: what it typically requires, common prerequisites (e.g., meet-and-confer, discovery being complete), general timing/deadline concepts, where/how it is usually filed and served, and formatting expectations.
+
+Strict rules:
+- This is general legal information, NOT legal advice, and NOT a recommendation to file.
+- If a specific rule number or deadline varies or you are unsure, say it varies by court and to check the local rules — do NOT fabricate specific rule numbers, deadlines, or case citations.
+- Keep each note to 1-2 sentences.
+Return ONLY valid JSON: { "title": string, "notes": string[] }`;
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 900,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    }));
+    this.assertComplete(response);
+    const data = this.parseJsonResponse<{ title: string; notes: string[] }>(response);
+    return { data, meta: this.buildMeta(response.usage, Date.now() - start) };
+  }
+
+  /**
+   * IFP form finder — uses Anthropic's server-side web_search tool to locate the
+   * official in-forma-pauperis / fee-waiver form for a jurisdiction. Returns a
+   * structured result; found=false tells the caller to fall back to the generic
+   * Appendix A template. Never throws on missing data — degrades to found=false.
+   */
+  async ifpFindForm(
+    jurisdiction: string,
+    caseData: { court?: string; caseNumber?: string; plaintiff?: string; state?: string; county?: string },
+  ): Promise<AiResult<{
+    found: boolean;
+    formName: string | null;
+    sourceUrl: string | null;
+    summary: string;
+    fields: Array<{ key: string; label: string }>;
+    instructions: string;
+  }>> {
+    const prompt = `A self-represented (pro se) litigant needs the official "in forma pauperis" (IFP) application to proceed without prepaying court fees (a fee-waiver form) for their court.
+
+Jurisdiction / court (as provided): ${jurisdiction || caseData.court || 'Not specified'}
+State: ${caseData.state ?? 'Not specified'}
+County: ${caseData.county ?? 'Not specified'}
+
+Use web search to find the CURRENT official fee-waiver / IFP form published by that court system (strongly prefer the official .gov / .us court website). Then return ONLY valid JSON as your final message (no other text) with this exact shape:
+{
+  "found": boolean,
+  "formName": string | null,
+  "sourceUrl": string | null,
+  "summary": string,
+  "fields": [ { "key": "short_snake_case", "label": "Human label" } ],
+  "instructions": string
+}
+Rules:
+- Only set found=true when you have located an actual official source URL. If you cannot, set found=false and leave formName/sourceUrl null.
+- Never fabricate a form number or URL. This is general legal information, not legal advice.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      system: SYSTEM_PROMPT,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }] as unknown as Anthropic.Tool[],
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    // web_search emits several content blocks; the final answer is the last text block.
+    const texts: string[] = [];
+    for (const block of response.content) if (block.type === "text") texts.push(block.text);
+    const cleaned = texts.join("\n").replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const matches = cleaned.match(/\{[\s\S]*?\}(?=[^}]*$)/g) ?? cleaned.match(/\{[\s\S]*\}/g);
+    let data: {
+      found: boolean; formName: string | null; sourceUrl: string | null;
+      summary: string; fields: Array<{ key: string; label: string }>; instructions: string;
+    } | null = null;
+    if (matches && matches.length) {
+      try { data = JSON.parse(matches[matches.length - 1]); } catch { data = null; }
+    }
+    if (!data || typeof data !== "object") {
+      data = { found: false, formName: null, sourceUrl: null, summary: "Could not locate an official form for this jurisdiction.", fields: [], instructions: "" };
+    }
+    return { data, meta: this.buildMeta(response.usage, Date.now() - start) };
+  }
+
+  /**
+   * Defense-filing analyzer — extracts the opposing party's identity and the
+   * substance of what they filed, from document text and/or photo(s). Vision-
+   * capable. Used to draft a responsive motion.
+   */
+  async defenseAnalyze(input: {
+    sourceText?: string;
+    images?: Array<{ mimeType: string; base64: string }>;
+    caseTitle?: string;
+  }): Promise<AiResult<{
+    defendantName: string | null;
+    defendantEmail: string | null;
+    defendantAddress: string | null;
+    filingType: string;
+    substanceSummary: string;
+    keyArguments: string[];
+    factsDisputed: string[];
+    suggestedResponse: { documentType: string; rationale: string };
+    deadlinesMentioned: string[];
+  }>> {
+    const prompt = `The material below was filed or sent by the OPPOSING PARTY (the defense) in a civil matter${input.caseTitle ? ` (case: ${input.caseTitle})` : ""}. Analyze it and extract structured information so a self-represented plaintiff can respond.
+
+${input.sourceText ? `DOCUMENT TEXT:\n${input.sourceText.slice(0, 14000)}` : "The document is provided as image(s) above."}
+
+Return ONLY valid JSON:
+{
+  "defendantName": string | null,
+  "defendantEmail": string | null,
+  "defendantAddress": string | null,
+  "filingType": string,
+  "substanceSummary": string,
+  "keyArguments": string[],
+  "factsDisputed": string[],
+  "suggestedResponse": { "documentType": "opposition|answer|motion|declaration|discovery|defense_response", "rationale": "why this is the appropriate responsive filing" },
+  "deadlinesMentioned": string[]
+}
+Rules:
+- Extract only what is present. Use null / empty arrays where information is absent. Never fabricate names, emails, addresses, or deadlines.
+- This is general legal information, not legal advice.`;
+
+    const imageBlocks = (input.images ?? []).map(img => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: img.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        data: img.base64,
+      },
+    }));
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: [...imageBlocks, { type: "text" as const, text: prompt }] }],
+    }));
+    return {
+      data: this.parseJsonResponse<{
+        defendantName: string | null; defendantEmail: string | null; defendantAddress: string | null;
+        filingType: string; substanceSummary: string; keyArguments: string[]; factsDisputed: string[];
+        suggestedResponse: { documentType: string; rationale: string }; deadlinesMentioned: string[];
+      }>(response),
       meta: this.buildMeta(response.usage, Date.now() - start),
     };
   }

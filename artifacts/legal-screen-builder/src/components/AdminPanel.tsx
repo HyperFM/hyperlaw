@@ -6,14 +6,14 @@ import {
   DollarSign, FileText, Lock, Unlock, AlertCircle,
 } from "lucide-react";
 import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
-import { aiApi, AiLog, AiStats, KnowledgeEntry, ErrorLog, formatMicroUsd, featureLabel } from "../lib/aiApi";
+import { aiApi, AiLog, AiStats, KnowledgeEntry, ErrorLog, IfpTemplate, formatMicroUsd, featureLabel } from "../lib/aiApi";
 import ConfirmDeleteButton from "./ConfirmDeleteButton";
 
 const ORANGE = "#d9711f";
 const DIM = "#666";
 const LINE = "#1e1e1e";
 
-type AdminView = "users" | "chat" | "ai" | "knowledge" | "revenue" | "errors";
+type AdminView = "users" | "chat" | "ai" | "knowledge" | "revenue" | "errors" | "templates";
 
 interface PlatformStats {
   totalUsers: number;
@@ -84,6 +84,16 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [errorLogsPage, setErrorLogsPage] = useState(1);
   const [errorLogsLoading, setErrorLogsLoading] = useState(false);
   const [errorLogsError, setErrorLogsError] = useState<string | null>(null);
+
+  // ── Templates (IFP fee-waiver library) state ──
+  const [templates, setTemplates] = useState<IfpTemplate[]>([]);
+  const [tplLoading, setTplLoading] = useState(false);
+  const [tplLoaded, setTplLoaded] = useState(false);
+  const [tplError, setTplError] = useState<string | null>(null);
+  const [tplForm, setTplForm] = useState<Partial<IfpTemplate> | null>(null);
+  const [tplSaving, setTplSaving] = useState(false);
+  const TPL_INPUT: React.CSSProperties = { width: "100%", background: "#0a0a0a", border: `1px solid ${LINE}`, borderRadius: 8, padding: "8px 10px", color: "#ddd", fontSize: 13, outline: "none", boxSizing: "border-box", marginTop: 4 };
+  const TPL_TOGGLE: React.CSSProperties = { background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: 12, display: "flex", alignItems: "center", gap: 6 };
   const ERROR_LOGS_PAGE_SIZE = 50;
 
   const loadUsers = useCallback(async () => {
@@ -150,6 +160,36 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  const loadTemplates = useCallback(async () => {
+    setTplLoading(true); setTplError(null);
+    try { setTemplates(await aiApi.ifpTemplates.list()); setTplLoaded(true); }
+    catch (e) { setTplError((e as Error).message || "Failed to load templates"); }
+    finally { setTplLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (view === "templates" && !tplLoaded && !tplLoading) loadTemplates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  async function saveTemplate() {
+    if (!tplForm || !tplForm.title?.trim()) return;
+    setTplSaving(true); setTplError(null);
+    try {
+      if (tplForm.id) await aiApi.ifpTemplates.update(tplForm.id, tplForm);
+      else await aiApi.ifpTemplates.create(tplForm);
+      setTplForm(null);
+      await loadTemplates();
+    } catch (e) { setTplError((e as Error).message || "Save failed"); }
+    finally { setTplSaving(false); }
+  }
+
+  async function deleteTemplate(id: string) {
+    if (!window.confirm("Delete this template? This cannot be undone.")) return;
+    try { await aiApi.ifpTemplates.remove(id); await loadTemplates(); }
+    catch (e) { setTplError((e as Error).message || "Delete failed"); }
+  }
 
   async function openChatWithUser(user: ClerkUser) {
     const email = user.email_addresses?.[0]?.email_address ?? "";
@@ -355,6 +395,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     { id: "knowledge", icon: BookOpen, label: "Knowledge" },
     { id: "revenue", icon: DollarSign, label: "Revenue" },
     { id: "errors", icon: AlertCircle, label: "Errors" },
+    { id: "templates", icon: FileText, label: "Templates" },
   ];
 
   return (
@@ -377,7 +418,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
-            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : view === "revenue" ? loadRevenue() : view === "errors" ? loadErrorLogs(errorLogsPage) : loadUsers()}
+            onClick={() => view === "ai" ? loadAiData(aiPage) : view === "knowledge" ? loadKbData() : view === "revenue" ? loadRevenue() : view === "errors" ? loadErrorLogs(errorLogsPage) : view === "templates" ? loadTemplates() : loadUsers()}
             style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 5, display: "flex" }}
             title="Refresh"
           >
@@ -1177,6 +1218,104 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
                       Next →
                     </button>
                   </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Templates view (IFP fee-waiver library — Section 6) ── */}
+      {view === "templates" && (
+        <div style={{ padding: "12px 14px" }}>
+          {tplError && (
+            <div style={{ marginBottom: 10, background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444" }}>{tplError}</div>
+          )}
+
+          {tplForm ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#ccc" }}>{tplForm.id ? "Edit template" : "New template"}</div>
+              {([
+                { k: "title", label: "Title", ph: "e.g. Kentucky AOC-025 Fee Waiver" },
+                { k: "jurisdiction", label: "Jurisdiction (blank = generic fallback)", ph: "e.g. Kentucky" },
+                { k: "formName", label: "Official form name / number", ph: "e.g. AOC-025" },
+                { k: "sourceUrl", label: "Source URL", ph: "https://…" },
+              ] as const).map(({ k, label, ph }) => (
+                <label key={k} style={{ fontSize: 11, color: "#777" }}>
+                  {label}
+                  <input value={(tplForm[k] as string) ?? ""} placeholder={ph}
+                    onChange={e => setTplForm(f => ({ ...f!, [k]: e.target.value }))} style={TPL_INPUT} />
+                </label>
+              ))}
+              <label style={{ fontSize: 11, color: "#777" }}>
+                Body / filing instructions
+                <textarea value={tplForm.body ?? ""} rows={6} placeholder="Form body, where and how to file, required attachments…"
+                  onChange={e => setTplForm(f => ({ ...f!, body: e.target.value }))}
+                  style={{ ...TPL_INPUT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+              </label>
+
+              <div style={{ fontSize: 11, color: "#777", marginTop: 2 }}>Fillable fields</div>
+              {(tplForm.fields ?? []).map((fld, idx) => (
+                <div key={idx} style={{ display: "flex", gap: 6 }}>
+                  <input value={fld.key} placeholder="key" style={{ ...TPL_INPUT, flex: 1, marginTop: 0 }}
+                    onChange={e => setTplForm(f => { const fields = [...(f!.fields ?? [])]; fields[idx] = { ...fields[idx], key: e.target.value }; return { ...f!, fields }; })} />
+                  <input value={fld.label} placeholder="label" style={{ ...TPL_INPUT, flex: 2, marginTop: 0 }}
+                    onChange={e => setTplForm(f => { const fields = [...(f!.fields ?? [])]; fields[idx] = { ...fields[idx], label: e.target.value }; return { ...f!, fields }; })} />
+                  <button onClick={() => setTplForm(f => ({ ...f!, fields: (f!.fields ?? []).filter((_, i) => i !== idx) }))}
+                    style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", padding: "0 10px", cursor: "pointer", flexShrink: 0 }}><Trash2 size={12} /></button>
+                </div>
+              ))}
+              <button onClick={() => setTplForm(f => ({ ...f!, fields: [...(f!.fields ?? []), { key: "", label: "" }] }))}
+                style={{ alignSelf: "flex-start", background: "#111", border: "1px solid #222", borderRadius: 6, color: "#888", padding: "5px 10px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}><Plus size={11} /> Add field</button>
+
+              <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
+                <button onClick={() => setTplForm(f => ({ ...f!, isGeneric: !f!.isGeneric }))} style={TPL_TOGGLE}>
+                  {tplForm.isGeneric ? <ToggleRight size={16} color={ORANGE} /> : <ToggleLeft size={16} color="#555" />} Generic fallback
+                </button>
+                <button onClick={() => setTplForm(f => ({ ...f!, isActive: !(f!.isActive ?? true) }))} style={TPL_TOGGLE}>
+                  {(tplForm.isActive ?? true) ? <ToggleRight size={16} color="#22c55e" /> : <ToggleLeft size={16} color="#555" />} Active
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button disabled={tplSaving || !tplForm.title?.trim()} onClick={saveTemplate}
+                  style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 8, color: "#000", fontWeight: 800, padding: "10px", cursor: tplSaving ? "not-allowed" : "pointer", opacity: (!tplForm.title?.trim() || tplSaving) ? 0.5 : 1 }}>
+                  {tplSaving ? "Saving…" : "Save template"}
+                </button>
+                <button onClick={() => setTplForm(null)} style={{ background: "#111", border: "1px solid #222", borderRadius: 8, color: "#888", padding: "10px 16px", cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button onClick={() => setTplForm({ title: "", jurisdiction: "", formName: "", sourceUrl: "", body: "", fields: [], isGeneric: false, isActive: true })}
+                style={{ width: "100%", background: `${ORANGE}0d`, border: `1px solid ${ORANGE}44`, borderRadius: 8, color: ORANGE, fontWeight: 700, padding: "9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 12 }}>
+                <Plus size={13} /> New template
+              </button>
+              {tplLoading ? (
+                <div style={{ padding: 24, textAlign: "center", color: "#555", fontSize: 13 }}>Loading templates…</div>
+              ) : templates.length === 0 ? (
+                <div style={{ padding: 24, textAlign: "center", color: "#555", fontSize: 13 }}>
+                  No IFP templates yet.
+                  <br />
+                  <span style={{ fontSize: 11, color: "#3a3a3a" }}>Add one, or the Fee-Waiver wizard falls back to the built-in generic template.</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {templates.map(t => (
+                    <div key={t.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                      <FileText size={14} color={t.isActive ? ORANGE : "#444"} style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                        <div style={{ fontSize: 11, color: "#666", display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+                          <span>{t.isGeneric || !t.jurisdiction ? "Generic fallback" : t.jurisdiction}</span>
+                          {t.formName && <span>· {t.formName}</span>}
+                          {!t.isActive && <span style={{ color: "#a33" }}>· inactive</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => setTplForm(t)} style={{ background: "none", border: "1px solid #222", borderRadius: 6, color: "#888", padding: "5px 7px", cursor: "pointer", flexShrink: 0 }}><Pencil size={12} /></button>
+                      <button onClick={() => deleteTemplate(t.id)} style={{ background: "none", border: "1px solid #3a1a1a", borderRadius: 6, color: "#ef4444", padding: "5px 7px", cursor: "pointer", flexShrink: 0 }}><Trash2 size={12} /></button>
+                    </div>
+                  ))}
                 </div>
               )}
             </>

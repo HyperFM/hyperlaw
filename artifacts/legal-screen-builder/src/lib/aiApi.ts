@@ -92,6 +92,62 @@ export interface CaseMemory {
   jurisdictionSuggestions: string[];
 }
 
+// ── Document generation ─────────────────────────────────────────────────────────
+
+/** All document types the generator supports (mirrors DocumentType in api-server) */
+export type DocumentType =
+  | "complaint" | "motion" | "timeline" | "discovery" | "judgment_summary" | "strengthen"
+  | "motion_summary_judgment" | "motion_compel_discovery" | "motion_dismiss" | "answer"
+  | "opposition" | "declaration" | "demand_letter" | "defense_response" | "fee_waiver";
+
+export interface ProceduralInfo {
+  title: string;
+  notes: string[];
+}
+
+export interface IfpFindResult {
+  found: boolean;
+  formName: string | null;
+  sourceUrl: string | null;
+  summary: string;
+  fields: Array<{ key: string; label: string }>;
+  instructions: string;
+}
+
+export interface DefenseAnalysis {
+  defendantName: string | null;
+  defendantEmail: string | null;
+  defendantAddress: string | null;
+  filingType: string;
+  substanceSummary: string;
+  keyArguments: string[];
+  factsDisputed: string[];
+  suggestedResponse: { documentType: string; rationale: string };
+  deadlinesMentioned: string[];
+}
+
+// ── Security & IFP templates ────────────────────────────────────────────────────
+
+export interface SecurityStatus {
+  hasPin: boolean;
+  webauthnEnabled: boolean;
+  locked: boolean;
+}
+
+export interface IfpTemplate {
+  id: string;
+  jurisdiction: string | null;
+  title: string;
+  formName: string | null;
+  sourceUrl: string | null;
+  body: string;
+  fields: Array<{ key: string; label: string; type?: string }>;
+  isGeneric: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Admin types ───────────────────────────────────────────────────────────────
 
 export interface AiLog {
@@ -439,9 +495,61 @@ export const aiApi = {
 
   // ── User self-service ──────────────────────────────────────────────────────
 
-  /** Delete all user-owned server data (call before Clerk user.delete()) */
-  deleteUserData(): Promise<void> {
-    return aiFetch("/user", { method: "DELETE" });
+  /** Delete all user-owned server data — PIN-guarded (call before Clerk user.delete()) */
+  deleteUserData(pin: string): Promise<{ ok: boolean }> {
+    return aiFetch("/user/delete", { method: "POST", body: JSON.stringify({ pin }) });
+  },
+
+  /** Per-user settings (one-time Welcome flag) */
+  userSettings: {
+    get(): Promise<{ hasSeenWelcome: boolean }> { return aiFetch("/user/settings"); },
+    markWelcomeSeen(): Promise<{ ok: boolean }> { return aiFetch("/user/welcome-seen", { method: "POST" }); },
+  },
+
+  /** PIN-guarded multi-select case deletion */
+  batchDeleteCases(ids: string[], pin: string): Promise<{ ok: boolean; deleted: number }> {
+    return aiFetch("/cases/batch-delete", { method: "POST", body: JSON.stringify({ ids, pin }) });
+  },
+
+  /** Account security — PIN (mandatory gate) + WebAuthn / Face ID enrollment (additive) */
+  security: {
+    status(): Promise<SecurityStatus> { return aiFetch("/security/status"); },
+    setPin(pin: string, currentPin?: string): Promise<{ ok: boolean }> {
+      return aiFetch("/security/pin", { method: "POST", body: JSON.stringify({ pin, currentPin }) });
+    },
+    verifyPin(pin: string): Promise<{ ok: boolean }> {
+      return aiFetch("/security/pin/verify", { method: "POST", body: JSON.stringify({ pin }) });
+    },
+    webauthnChallenge(): Promise<{ challenge: string; credentialIds: string[] }> {
+      return aiFetch("/security/webauthn/challenge", { method: "POST" });
+    },
+    webauthnEnroll(credentialId: string): Promise<{ ok: boolean }> {
+      return aiFetch("/security/webauthn/enroll", { method: "POST", body: JSON.stringify({ credentialId }) });
+    },
+    webauthnDisable(): Promise<{ ok: boolean }> {
+      return aiFetch("/security/webauthn/disable", { method: "POST" });
+    },
+  },
+
+  /** IFP fee-waiver template — jurisdiction match with generic Appendix A fallback */
+  ifp: {
+    match(jurisdiction: string): Promise<{ template: IfpTemplate; isFallback: boolean }> {
+      return aiFetch(`/ifp-templates/match?jurisdiction=${encodeURIComponent(jurisdiction)}`);
+    },
+  },
+
+  /** IFP template admin CRUD */
+  ifpTemplates: {
+    list(): Promise<IfpTemplate[]> { return aiFetch("/ifp-templates"); },
+    create(t: Partial<IfpTemplate>): Promise<IfpTemplate> {
+      return aiFetch("/ifp-templates", { method: "POST", body: JSON.stringify(t) });
+    },
+    update(id: string, changes: Partial<IfpTemplate>): Promise<IfpTemplate> {
+      return aiFetch(`/ifp-templates/${id}`, { method: "PATCH", body: JSON.stringify(changes) });
+    },
+    remove(id: string): Promise<void> {
+      return aiFetch(`/ifp-templates/${id}`, { method: "DELETE" });
+    },
   },
 
   // ── Stripe / Credits ───────────────────────────────────────────────────────
@@ -478,8 +586,12 @@ export const aiApi = {
    */
   generateDocument(payload: {
     caseId?: string;
-    documentType: "complaint" | "motion" | "timeline";
+    documentType: DocumentType;
     title?: string;
+    /** Extra structured context (e.g. upfront drafting answers) appended to the prompt */
+    draftContext?: string;
+    /** Required for strengthen/answer/opposition/defense_response — the document being responded to */
+    sourceDocument?: { title?: string; content: string };
     caseData: {
       title: string;
       notes?: string;
@@ -501,6 +613,28 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+
+  /** FREE — jurisdiction-aware procedural notes shown while answering drafting questions */
+  proceduralInfo(documentType: DocumentType, jurisdiction?: string, caseId?: string): Promise<ProceduralInfo> {
+    return aiFetch("/ai/procedural-info", {
+      method: "POST",
+      body: JSON.stringify({ documentType, jurisdiction, caseId }),
+    });
+  },
+
+  /** 1 CREDIT — web-search for the official IFP / fee-waiver form for a jurisdiction */
+  ifpFindForm(input: {
+    jurisdiction: string;
+    caseData?: { court?: string; caseNumber?: string; plaintiff?: string; state?: string; county?: string };
+    caseId?: string;
+  }): Promise<IfpFindResult> {
+    return aiFetch("/ai/ifp-find-form", { method: "POST", body: JSON.stringify(input) });
+  },
+
+  /** 1 CREDIT — analyze an opposing party's filing from document(s) and/or photo(s) */
+  defenseAnalyze(form: FormData): Promise<DefenseAnalysis> {
+    return aiFetch("/ai/defense-analyze", { method: "POST", body: form });
   },
 
   // ── Generated Documents ────────────────────────────────────────────────────
@@ -673,6 +807,13 @@ export function featureLabel(feature: string): string {
     timeline:                "Timeline Generation",
     assembly:                "Case Assembly",
     learning:                "Learning Index",
+    organize_case:           "Organization Engine",
+    gap_detect:              "Gap Detection",
+    jurisdiction_verify:     "Jurisdiction Verify",
+    builder_extract:         "Exhibit Builder",
+    procedural_info:         "Procedural Info",
+    ifp_find_form:           "IFP Form Search",
+    defense_analyze:         "Defense Analysis",
   };
   return labels[feature] ?? feature;
 }

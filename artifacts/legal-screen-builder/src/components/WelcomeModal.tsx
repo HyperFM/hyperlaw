@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { COMPLIANCE } from "../lib/compliance";
+import { aiApi } from "../lib/aiApi";
 
 const WELCOME_KEY = "hl_welcomed_v1";
 const ORANGE = "#d9711f";
@@ -8,13 +9,25 @@ export default function WelcomeModal() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Show once per account on this device
-    if (!localStorage.getItem(WELCOME_KEY)) setVisible(true);
+    // Per-USER (not per-device): the server tracks hasSeenWelcome. The localStorage
+    // key is only a per-device cache to avoid a flash for returning users on this
+    // device; the server remains the source of truth across devices.
+    if (localStorage.getItem(WELCOME_KEY)) return;
+    let cancelled = false;
+    aiApi.userSettings.get()
+      .then(s => {
+        if (cancelled) return;
+        if (!s.hasSeenWelcome) setVisible(true);
+        else localStorage.setItem(WELCOME_KEY, "1");
+      })
+      .catch(() => { /* never block the app on a settings failure */ });
+    return () => { cancelled = true; };
   }, []);
 
   function dismiss() {
     localStorage.setItem(WELCOME_KEY, "1");
     setVisible(false);
+    aiApi.userSettings.markWelcomeSeen().catch(() => {});
   }
 
   if (!visible) return null;

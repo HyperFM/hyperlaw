@@ -24,7 +24,14 @@ export type AiFeature =
   | "ocr_image"
   | "generate_document"
   | "analyze_document_intake"
-  | "build_case_memory";
+  | "build_case_memory"
+  | "builder_extract"
+  | "jurisdiction_verify"
+  | "organize_case"
+  | "gap_detect"
+  | "procedural_info"
+  | "ifp_find_form"
+  | "defense_analyze";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

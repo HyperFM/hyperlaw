@@ -11,6 +11,8 @@ import userRouter from "./user";
 import knowledgeRouter from "./knowledge";
 import stripeRouter from "./stripe";
 import casesRouter from "./cases";
+import securityRouter from "./security";
+import ifpRouter from "./ifp";
 
 const router: IRouter = Router();
 
@@ -26,5 +28,7 @@ router.use(userRouter);
 router.use(knowledgeRouter);
 router.use(stripeRouter);
 router.use(casesRouter);
+router.use(securityRouter);
+router.use(ifpRouter);
 
 export default router;

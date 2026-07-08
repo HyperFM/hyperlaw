@@ -1,0 +1,128 @@
+
+
+
+# Appendix A: Fee Waiver / In Forma Pauperis — Fallback Intake Template
+
+*(Referenced in Section 6 above. This is the full content of that fallback template, included here in full rather than as a separate document.)*
+
+## When This Triggers
+
+This intake flow is a **fallback only**. It should run when the AI agent searches for the user's specific jurisdiction's fee waiver / in forma pauperis form and cannot locate it online. This will not always happen — many jurisdictions' forms are findable — but when the agent comes up empty, this generic intake ensures the user isn't stuck with nothing.
+
+## Required Disclaimer Language (must display before and after this intake)
+
+Do not reference any specific state. Use language along these lines:
+
+> "This is a broad, general template for a fee waiver / in forma pauperis request. It is not built for any one jurisdiction, and it may or may not be accepted exactly as-is by your local court. We use this only when we couldn't locate the specific form for your court online — that's possible, but won't always happen.
+>
+> Once this is filled out, your information will be saved in the app, easy to find. If your court requires their own specific paper form, you can simply copy your saved answers over onto that form when you get to your local courthouse — most of the work is already done. Worst case, you're copying information you already have, not starting from scratch."
+
+## Closing Message (display after the user completes this intake)
+
+> "You're doing a good job."
+
+This should appear as a simple, warm closing line after submission — not buried in disclaimer text, its own clear moment.
+
+## Intake Questions
+
+### Case Caption (pull from existing case data if already entered — do not re-ask if known)
+- Case number
+- Court
+- County
+- Division
+- Plaintiff/Petitioner name
+- Defendant/Respondent name
+
+### Affiant Identity
+- Full name
+- Address
+- Date of birth
+- Telephone number
+
+### Employment
+- Are you employed? (Full-time / Part-time / No)
+- Employer name and address
+
+### Household
+- Marital status
+- Spouse's name (if married)
+- Number of dependents (children, elderly, or disabled)
+- Relationship of each dependent
+- Age(s) of dependents
+- Is spouse employed? (Yes/No — note: may not apply if this is a divorce proceeding)
+
+### Monthly Income
+- Gross salary (before deductions)
+- Food stamps/SNAP
+- TANF
+- K-TAP
+- KCHIP
+- LIHEAP
+- WIC
+- Child Care Assistance
+- Foster care
+- Other public assistance (specify)
+- Social Security (SSI/SSD)
+- Worker's Compensation
+- Unemployment
+- Retirement/Pension
+- Child support received
+- Maintenance/Alimony
+- Stocks, trusts, bonds
+- Student financial aid
+- Other income (specify)
+
+### Monthly Expenses
+- Mortgage or Rent payment
+- Utilities (electric/gas)
+- Water/Sewer/Trash
+- Food
+- Phone(s)
+- Internet
+- Cable/Satellite
+- Transportation
+- Clothing/Shoes
+- Vehicle payment(s)
+- Insurance (vehicle, health, house/renter's)
+- Credit card payment(s)
+- Unreimbursed childcare
+- Tuition/student loans
+- Medical/Dental payments
+- Child support paid
+- Other expenses (specify)
+
+### Assets
+- Cash on hand
+- Bank accounts — checking, savings, other
+- Value of home (if homeowner)
+- Other real estate owned (list, up to 3 entries)
+- Vehicles in working order — year/make + value (up to 3 entries)
+- Personal possessions of value — jewelry, boat, etc. (up to 4 entries)
+
+### Debts
+- Home loan (if homeowner)
+- Vehicle loan(s)
+- Credit card(s)
+- Student loan(s)
+- Medical debt
+- Other debts (up to 5 entries)
+
+### Closing
+- Additional comments (free text, optional)
+- Date
+- Signature — should be a signature-capture step, not a plain text field
+
+## Explicitly Out of Scope for This Intake
+- Do not ask the user to fill in anything from a judge's ruling/order section — that is completed by the court, never by the applicant.
+- Do not ask the user to fill in the notary/attestation block (subscribed and sworn, commission expiration, notary signature) — this happens in person when the document is physically signed, not through the app.
+
+
+For this portion of HyperLaw, I’m giving you broad implementation autonomy.
+
+Use the document-generation section as the foundation, but don’t limit yourself only to the document types I’ve explicitly listed. Research and think through how real users actually move through litigation and what motions, filings, and procedural documents are most commonly needed. If there are important drafting options that belong in this workspace, include them behind a clean “More” or similar entry point so the interface remains simple while still being complete.
+
+The document buttons I’ve specified should remain the primary, most visible actions, but I want the overall drafting system to feel complete from beginning to end. Design the necessary intake questions, confirmations, procedural checks, and information gathering so the user provides everything needed before drafting begins. Avoid draft-stop-redraft workflows whenever possible.
+
+Think through what information Sonnet 5 will actually need in order to generate high-quality motions and filings. Build the flow so the correct context, jurisdiction information, case facts, uploaded documents, evidence, and user confirmations are collected and packaged before the drafting call is made.
+
+Use good judgment, research common litigation workflows, reuse existing components where appropriate, and implement a system that feels comprehensive rather than limited to only the examples listed in this brief.

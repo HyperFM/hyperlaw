@@ -6,7 +6,7 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
-  Camera, LifeBuoy,
+  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -18,7 +18,7 @@ import {
   addReminder, deleteReminder,
 } from "./store";
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
-import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory } from "./lib/aiApi";
+import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
@@ -46,6 +46,11 @@ import { AssemblyView } from "./pages/workflow/AssemblyView";
 import { LearningIndexView } from "./pages/workflow/LearningIndexView";
 import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
 import ConfirmDeleteButton from "./components/ConfirmDeleteButton";
+import PinGateModal from "./components/PinGateModal";
+import ManageCasesModal from "./components/ManageCasesModal";
+import DraftQuestionsModal from "./components/DraftQuestionsModal";
+import IfpWizard from "./components/IfpWizard";
+import DefenseModal from "./components/DefenseModal";
 
 const ADMIN_EMAIL = "hypermodula@gmail.com";
 
@@ -1010,6 +1015,9 @@ function ReminderSection({ caseId, reminders, onAdd, onDelete }: {
   );
 }
 
+// Document types whose drafting REQUIRES a source document to respond to (Sections 10/11).
+const NEEDS_SOURCE: DocumentType[] = ["strengthen", "answer", "opposition", "defense_response"];
+
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
 function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, isApex, onGoToPhase }: {
   hlCase: HLCase; data: AppData;
@@ -1045,11 +1053,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [genDocs, setGenDocs] = useState<ServerGeneratedDoc[]>([]);
   const [genDocsLoading, setGenDocsLoading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
-  const [generatingDocType, setGeneratingDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
+  const [generatingDocType, setGeneratingDocType] = useState<DocumentType | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [lastGenerateDocType, setLastGenerateDocType] = useState<"complaint" | "motion" | "timeline" | null>(null);
+  type GenArgs = { docType: DocumentType; opts?: { draftContext?: string; sourceDocument?: { title?: string; content: string }; title?: string } };
+  const [lastGenerateArgs, setLastGenerateArgs] = useState<GenArgs | null>(null);
   const [viewingDoc, setViewingDoc] = useState<ServerGeneratedDoc | null>(null);
-  const [caseDetailTab, setCaseDetailTab] = useState<"overview" | "checklist">("overview");
+  // Drafting / fee-waiver / defense flow modals (Sections 5, 6, 10, 11)
+  const [draftModal, setDraftModal] = useState<{ docType: DocumentType; label: string; needsSource: boolean } | null>(null);
+  const [showIfp, setShowIfp] = useState(false);
+  const [showDefense, setShowDefense] = useState(false);
+  const [showMoreDocs, setShowMoreDocs] = useState(false);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -1109,15 +1122,18 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     }
   }
 
-  async function handleGenerateDoc(docType: "complaint" | "motion" | "timeline") {
+  async function handleGenerateDoc(docType: DocumentType, opts?: GenArgs["opts"]) {
     setGeneratingDocType(docType);
-    setLastGenerateDocType(docType);
+    setLastGenerateArgs({ docType, opts });
     setGenerateError(null);
     const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
     try {
       const doc = await aiApi.generateDocument({
         caseId: hlCase.id,
         documentType: docType,
+        title: opts?.title,
+        draftContext: opts?.draftContext,
+        sourceDocument: opts?.sourceDocument,
         caseData: {
           title: hlCase.title,
           notes: hlCase.notes,
@@ -1139,6 +1155,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     } finally {
       setGeneratingDocType(null);
     }
+  }
+
+  // Open the guided upfront-questions modal for a document type (Section 10), gating on jurisdiction.
+  function openDraft(docType: DocumentType, label: string) {
+    if (!hlCase.jurisdiction?.trim()) {
+      setGenerateError("Please add a jurisdiction first — set it in the Jurisdiction field above.");
+      return;
+    }
+    setGenerateError(null);
+    setDraftModal({ docType, label, needsSource: NEEDS_SOURCE.includes(docType) });
   }
 
   const incidents = data.incidents.filter(i => hlCase.incidentIds.includes(i.id))
@@ -1166,8 +1192,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         <div style={{ flex: 1 }} />
         <button onClick={() => { setPendingCaseExport(() => () => exportCasePDF(hlCase, data.incidents).catch(() => {})); setShowCaseDocConfirm(true); }} title="Export PDF"
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
-        <div style={{ width: 1, height: 18, background: "#2a2a2a", flexShrink: 0 }} />
-        <ConfirmDeleteButton onDelete={() => onDeleteCase(hlCase.id)} iconSize={15} title="Delete case" />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 48px" }}>
@@ -1230,41 +1254,18 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
-        {/* Action buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-          <TapBtn variant="orange" onClick={() => onOpenInTutor(hlCase)} style={{ justifyContent: "center" }}>
-            <BookOpen size={15} /> Analyze in Index
-          </TapBtn>
-          <TapBtn variant="ghost" onClick={onAddIncident} style={{ justifyContent: "center" }}>
-            <Plus size={15} /> Add Incident
-          </TapBtn>
-        </div>
+        {/* Discover — slim single entry into the Index analysis (Sections 5 & 8) */}
+        <button onClick={() => onOpenInTutor(hlCase)}
+          style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 10, padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 20, color: "#888" }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
+          <BookOpen size={14} color={ORANGE} />
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Discover — analyze this case in Index</span>
+          <ChevronRight size={14} color="#333" style={{ marginLeft: "auto" }} />
+        </button>
 
-        {/* Tab bar — Overview / Checklist */}
-        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #1a1a1a", marginBottom: 24 }}>
-          {(["overview", "checklist"] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setCaseDetailTab(tab)}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                padding: "8px 16px 10px",
-                fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6,
-                color: caseDetailTab === tab ? ORANGE : "#444",
-                borderBottom: `2px solid ${caseDetailTab === tab ? ORANGE : "transparent"}`,
-                marginBottom: -1, transition: "all 0.15s",
-              }}
-            >
-              {tab === "overview" ? "Overview" : `Checklist (${hlCase.intakeChecklist.filter(i => i.completed).length}/${12})`}
-            </button>
-          ))}
-        </div>
-
-        {caseDetailTab === "checklist" && (
-          <IntakeChecklistView hlCase={hlCase} onUpdate={onUpdateCase} />
-        )}
-
-        {caseDetailTab === "overview" && (<>
+        {/* Checklist/Index tabs removed — Assembly is drafting-focused (Section 8) */}
+        <>
 
         {/* ── Document Intake Workflow ───────────────────────────────── */}
         {(() => {
@@ -1621,10 +1622,10 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
-        {/* Generate Formal Documents */}
+        {/* Draft Documents (Sections 5, 6, 9, 10, 11) */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>GENERATE FORMAL DOCUMENTS</div>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>DRAFT DOCUMENTS</div>
             {creditBalance !== undefined && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 11, color: creditBalance > 0 ? ORANGE : "#555", fontWeight: 700 }}>
@@ -1639,50 +1640,139 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               </div>
             )}
           </div>
-          <div style={{ color: "#444", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-            Generate a free preview — verify the formatting, then unlock the full document for 1 credit.
+          <div style={{ color: "#444", fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
+            Answer a few guided questions, then generate a free preview. Unlock the full document for 1 credit.
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {(["complaint", "timeline", "motion"] as const).map(docType => {
-              const labels: Record<string, string> = { complaint: "Civil Rights Complaint", timeline: "Incident Timeline", motion: "Litigation Motion" };
-              const isGenerating = generatingDocType === docType;
-              const anyGenerating = !!generatingDocType;
+
+          {/* Primary group of four */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            {([
+              { dt: "complaint" as DocumentType, label: "Draft Complaint", full: "Complaint" },
+              { dt: "motion" as DocumentType, label: "Draft Motion", full: "Motion" },
+              { dt: "discovery" as DocumentType, label: "Draft Discovery", full: "Discovery Requests" },
+              { dt: "judgment_summary" as DocumentType, label: "Draft Judgment Summary", full: "Judgment Summary" },
+            ]).map(({ dt, label, full }) => {
+              const busy = generatingDocType === dt;
               return (
                 <button
-                  key={docType}
-                  disabled={anyGenerating}
-                  onClick={() => {
-                    if (!hlCase.jurisdiction?.trim()) {
-                      setGenerateError("Please add a jurisdiction first — enter it in the Jurisdiction field above.");
-                      return;
-                    }
-                    handleGenerateDoc(docType);
-                  }}
+                  key={dt}
+                  disabled={!!generatingDocType}
+                  onClick={() => openDraft(dt, full)}
                   style={{
-                    background: "#111", border: `1px solid ${isGenerating ? ORANGE : "#1e1e1e"}`,
-                    borderRadius: 10, padding: "10px 14px", cursor: anyGenerating ? "not-allowed" : "pointer",
-                    display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
-                    opacity: anyGenerating && !isGenerating ? 0.4 : 1, flex: "1 1 120px",
+                    background: "linear-gradient(180deg, #161311 0%, #0f0d0c 100%)",
+                    border: `1px solid ${busy ? ORANGE : "#221c17"}`, borderRadius: 12, padding: "14px 12px",
+                    cursor: generatingDocType ? "not-allowed" : "pointer", display: "flex", flexDirection: "column",
+                    alignItems: "flex-start", gap: 6, opacity: generatingDocType && !busy ? 0.4 : 1, textAlign: "left",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)", transition: "transform 0.08s ease, border-color 0.15s ease",
                   }}
+                  onMouseDown={e => { if (!generatingDocType) e.currentTarget.style.transform = "scale(0.97)"; }}
+                  onMouseUp={e => (e.currentTarget.style.transform = "scale(1)")}
+                  onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
+                  onTouchStart={e => { if (!generatingDocType) e.currentTarget.style.transform = "scale(0.97)"; }}
+                  onTouchEnd={e => (e.currentTarget.style.transform = "scale(1)")}
                 >
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#ccc", display: "flex", alignItems: "center", gap: 6 }}>
-                    {isGenerating
-                      ? <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
-                      : <FileText size={13} color="#444" />
-                    }
-                    {labels[docType]}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {busy
+                      ? <Loader2 size={14} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
+                      : <FileText size={14} color={ORANGE} />}
+                    <span style={{ fontWeight: 800, fontSize: 13, color: "#eee" }}>{label}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: "#555" }}>Free preview</div>
+                  <span style={{ fontSize: 10, color: "#6a5c50" }}>Free preview · guided questions</span>
                 </button>
               );
             })}
           </div>
-          {generateError && (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ flex: 1 }}>{generateError}</span>
-              {lastGenerateDocType && (
+
+          {/* Strengthen — separate, needs a source document */}
+          <button
+            disabled={!!generatingDocType}
+            onClick={() => openDraft("strengthen", "Strengthen My Case")}
+            style={{
+              width: "100%", background: `${ORANGE}0d`, border: `1px solid ${ORANGE}44`, borderRadius: 12,
+              padding: "12px 14px", cursor: generatingDocType ? "not-allowed" : "pointer", display: "flex",
+              alignItems: "center", gap: 10, marginBottom: 8,
+              opacity: generatingDocType && generatingDocType !== "strengthen" ? 0.4 : 1,
+              transition: "transform 0.08s ease",
+            }}
+            onMouseDown={e => { if (!generatingDocType) e.currentTarget.style.transform = "scale(0.98)"; }}
+            onMouseUp={e => (e.currentTarget.style.transform = "scale(1)")}
+            onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
+          >
+            {generatingDocType === "strengthen"
+              ? <Loader2 size={16} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
+              : <Sparkles size={16} color={ORANGE} />}
+            <div style={{ textAlign: "left", flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: ORANGE }}>Strengthen a document</div>
+              <div style={{ fontSize: 10, color: "#8a7566" }}>Paste an existing filing to sharpen it</div>
+            </div>
+          </button>
+
+          {/* Respond to opposing filing (Section 11) + Fee waiver (Section 6) */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <button
+              onClick={() => { setGenerateError(null); setShowDefense(true); }}
+              style={{ background: "#111", border: "1px solid #221c17", borderRadius: 12, padding: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <Swords size={16} color="#ef6a4a" />
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontWeight: 800, fontSize: 12, color: "#eee" }}>Respond to filing</div>
+                <div style={{ fontSize: 10, color: "#6a5c50" }}>Upload · 1 credit</div>
+              </div>
+            </button>
+            <button
+              onClick={() => {
+                if (!hlCase.jurisdiction?.trim()) { setGenerateError("Please add a jurisdiction first — set it in the Jurisdiction field above."); return; }
+                setGenerateError(null); setShowIfp(true);
+              }}
+              style={{ background: "#111", border: "1px solid #221c17", borderRadius: 12, padding: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <BadgeDollarSign size={16} color={ORANGE} />
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontWeight: 800, fontSize: 12, color: "#eee" }}>Fee waiver</div>
+                <div style={{ fontSize: 10, color: "#6a5c50" }}>Find form · 1 credit</div>
+              </div>
+            </button>
+          </div>
+
+          {/* More documents */}
+          <button
+            onClick={() => setShowMoreDocs(v => !v)}
+            style={{ width: "100%", background: "none", border: "1px dashed #1e1e1e", borderRadius: 10, padding: "9px 12px", cursor: "pointer", color: "#888", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 700 }}
+          >
+            {showMoreDocs ? <ChevronUp size={13} /> : <ChevronDown size={13} />} More documents
+          </button>
+          {showMoreDocs && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {([
+                { dt: "motion_summary_judgment" as DocumentType, full: "Motion for Summary Judgment" },
+                { dt: "motion_compel_discovery" as DocumentType, full: "Motion to Compel Discovery" },
+                { dt: "motion_dismiss" as DocumentType, full: "Motion to Dismiss" },
+                { dt: "answer" as DocumentType, full: "Answer" },
+                { dt: "opposition" as DocumentType, full: "Opposition" },
+                { dt: "declaration" as DocumentType, full: "Declaration" },
+                { dt: "demand_letter" as DocumentType, full: "Demand Letter" },
+              ]).map(({ dt, full }) => (
                 <button
-                  onClick={() => { setGenerateError(null); handleGenerateDoc(lastGenerateDocType); }}
+                  key={dt}
+                  disabled={!!generatingDocType}
+                  onClick={() => openDraft(dt, full)}
+                  style={{ background: "#111", border: `1px solid ${generatingDocType === dt ? ORANGE : "#1e1e1e"}`, borderRadius: 8, padding: "8px 12px", cursor: generatingDocType ? "not-allowed" : "pointer", color: "#ccc", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, opacity: generatingDocType && generatingDocType !== dt ? 0.4 : 1 }}
+                >
+                  {generatingDocType === dt
+                    ? <Loader2 size={12} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} />
+                    : <FileText size={12} color="#555" />}
+                  {full}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {generateError && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ flex: 1 }}>{generateError}</span>
+              {lastGenerateArgs && (
+                <button
+                  onClick={() => { setGenerateError(null); handleGenerateDoc(lastGenerateArgs.docType, lastGenerateArgs.opts); }}
                   style={{ background: "#2a1010", border: "1px solid #5a2020", borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: "#ef4444", fontSize: 11, fontWeight: 700, flexShrink: 0 }}
                 >
                   Try again
@@ -1774,9 +1864,48 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <div style={{ fontSize: 11, color: "#333", marginTop: 8 }}>These are official sources only. HyperLaw does not auto-fill or generate any documents.</div>
           </div>
         )}
-
-        </>)}
+        </>
       </div>
+
+      {/* Guided drafting questions (Section 10) */}
+      {draftModal && (
+        <DraftQuestionsModal
+          open={!!draftModal}
+          documentType={draftModal.docType}
+          documentLabel={draftModal.label}
+          jurisdiction={hlCase.jurisdiction}
+          caseId={hlCase.id}
+          needsSource={draftModal.needsSource}
+          onBuyCredits={onBuyCredits}
+          onClose={() => setDraftModal(null)}
+          onReady={({ draftContext, sourceDocument }) => {
+            const dm = draftModal;
+            setDraftModal(null);
+            if (dm) handleGenerateDoc(dm.docType, { draftContext, sourceDocument, title: dm.label });
+          }}
+        />
+      )}
+      {/* Fee waiver / IFP (Section 6) */}
+      <IfpWizard
+        open={showIfp}
+        caseId={hlCase.id}
+        jurisdiction={hlCase.jurisdiction ?? ""}
+        creditBalance={creditBalance}
+        onBuyCredits={onBuyCredits}
+        onClose={() => setShowIfp(false)}
+        onGenerated={(doc) => { setGenDocs(prev => [doc, ...prev]); setViewingDoc(doc); onDocGenerated?.(); }}
+      />
+      {/* Respond to opposing filing — crossed swords (Section 11) */}
+      <DefenseModal
+        open={showDefense}
+        caseId={hlCase.id}
+        caseTitle={hlCase.title}
+        jurisdiction={hlCase.jurisdiction}
+        creditBalance={creditBalance}
+        onBuyCredits={onBuyCredits}
+        onClose={() => setShowDefense(false)}
+        onDrafted={(doc) => { setGenDocs(prev => [doc, ...prev]); setViewingDoc(doc); onDocGenerated?.(); }}
+      />
 
       {/* Document viewer / paywall / TTS / download */}
       {viewingDoc && (
@@ -3111,12 +3240,13 @@ function DocumentIntakeView({
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
   onBuyCredits?: () => void;
   onAboutCreator: () => void;
+  onCasesDeleted: (ids: string[]) => void;
 }) {
   const { signOut } = useClerk();
   const { user } = useUser();
@@ -3157,19 +3287,26 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const [showDeleteSection, setShowDeleteSection] = useState(false);
   const [scrolledToBottom, setScrolledToBottom] = useState(false);
   const [deleteDone, setDeleteDone] = useState(false);
+  const [showDeletePin, setShowDeletePin] = useState(false);
+  const [showManageCases, setShowManageCases] = useState(false);
 
   function handleDeleteScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 30) setScrolledToBottom(true);
   }
 
-  async function handleDeleteComplete() {
+  async function handleDeleteComplete(pin: string) {
     setDeleteDone(true);
     try {
-      await aiApi.deleteUserData().catch(() => {});
+      // PIN-guarded server purge MUST succeed before we delete the Clerk user —
+      // a wrong PIN throws here and aborts, so the account is never orphaned.
+      await aiApi.deleteUserData(pin);
       await user?.delete();
-    } catch {
-      alert("Failed to delete account. Please contact support at hypermodula@gmail.com");
+    } catch (err) {
+      const msg = ((err as Error)?.message ?? "").toLowerCase();
+      alert(msg.includes("pin")
+        ? "Incorrect PIN. Your account was not deleted."
+        : "Failed to delete account. Please contact support at hypermodula@gmail.com");
       setDeleteDone(false);
     }
   }
@@ -3329,6 +3466,22 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         </div>
       )}
 
+      {/* Manage */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>MANAGE</div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          <button onClick={() => setShowManageCases(true)}
+            style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <FileText size={15} color="#666" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Manage Cases</div>
+              <div style={{ fontSize: 12, color: "#555" }}>Select and delete cases · {data.cases.length} total</div>
+            </div>
+            <ChevronRight size={15} color="#333" />
+          </button>
+        </div>
+      </div>
+
       {/* Legal & Compliance */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -3460,7 +3613,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
 
               {scrolledToBottom && !deleteDone && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <HoldToDeleteButton onComplete={handleDeleteComplete} />
+                  <HoldToDeleteButton onComplete={() => setShowDeletePin(true)} />
                   <button
                     onClick={() => setShowDeleteSection(false)}
                     style={{ background: "none", border: "none", color: "#333", fontSize: 12, cursor: "pointer", textAlign: "center" }}
@@ -3480,6 +3633,22 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           </div>
         )}
       </div>
+
+      {/* Security + Manage modals */}
+      <PinGateModal
+        open={showDeletePin}
+        title="Confirm account deletion"
+        description="Enter your PIN to permanently delete your account and all associated data."
+        confirmLabel="Delete everything"
+        onClose={() => setShowDeletePin(false)}
+        onSuccess={(pin) => { setShowDeletePin(false); handleDeleteComplete(pin); }}
+      />
+      <ManageCasesModal
+        open={showManageCases}
+        cases={data.cases.map(c => ({ id: c.id, title: c.title }))}
+        onClose={() => setShowManageCases(false)}
+        onDeleted={(ids) => onCasesDeleted(ids)}
+      />
 
       {/* ── Creator button ─────────────────────────────────────────────── */}
       <div style={{ marginTop: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
@@ -4395,6 +4564,7 @@ export default function App() {
           onEasterEgg={() => setShowEasterEgg(true)}
           onBuyCredits={() => setShowCreditShop(true)}
           onAboutCreator={() => setView({ type: "about_creator" })}
+          onCasesDeleted={ids => setData(ids.reduce((acc, id) => deleteCase(acc, id), data))}
         />
       );
     }

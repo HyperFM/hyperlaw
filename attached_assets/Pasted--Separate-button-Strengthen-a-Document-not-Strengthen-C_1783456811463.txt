@@ -1,0 +1,252 @@
+
+
+**Separate button: Strengthen a Document** (not "Strengthen Complaint" — this should apply to any existing document, not just the complaint). Groups with the four document buttons above, visually connected.
+
+**Discovery/Learning Index entry point:** add a slim cloud-shaped button (reuse the same cloud icon used in the bottom nav bar) positioned underneath or near the document button group. Label it **Discover** (or "Discovery"). Tapping it takes the user directly to Index/case selection, where they spend 1 credit to unlock the Learning Index for that case — this feature is likely already built from earlier work; this is just about placing the entry point correctly on the Assembly screen.
+
+---
+
+## 6. New Feature: IFP (In Forma Pauperis) Button
+
+Add an **IFP** button to the Assembly screen.
+
+**Flow when tapped:**
+1. Message: *"Let's find your in forma pauperis form."*
+2. Agent searches the web (this costs 1 credit) to find the fee-waiver/in forma pauperis form specific to the user's jurisdiction.
+3. **If found:** agent gathers the necessary information from the case data and/or a short interview, and fills out the located form.
+4. **If not found:** falls back to the generic blank template specified in full in **Appendix A** below. That template is intentionally blank/unlabeled — no state name — and gets filled in progressively, left corner downward, from the user's answers.
+
+**Template library management:** the library of blank fallback templates (used when a jurisdiction-specific form can't be found online) should be stored in a way that's manageable from an **Admin Panel** — allowing new blank templates to be uploaded to this library going forward without needing a code change each time.
+
+**Credit usage clarification:** the interview/question-answering portion of filling out the IFP (or any form) should **not** consume credits — consistent with the existing credit philosophy (answering questions is free; the AI actually building/searching/generating something is what costs a credit).
+
+---
+
+## 7. Case Deletion — Relocate & Secure
+
+**Remove entirely** from the main case screen: any delete-case button, including the current hold-to-delete/cover mechanic. Deleting a case should not be accessible from the case screen itself anymore.
+
+**New location:** a **Manage Cases** section inside Profile, near Settings.
+
+**New deletion flow (inside Manage Cases):**
+- Simple, clearly-labeled delete button per case — no long-press/hold required
+- Two-step confirmation (a confirmation prompt between the initial tap and the final delete)
+- **Multi-select:** allow selecting multiple cases at once, with a single consolidated confirmation message covering the whole batch deletion — not one confirmation per case
+
+**Security gates required before any deletion (case or account) goes through:**
+1. The user's account management code/PIN (something they've set up for exactly this kind of change)
+2. Device-level authentication — Face ID or phone passcode — as an additional required step before the deletion executes
+
+Both of the above apply to deleting one or multiple cases, and to account deletion.
+
+---
+
+## 8. Explicit Removals (Assembly Screen)
+
+Remove entirely — these don't belong on this screen:
+- **Add Incident button and all incident-adding UI.** This is not an incident-report tool. All case facts come from the initial intake interview or an uploaded document — nothing gets "added" as a new incident after the fact. If something new happens later, that becomes a *new, separate case*, not an addition to an existing one.
+- **Add Note / notes section**
+- The old bulky **Add Deadline** button — replace with a sleeker, brighter-looking version. The deadline/reminder *feature itself* should stay and continue to function (notifying users of deadlines, letting them set reminders/tasks for specific days) — it just needs a cleaner, more polished presentation, placed neatly within the Assembly screen rather than looking like a s eparate bolted-on formal tool.
+- The standalone checklist UI and any duplicate Index-related buttons/entries that don't match the single "Discover" cloud entry point described in section 5
+
+---
+
+## 9. Button Interaction Polish (Assembly Screen Only)
+
+Every interactive button on the Assembly screen should have a satisfying, deliberate press state — a glossy visual feedback effect when tapped, reinforcing the "digging into your work" feeling described in the visual design section above. This should feel calming and intentional, not flashy.
+
+
+
+
+
+
+
+
+
+
+
+**Important scope boundary:** this glossy/colorful interaction treatment is specific to the Assembly screen only — it's meant to mark the moment a user is actively working on their case. The rest of the app stays dark and orange exactly as it already is. Do not extend this treatment app-wide; the contrast between "browsing" (dark/orange, calm) and "working" (glossy, tactile) is intentional.
+
+---
+
+## 10. Motion-Specific Drafting Logic
+
+### Draft Motion for Summary Judgment
+
+Before drafting, the app should ask the user two things, in this order, before any drafting begins:
+
+1. **"Do you believe your complaint is strong enough, with nothing else to add to your case?"** — a simple yes/no gate. If no, don't proceed to drafting yet — this isn't the right moment for this motion.
+2. If yes: **"Do you want me to take everything from your complaint and draft it into a Motion for Summary Judgment, treating your submitted evidence as accurate?"** — explicit confirmation before the AI call that actually drafts anything.
+
+**Jurisdiction-aware procedural context (informational, not directive):** Before or alongside this, the agent should check the case's stored jurisdiction and give general procedural information about typical timing — summary judgment motions are commonly filed after discovery, but in some jurisdictions they can be filed earlier, and rules vary. Present this as general procedural information about how this motion typically works in the relevant jurisdiction — not as a personalized legal conclusion telling the user they are or aren't allowed to file. This mirrors how the Glossary handles jurisdiction-specific facts: informational, not advisory.
+
+**Substantive requirement to reflect in the drafting logic:** summary judgment is appropriate when there's no genuine dispute over the material facts — the user's evidence should already be submitted/complete before this motion makes sense. If the user indicates there are still disputed facts, the agent should ask about those specific disputes as part of the upfront question set (see execution note below) — not loop back into a conversation after drafting has started.
+
+### Draft Motion for Discovery
+
+The agent looks at the case's jurisdiction and procedural posture, then drafts a motion requesting to proceed to discovery — the standard procedural step for exchanging evidence before trial. Same principle applies: confirm intent and gather any necessary specifics upfront, then draft.
+
+### Execution Principle for Both Motions (and generally, going forward)
+
+**All necessary questions must be asked upfront, before any drafting call is made** — not through back-and-forth after a draft has started. The goal is one clean round: gather every piece of information the agent needs (confirmations, disputed-fact details, jurisdiction context already on file), then make a single drafting call. This keeps AI usage as low as possible per document and avoids the frustrating "starts drafting, has to stop and ask something, draft again" pattern.
+
+---
+
+## 11. New Feature: Defense Button
+
+Add a **Defense** button to the Assembly screen, using a **two crossed swords icon**.
+
+**Purpose:** lets the user respond when the opposing side has filed something against their case.
+
+**Flow when tapped:**
+
+1. Prompt: **"What did the defense file?"**
+2. User submits the filing — either by uploading a document directly, or by taking photos of the physical document they received.
+3. **Extraction:** the agent reads the submitted filing and pulls out any useful information not already stored in the case — particularly the defense's name, email, and address, if present. This information should be saved so it's available for future filings and for strengthening existing motions, without the user having to re-enter it later.
+4. **Understanding why:** the agent needs to understand the substance of what the defense filed — why they filed it, what they're arguing — before it can draft a response. If the filing alone doesn't make this clear, this may prompt a short interview with the user. This step costs 1 credit, consistent with the existing credit philosophy (real AI analysis work costs a credit; simply answering questions does not — but here the analysis of the filing itself is the paid step).
+5. **Drafting the response:** once the agent understands what was filed and why, it helps the user draft a responsive motion addressing the defense's claims — defending the user's case against whatever was raised.
+
+This follows the same execution principle as the motions in Section 10: gather what's needed (the filing + any clarifying interview) upfront, then draft — not draft-then-interview-then-redraft.
+
+---
+
+## Constraints Carried Forward From Prior Briefs (unchanged)
+
+- Do not touch the bottom navigation panel
+- Do not touch the icons at the top of the Exhibit Studio screen, or the banner logo there
+- Preserve and reuse anything already built that fits this redesign rather than rebuilding unnecessarily — check for existing/dormant components first, per the standing "reuse before rebuild" instruction
+
+---
+
+## Scope of Authority & Execution
+
+Same authority as prior briefs: investigate end-to-end, fix root causes, implement fully rather than returning a list of problems, and use good judgment on ambiguous points rather than pausing to ask. After everything above is built and verified, provide a short summary of what was done — not a full audit.
+
+---
+---
+
+# Appendix A: Fee Waiver / In Forma Pauperis — Fallback Intake Template
+
+*(Referenced in Section 6 above. This is the full content of that fallback template, included here in full rather than as a separate document.)*
+
+## When This Triggers
+
+This intake flow is a **fallback only**. It should run when the AI agent searches for the user's specific jurisdiction's fee waiver / in forma pauperis form and cannot locate it online. This will not always happen — many jurisdictions' forms are findable — but when the agent comes up empty, this generic intake ensures the user isn't stuck with nothing.
+
+## Required Disclaimer Language (must display before and after this intake)
+
+Do not reference any specific state. Use language along these lines:
+
+> "This is a broad, general template for a fee waiver / in forma pauperis request. It is not built for any one jurisdiction, and it may or may not be accepted exactly as-is by your local court. We use this only when we couldn't locate the specific form for your court online — that's possible, but won't always happen.
+>
+> Once this is filled out, your information will be saved in the app, easy to find. If your court requires their own specific paper form, you can simply copy your saved answers over onto that form when you get to your local courthouse — most of the work is already done. Worst case, you're copying information you already have, not starting from scratch."
+
+## Closing Message (display after the user completes this intake)
+
+> "You're doing a good job."
+
+This should appear as a simple, warm closing line after submission — not buried in disclaimer text, its own clear moment.
+
+## Intake Questions
+
+### Case Caption (pull from existing case data if already entered — do not re-ask if known)
+- Case number
+- Court
+- County
+- Division
+- Plaintiff/Petitioner name
+- Defendant/Respondent name
+
+### Affiant Identity
+- Full name
+- Address
+- Date of birth
+- Telephone number
+
+### Employment
+- Are you employed? (Full-time / Part-time / No)
+- Employer name and address
+
+### Household
+- Marital status
+- Spouse's name (if married)
+- Number of dependents (children, elderly, or disabled)
+- Relationship of each dependent
+- Age(s) of dependents
+- Is spouse employed? (Yes/No — note: may not apply if this is a divorce proceeding)
+
+### Monthly Income
+- Gross salary (before deductions)
+- Food stamps/SNAP
+- TANF
+- K-TAP
+- KCHIP
+- LIHEAP
+- WIC
+- Child Care Assistance
+- Foster care
+- Other public assistance (specify)
+- Social Security (SSI/SSD)
+- Worker's Compensation
+- Unemployment
+- Retirement/Pension
+- Child support received
+- Maintenance/Alimony
+- Stocks, trusts, bonds
+- Student financial aid
+- Other income (specify)
+
+### Monthly Expenses
+- Mortgage or Rent payment
+- Utilities (electric/gas)
+- Water/Sewer/Trash
+- Food
+- Phone(s)
+- Internet
+- Cable/Satellite
+- Transportation
+- Clothing/Shoes
+- Vehicle payment(s)
+- Insurance (vehicle, health, house/renter's)
+- Credit card payment(s)
+- Unreimbursed childcare
+- Tuition/student loans
+- Medical/Dental payments
+- Child support paid
+- Other expenses (specify)
+
+### Assets
+- Cash on hand
+- Bank accounts — checking, savings, other
+- Value of home (if homeowner)
+- Other real estate owned (list, up to 3 entries)
+- Vehicles in working order — year/make + value (up to 3 entries)
+- Personal possessions of value — jewelry, boat, etc. (up to 4 entries)
+
+### Debts
+- Home loan (if homeowner)
+- Vehicle loan(s)
+- Credit card(s)
+- Student loan(s)
+- Medical debt
+- Other debts (up to 5 entries)
+
+### Closing
+- Additional comments (free text, optional)
+- Date
+- Signature — should be a signature-capture step, not a plain text field
+
+## Explicitly Out of Scope for This Intake
+- Do not ask the user to fill in anything from a judge's ruling/order section — that is completed by the court, never by the applicant.
+- Do not ask the user to fill in the notary/attestation block (subscribed and sworn, commission expiration, notary signature) — this happens in person when the document is physically signed, not through the app.
+
+
+For this portion of HyperLaw, I’m giving you broad implementation autonomy.
+
+Use the document-generation section as the foundation, but don’t limit yourself only to the document types I’ve explicitly listed. Research and think through how real users actually move through litigation and what motions, filings, and procedural documents are most commonly needed. If there are important drafting options that belong in this workspace, include them behind a clean “More” or similar entry point so the interface remains simple while still being complete.
+
+The document buttons I’ve specified should remain the primary, most visible actions, but I want the overall drafting system to feel complete from beginning to end. Design the necessary intake questions, confirmations, procedural checks, and information gathering so the user provides everything needed before drafting begins. Avoid draft-stop-redraft workflows whenever possible.
+
+Think through what information Sonnet 5 will actually need in order to generate high-quality motions and filings. Build the flow so the correct context, jurisdiction information, case facts, uploaded documents, evidence, and user confirmations are collected and packaged before the drafting call is made.
+
+Use good judgment, research common litigation workflows, reuse existing components where appropriate, and implement a system that feels comprehensive rather than limited to only the examples listed in this brief.

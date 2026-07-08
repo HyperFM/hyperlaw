@@ -1,0 +1,125 @@
+# HyperLaw — Assembly Screen Redesign & Safety Update (Final Consolidated Brief)
+
+## 0. First: Confirm Whether the Welcome Screen Is Dead UI
+
+After returning to the app (not a first-time install), the "Welcome to HyperLaw" onboarding screen is still appearing. Confirm whether this is intentional or a leftover bug — it should only appear once, on true first entry, and never again after that. If there's no persistence flag currently controlling this, add one (e.g., stored per-user: `hasSeenWelcome: boolean`) and stop showing it after the first successful pass.
+
+---
+
+## 1. Rename & Reframe: The "Assembly" Screen
+
+The screen a user lands on after opening a specific case (previously cluttered with Index buttons, checklists, incident tools, etc.) should be renamed conceptually to **Assembly** — the place where a case's documents get put together. Strip it down to only what belongs there. See sections below for exactly what stays, what goes, and what it should look like.
+
+---
+
+## 2. Case Progress Flow (needs to be wired properly, not just visual)
+
+There are two entry paths into a case, and both should converge into the same clean state once data exists:
+
+- **Path A — Guided intake:** user goes through staged intake questions/interview before any document exists.
+- **Path B — Document upload:** user submits an already-drafted document. This skips the guided intake entirely.
+
+**After either path completes, the flow should be:**
+
+1. **Case details confirmed** — briefly show the extracted case details neatly (a clean appear-then-fade animation), confirming to the user "we got this" before moving on. This should not persist as clutter on the Assembly screen after the transition — it's a brief confirmation moment, not part of the permanent screen.
+2. **Verify & gap-check** — AI checks the case for gaps or missing information that would strengthen the complaint. If a real gap is found, the user may be asked additional interview questions — this can cost an additional credit, which is fine and expected.
+3. **Assembly** — the finished state described in sections 3–5 below.
+
+**Progress indicator:** should accurately reflect these real stages (Intake/Interview → Verify → Assembly), not just be decorative. If a user skips intake by submitting a document directly, visually mark that jump (e.g., a white-colored step) to emphasize that a stage was skipped, not just silently omit it.
+
+---
+
+## 3. Assembly Screen — Visual Design
+
+The app's overall dark theme stays — do not brighten the whole app. This treatment is specific to the Assembly screen only, once a user has actually clicked into a case:
+
+- Base: mostly dark, as the rest of the app is
+- Add: a small amount of white/light contrast in key areas (not the whole screen)
+- Add: a barely-noticeable milky orange gloss/fade drifting in the background — subtle, not a dominant visual element
+- Add: two thin glowing orange lines running down each side of the screen — thin, not overly bright, not stretched — a refined accent, not a bold graphic
+- Overall goal: brighter and more inviting than the current version, without abandoning the dark aesthetic
+
+**On the Case list/summary view (before clicking into a specific case):**
+- Case cards can have a small amount of animated color on the document line/bubble specifically — white accent on the line and on the document bubble only
+- Other elements on the card stay muted/consistent (same color, not bright)
+- The full white/orange/glossy treatment is reserved for *inside* a case (the Assembly screen itself), not the list view
+
+---
+
+## 4. Case Card Redesign (list view, before clicking in)
+
+Current card is too bulky. Redesign to be slimmer:
+
+- **Remove entirely:** the large "Add Parties" button from the card
+- **Repurpose the icon:** the small photo/icon on the card should be changeable by the user to an actual photo representing the parties involved (not just a generic icon)
+- **Layout:** case name + the (now optional, user-set) photo icon, then one long, slightly thicker line functioning as the document upload button — this line can have a subtle color animation
+- **Above the card, neatly:** show the date of incident/case creation
+- **Optional:** a small, bold "View All" button — or no button at all, since tapping the card itself should be the obvious action
+- Overall: slimmer, less bulky, less formal-looking than the current version
+
+---
+
+## 5. Document Generation — Simplified Labels & Grouping
+
+**Rename the document generation buttons** (case details already contain jurisdiction/case type, so the agent knows what header/format to use — no need to restate it in the button label):
+- "Civil Rights Complaint" → **Draft Complaint**
+- "Litigation Motion" → **Draft Motion**
+- Add: **Draft Discovery**
+- Add: **Draft Judgment Summary**
+
+These four are the main document types and should be **visually grouped together** as one connected set, not scattered.
+
+**Separate button: Strengthen a Document** (not "Strengthen Complaint" — this should apply to any existing document, not just the complaint). Groups with the four document buttons above, visually connected.
+
+**Discovery/Learning Index entry point:** add a slim cloud-shaped button (reuse the same cloud icon used in the bottom nav bar) positioned underneath or near the document button group. Label it **Discover** (or "Discovery"). Tapping it takes the user directly to Index/case selection, where they spend 1 credit to unlock the Learning Index for that case — this feature is likely already built from earlier work; this is just about placing the entry point correctly on the Assembly screen.
+
+---
+
+## 6. New Feature: IFP (In Forma Pauperis) Button
+
+Add an **IFP** button to the Assembly screen.
+
+**Flow when tapped:**
+1. Message: *"Let's find your in forma pauperis form."*
+2. Agent searches the web (this costs 1 credit) to find the fee-waiver/in forma pauperis form specific to the user's jurisdiction.
+3. **If found:** agent gathers the necessary information from the case data and/or a short interview, and fills out the located form.
+4. **If not found:** falls back to the generic blank template specified in full in **Appendix A** below. That template is intentionally blank/unlabeled — no state name — and gets filled in progressively, left corner downward, from the user's answers.
+
+**Template library management:** the library of blank fallback templates (used when a jurisdiction-specific form can't be found online) should be stored in a way that's manageable from an **Admin Panel** — allowing new blank templates to be uploaded to this library going forward without needing a code change each time.
+
+**Credit usage clarification:** the interview/question-answering portion of filling out the IFP (or any form) should **not** consume credits — consistent with the existing credit philosophy (answering questions is free; the AI actually building/searching/generating something is what costs a credit).
+
+---
+
+## 7. Case Deletion — Relocate & Secure
+
+**Remove entirely** from the main case screen: any delete-case button, including the current hold-to-delete/cover mechanic. Deleting a case should not be accessible from the case screen itself anymore.
+
+**New location:** a **Manage Cases** section inside Profile, near Settings.
+
+**New deletion flow (inside Manage Cases):**
+- Simple, clearly-labeled delete button per case — no long-press/hold required
+- Two-step confirmation (a confirmation prompt between the initial tap and the final delete)
+- **Multi-select:** allow selecting multiple cases at once, with a single consolidated confirmation message covering the whole batch deletion — not one confirmation per case
+
+**Security gates required before any deletion (case or account) goes through:**
+1. The user's account management code/PIN (something they've set up for exactly this kind of change)
+2. Device-level authentication — Face ID or phone passcode — as an additional required step before the deletion executes
+
+Both of the above apply to deleting one or multiple cases, and to account deletion.
+
+---
+
+## 8. Explicit Removals (Assembly Screen)
+
+Remove entirely — these don't belong on this screen:
+- **Add Incident button and all incident-adding UI.** This is not an incident-report tool. All case facts come from the initial intake interview or an uploaded document — nothing gets "added" as a new incident after the fact. If something new happens later, that becomes a *new, separate case*, not an addition to an existing one.
+- **Add Note / notes section**
+- The old bulky **Add Deadline** button — replace with a sleeker, brighter-looking version. The deadline/reminder *feature itself* should stay and continue to function (notifying users of deadlines, letting them set reminders/tasks for specific days) — it just needs a cleaner, more polished presentation, placed neatly within the Assembly screen rather than looking like a separate bolted-on formal tool.
+- The standalone checklist UI and any duplicate Index-related buttons/entries that don't match the single "Discover" cloud entry point described in section 5
+
+---
+
+## 9. Button Interaction Polish (Assembly Screen Only)
+
+Every interactive button on the Assembly screen should have a satisfying, deliberate press state — a glossy visual feedback effect when tapped, reinforcing the "digging into your work" feeling described in the visual design section above. This should feel calming and intentional, not flashy.

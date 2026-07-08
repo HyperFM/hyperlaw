@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
-import { casesTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { casesTable, generatedDocumentsTable, uploadedDocumentsTable } from "@workspace/db";
+import { eq, and, desc, inArray } from "drizzle-orm";
+import { verifyPin } from "../services/security.js";
 
 const router = Router();
 
@@ -84,7 +85,7 @@ router.patch("/cases/:id/structured", async (req: Request, res: Response): Promi
   await db
     .update(casesTable)
     .set({ structuredCase, updatedAt: new Date() })
-    .where(and(eq(casesTable.id, req.params.id), eq(casesTable.userId, auth.userId)));
+    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
 
   res.json({ ok: true });
 });
@@ -96,9 +97,30 @@ router.delete("/cases/:id", async (req: Request, res: Response): Promise<void> =
 
   await db
     .delete(casesTable)
-    .where(and(eq(casesTable.id, req.params.id), eq(casesTable.userId, auth.userId)));
+    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
 
   res.json({ ok: true });
+});
+
+// ── POST /cases/batch-delete — PIN-guarded multi-select deletion ────────────────
+router.post("/cases/batch-delete", async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { ids, pin } = req.body as { ids?: string[]; pin?: string };
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "No cases selected" }); return; }
+  if (typeof pin !== "string" || !pin) { res.status(400).json({ error: "PIN is required" }); return; }
+
+  const v = await verifyPin(auth.userId, pin);
+  if (!v.ok) { res.status(v.locked ? 429 : 401).json(v); return; }
+
+  const cleanIds = ids.filter((i): i is string => typeof i === "string");
+  await Promise.all([
+    db.delete(casesTable).where(and(eq(casesTable.userId, auth.userId), inArray(casesTable.id, cleanIds))),
+    db.delete(generatedDocumentsTable).where(and(eq(generatedDocumentsTable.userId, auth.userId), inArray(generatedDocumentsTable.caseId, cleanIds))),
+    db.delete(uploadedDocumentsTable).where(and(eq(uploadedDocumentsTable.userId, auth.userId), inArray(uploadedDocumentsTable.caseId, cleanIds))),
+  ]);
+  res.json({ ok: true, deleted: cleanIds.length });
 });
 
 export default router;

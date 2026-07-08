@@ -168,9 +168,59 @@ export const usersTable = pgTable("users", {
   email: text("email"),
   stripeCustomerId: text("stripe_customer_id"),
   creditBalance: integer("credit_balance").notNull().default(0),
+  /** True once the user has dismissed the one-time Welcome modal (per-user, not per-device). */
+  hasSeenWelcome: boolean("has_seen_welcome").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ── Account Security (PIN + WebAuthn) ──────────────────────────────────────────
+// Guards destructive actions (case + account deletion). PIN is the server-verified
+// mandatory gate; WebAuthn platform-authenticator is an additive device check.
+
+export const userSecurityTable = pgTable("user_security", {
+  userId: text("user_id").primaryKey(),                   // Clerk user ID
+  /** scrypt hash of the account PIN, stored as "salt:hash" hex. Null until the user sets a PIN. */
+  pinHash: text("pin_hash"),
+  /** Enrolled WebAuthn platform credentials: { id, publicKey, counter, transports }[] */
+  webauthnCredentials: jsonb("webauthn_credentials").notNull().$type<Array<{
+    id: string; publicKey: string; counter: number; transports?: string[];
+  }>>().default([]),
+  /** Transient base64url challenge issued for the current register/auth ceremony. */
+  webauthnChallenge: text("webauthn_challenge"),
+  /** Brute-force throttle for PIN verification. */
+  failedPinAttempts: integer("failed_pin_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ── IFP (In Forma Pauperis) Template Library ───────────────────────────────────
+// Admin-managed fee-waiver form templates keyed by jurisdiction. Used to fill the
+// user's IFP application; the generic (isGeneric) row is the Appendix A fallback.
+
+export const ifpTemplatesTable = pgTable("ifp_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** e.g. "Kentucky", "Federal", or null for the generic fallback template. */
+  jurisdiction: text("jurisdiction"),
+  title: text("title").notNull(),
+  /** Official form number/name if known (e.g. "AO 240"). */
+  formName: text("form_name"),
+  /** Source URL where the official form was found. */
+  sourceUrl: text("source_url"),
+  /** Human-readable template body / drafting instructions used to build the filled form. */
+  body: text("body").notNull().default(""),
+  /** Optional structured field definitions for the fill wizard. */
+  fields: jsonb("fields").notNull().$type<Array<{ key: string; label: string; type?: string }>>().default([]),
+  /** Marks the single generic Appendix A fallback used when no jurisdiction form is found. */
+  isGeneric: boolean("is_generic").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  ifpJurisdictionIdx: index("ifp_templates_jurisdiction_idx").on(table.jurisdiction),
+  ifpActiveIdx: index("ifp_templates_active_idx").on(table.isActive),
+}));
 
 // ── Error Logs ────────────────────────────────────────────────────────────────
 // Server-side audit trail of upload failures and AI processing errors visible
@@ -199,5 +249,7 @@ export type Message = typeof messagesTable.$inferSelect;
 export type Feedback = typeof feedbackTable.$inferSelect;
 export type UploadedDocument = typeof uploadedDocumentsTable.$inferSelect;
 export type GeneratedDocument = typeof generatedDocumentsTable.$inferSelect;
+export type UserSecurity = typeof userSecurityTable.$inferSelect;
+export type IfpTemplate = typeof ifpTemplatesTable.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;

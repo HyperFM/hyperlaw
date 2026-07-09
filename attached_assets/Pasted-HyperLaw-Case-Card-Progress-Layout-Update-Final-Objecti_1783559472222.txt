@@ -1,0 +1,191 @@
+HyperLaw — Case Card Progress & Layout Update (Final)
+
+Objective
+
+Simplify the Case Card UI, remove unnecessary clutter, and make case progress immediately visible without requiring users to open a case.
+
+The case card should communicate:
+
+“Where am I in my case?”
+
+rather than:
+
+“What step number am I on?”
+
+⸻
+
+1. Remove “Step X” Labels
+
+Remove all references to:
+
+* Step 1
+* Step 2
+* Step 3
+* Step 4
+* Step 5
+* Step 6
+* Step 7
+* etc.
+
+Especially remove the “Step X” badge/text currently displayed directly beneath the case name in the collapsed case card view.
+
+The numbered step system feels mechanical and does not reflect how users think about building a legal case.
+
+⸻
+
+2. Replace Step Label With Progress Bar
+
+On the collapsed/small case card view:
+
+Current Layout
+
+Case Photo
+
+Case Name
+
+Step X
+
+Case Actions
+
+New Layout
+
+Case Photo
+
+Case Name
+
+Progress Bar
+
+Case Actions
+
+The progress bar should appear directly beneath the case name and be visible without opening the case.
+
+This becomes the primary status indicator for the case.
+
+⸻
+
+3. New Progress Flow
+
+Replace existing progress stages with:
+
+Intake → Story → Evidence → Case Activated
+
+These stages should represent the actual lifecycle of building a legal case.
+
+Intake
+
+* Parties
+* Court
+* Jurisdiction
+* Initial case details
+
+Story
+
+* Incident narrative
+* Timeline development
+* Guided questioning
+* Fact collection
+
+Evidence
+
+* Documents
+* Exhibits
+* Photos
+* Supporting materials
+* Open records
+
+Case Activated
+
+Final stage.
+
+This means the case has enough information to enter Assembly and generate legal work product.
+
+⸻
+
+4. Progress Bar Styling
+
+The progress bar should function as a location indicator.
+
+Active Stage
+
+The user’s current stage should display:
+
+* White text
+* White indicator
+* Highest visual emphasis
+
+Inactive Stages
+
+Display:
+
+* HyperLaw orange text
+* HyperLaw orange indicators
+* No white highlight
+
+Only one stage should be white at a time.
+
+Example:
+
+Case Activated
+
+* Intake = Orange
+* Story = Orange
+* Evidence = Orange
+* Case Activated = White
+
+The effect should feel like a white marker moving through an orange roadmap.
+
+⸻
+
+5. Keep Progress Bar Inside Expanded Case View
+
+The progress bar may continue to appear inside the expanded/opened case view as well.
+
+Showing it in both locations is acceptable because:
+
+* Closed card = quick status visibility
+* Open card = workflow visibility
+
+No need to remove the expanded version.
+
+⸻
+
+6. Remove Large Action Buttons
+
+Remove the large:
+
+* Open Case button
+* Documents button
+
+These buttons consume excessive space and duplicate functionality already available elsewhere in the interface.
+
+The card should feel lighter and more modern.
+
+⸻
+
+7. Replace With Card Interaction
+
+The entire case card should function as the primary interaction point.
+
+Preferred behavior:
+
+* Tap case card → Open case
+* Tap case card → Expand case details
+
+Users should not need a giant “Open Case” button to access a case.
+
+The interface should feel intuitive and app-native.
+
+⸻
+
+Design Goal
+
+Create a cleaner, more premium Case Card that:
+
+* Removes Step X clutter
+* Displays progress immediately
+* Uses Intake → Story → Evidence → Case Activated
+* Uses a white active-stage indicator
+* Removes oversized action buttons
+* Makes the case card itself the primary interaction surface
+
+The result should feel less like a form wizard and more like a real litigation workspace.

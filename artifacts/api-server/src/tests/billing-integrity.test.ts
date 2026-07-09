@@ -19,7 +19,7 @@ import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 
 // ── DB / schema imports ───────────────────────────────────────────────────────
-import { db, usersTable, guidanceSessionsTable, casesTable, caseHistory } from "@workspace/db";
+import { db, usersTable, guidanceSessionsTable, casesTable, caseHistory, generatedDocumentsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 // ── Service under test ────────────────────────────────────────────────────────
@@ -543,6 +543,76 @@ describe("refundOneCredit — analyze-document Claude failure path", () => {
 
     const afterBothRefunds = await getBalance(userId);
     assert.equal(afterBothRefunds, before, "both refunds must restore the original balance");
+  });
+});
+
+// =============================================================================
+// Suite 5b: generate-document — DB insert failure after charging must refund
+// =============================================================================
+// Mirrors the exact production pattern in POST /ai/generate-document:
+//   const charge = await chargeCredits(userId, usageCredits);
+//   const inserted = await db.insert(generatedDocumentsTable).values({...})
+//     .returning()
+//     .catch(async (saveErr) => {
+//       if (charge.charged) await refundCredits(userId, charge.chargedAmount ?? 0);
+//       throw saveErr;
+//     });
+//
+// Rather than mocking the DB driver, we force a REAL insert failure (a
+// not-null constraint violation on `content`) so the test exercises the
+// actual promise-chain wiring end-to-end, not a stand-in for it.
+// =============================================================================
+describe("generate-document — DB save failure after charging triggers refund", () => {
+  const userId = `${RUN_ID}-gendoc-refund`;
+
+  before(async () => {
+    await seedUser(userId, 10);
+  });
+
+  after(async () => {
+    await cleanupUser(userId);
+  });
+
+  test("refund fires and balance is restored when the document insert fails", async () => {
+    const usageCredits = 2;
+    const before = await getBalance(userId);
+
+    // Step 1: charge, exactly as the route does before attempting the insert.
+    const charge = await chargeCredits(userId, usageCredits);
+    assert.equal(charge.charged, true, "charge should succeed against a funded balance");
+
+    const afterCharge = await getBalance(userId);
+    assert.equal(before - afterCharge, usageCredits, "balance should drop by the charged amount");
+
+    // Step 2: attempt the insert with a violation (content omitted → NOT NULL
+    // constraint fails), reproducing a genuine "DB save fails after charging"
+    // scenario. Use the identical .catch(...) wiring as the production route.
+    await assert.rejects(
+      db.insert(generatedDocumentsTable).values({
+        userId,
+        caseId: null,
+        title: "Test document that will fail to save",
+        documentType: "complaint",
+        content: null as unknown as string, // violates NOT NULL — forces a real insert failure
+        paymentStatus: "paid",
+      }).returning().catch(async (saveErr) => {
+        if (charge.charged) await refundCredits(userId, charge.chargedAmount ?? 0);
+        throw saveErr;
+      }),
+      "insert should reject due to the NOT NULL violation on content",
+    );
+
+    // Step 3: the refund must have landed before the rejection propagated —
+    // balance should be back to its pre-charge value, nothing lost.
+    const afterRefund = await getBalance(userId);
+    assert.equal(afterRefund, before, "refund must restore the full charged amount after the failed save");
+
+    // Confirm nothing was actually persisted.
+    const rows = await db
+      .select({ id: generatedDocumentsTable.id })
+      .from(generatedDocumentsTable)
+      .where(eq(generatedDocumentsTable.userId, userId));
+    assert.equal(rows.length, 0, "no document row should exist after the failed insert");
   });
 });
 

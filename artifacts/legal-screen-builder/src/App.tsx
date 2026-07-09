@@ -1286,6 +1286,10 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
   const handledCount = steps.filter(s => s.done || isSkipped(s)).length;
   const pct = Math.round((handledCount / steps.length) * 100);
   const next = steps.find(s => !s.done && !isSkipped(s));
+  // Everything is in the case — stays orange throughout the journey; only once
+  // the case is fully activated (100%) does the final stage go white, mirroring
+  // the "Case Activated" badge treatment on the home-screen card.
+  const fullyActivated = pct === 100;
 
   return (
     <div style={{
@@ -1298,9 +1302,15 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
         <span style={{ fontSize: 12, fontWeight: 900, color: pct === 100 ? "#4ade80" : ORANGE }}>{pct}%</span>
       </div>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-        {steps.map(s => {
+        {steps.map((s, i) => {
           const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
           const skipped = isSkipped(s);
+          const isLast = i === steps.length - 1;
+          // Fully activated final stage = white + blink, matching the home-card
+          // "Case Activated" badge. Everything else (done or auto-organized) stays
+          // orange the whole way through — no cream/white mid-journey anymore.
+          const isWhiteBadge = isLast && fullyActivated;
+          const handled = s.done || skipped;
           return (
             <button
               key={s.label}
@@ -1310,10 +1320,19 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
                 if (s.stage && onGoToPhase) onGoToPhase(s.stage);
                 else if (s.scrollToDraft) document.getElementById("draft-documents-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              style={{ flex: 1, background: "none", border: "none", padding: 0, cursor: clickable ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 5 }}
+              style={{
+                flex: 1, background: "none", border: "none", padding: 0, cursor: clickable ? "pointer" : "default",
+                display: "flex", flexDirection: "column", gap: 5,
+                animation: isWhiteBadge ? "hlActivatedBlink 1.4s ease-in-out infinite" : "none",
+              }}
             >
-              <div style={{ height: 5, borderRadius: 3, background: s.done ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : skipped ? "linear-gradient(90deg, #efe6da, #fffaf3)" : "#2a2019", boxShadow: s.done ? `0 0 6px ${ORANGE}66` : skipped ? "0 0 6px rgba(255,255,255,0.30)" : "none", transition: "all 0.3s" }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: s.done ? "#e8c9a8" : skipped ? "#cdbfb0" : "#5a4a3d" }}>{s.label}</span>
+              <div style={{
+                height: 5, borderRadius: 3,
+                background: isWhiteBadge ? "linear-gradient(90deg, #fff, #fff)" : handled ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#2a2019",
+                boxShadow: isWhiteBadge ? "0 0 8px rgba(255,255,255,0.55)" : handled ? `0 0 6px ${ORANGE}66` : "none",
+                transition: "all 0.3s",
+              }} />
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: isWhiteBadge ? "#fff" : handled ? "#e8c9a8" : "#5a4a3d" }}>{s.label}</span>
             </button>
           );
         })}
@@ -2532,7 +2551,9 @@ function HoldToRebuildIndexButton({ onComplete, disabled }: { onComplete: () => 
       title="Hold 3s to rebuild the Index (1 credit)"
       disabled={disabled}
       style={{
-        position: "absolute", right: 16, bottom: 16, zIndex: 30,
+        // 176px clears the floating case bubble bar + fixed bottom nav, both of
+        // which sit fixed at the very bottom of the screen on the Tutor tab.
+        position: "absolute", right: 16, bottom: 176, zIndex: 95,
         width: 56, height: 56, borderRadius: "50%",
         background: "#0e0b06",
         border: `1.5px solid ${holding ? ORANGE : ORANGE + "55"}`,
@@ -2595,8 +2616,16 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     if (initialCase) return { kind: "case", item: initialCase };
     return null;
   });
+  // Case selection now happens only via the floating case bubble bar (bottom of
+  // the screen) — no in-screen picker anymore. When the bar hands us a new case
+  // (via the initialCase prop changing) while this view is already mounted,
+  // follow it.
+  useEffect(() => {
+    if (initialIncident) { setTarget({ kind: "incident", item: initialIncident }); return; }
+    if (initialCase) { setTarget({ kind: "case", item: initialCase }); return; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialIncident?.id, initialCase?.id]);
   const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const forceRefreshRef = useRef(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -2750,27 +2779,17 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: "#0a0a0a", position: "relative" }}>
 
-      {/* ── Minimal top bar: picker + refresh ─────────────────────────────── */}
+      {/* ── Minimal top bar: current target + refresh (selection lives in the bottom case bar) ── */}
       <div style={{ padding: "10px 14px", borderBottom: "1px solid #111", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
-        <button
-          onClick={() => setShowPicker(true)}
-          style={{
-            flex: 1, background: "none",
-            border: `1px solid ${target ? ORANGE + "33" : "#1e1e1e"}`,
-            borderRadius: 10, padding: "9px 13px",
-            display: "flex", alignItems: "center", gap: 9, cursor: "pointer", textAlign: "left",
-          }}
-        >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "9px 13px" }}>
           {target
             ? (target.kind === "incident" ? <FileText size={14} color={ORANGE} /> : <Folder size={14} color={ORANGE} />)
             : <BookOpen size={14} color="#333" />}
           <span style={{ flex: 1, fontWeight: 700, fontSize: 13, color: target ? "#ccc" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {target ? target.item.title : "Select a case or incident…"}
+            {target ? target.item.title : "Pick a case from the bar below"}
           </span>
-          {isAnalyzing
-            ? <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
-            : <ChevronRight size={13} color="#333" style={{ flexShrink: 0 }} />}
-        </button>
+          {isAnalyzing && <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />}
+        </div>
         {/* Refresh icon — only when results are loaded */}
         {target && !isAnalyzing && analysis && (
           <button
@@ -2988,59 +3007,14 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         </div>
       )}
 
-      {/* ── Picker modal ──────────────────────────────────────────────────── */}
-      {showPicker && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 150, display: "flex", flexDirection: "column" }}>
-          <div style={{ background: "#0d0d0d", flex: 1, display: "flex", flexDirection: "column", maxWidth: 600, width: "100%", margin: "0 auto" }}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>Select to analyze</div>
-              <button onClick={() => setShowPicker(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#555" }}><X size={20} /></button>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-              {data.incidents.length > 0 && (
-                <>
-                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>INCIDENTS</div>
-                  {data.incidents.map(i => (
-                    <button key={i.id} onClick={() => { setTarget({ kind: "incident", item: i }); setShowPicker(false); }}
-                      style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 6, display: "flex", gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 4, background: CATEGORY_COLORS[i.category], flexShrink: 0, marginTop: 4 }} />
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: "#fff" }}>{i.title}</div>
-                        <div style={{ color: "#555", fontSize: 12 }}>{CATEGORY_LABELS[i.category]} · {formatDate(i.createdAt)}</div>
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
-              {data.cases.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>CASES</div>
-                  {data.cases.map(c => (
-                    <button key={c.id} onClick={() => { setTarget({ kind: "case", item: c }); setShowPicker(false); }}
-                      style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 6, display: "flex", gap: 10 }}>
-                      <Folder size={15} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: "#fff" }}>{c.title}</div>
-                        <div style={{ color: "#555", fontSize: 12 }}>{c.incidentIds.length} incident{c.incidentIds.length !== 1 ? "s" : ""}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {data.incidents.length === 0 && data.cases.length === 0 && (
-                <div style={{ color: "#555", fontSize: 14, textAlign: "center", paddingTop: 40 }}>No incidents or cases yet.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Hold-to-rebuild Index button — bottom-right, thumb-sized, 1 credit ── */}
+      {/* ── Hold-to-rebuild Index button — bottom-right, thumb-sized, 1 credit ──
+          Positioned above the floating case bubble bar + bottom nav (both fixed,
+          ~150px tall together) so it never renders hidden behind them. ── */}
       {target?.kind === "case" && !isAnalyzing && (
         <>
           {rebuildError && (
             <div style={{
-              position: "absolute", right: 16, bottom: 82, left: 16, zIndex: 30,
+              position: "absolute", right: 16, bottom: 242, left: 16, zIndex: 95,
               background: "#1a0d0d", border: "1px solid #4a1a1a", borderRadius: 10,
               padding: "9px 12px", fontSize: 12, color: "#f0a0a0", textAlign: "right",
             }}>
@@ -4959,6 +4933,13 @@ export default function App() {
     setNavTab("builder");
   }
 
+  // Tutor tab's floating case bubble bar: pick a case to map in the Index
+  // WITHOUT navigating away to the case detail/builder screen.
+  function handleSelectTutorCase(hlCase: HLCase) {
+    const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
+    setView({ type: "tutor", hlCase: fresh });
+  }
+
   function goHome() {
     setView({ type: "home" });
     setNavTab("home");
@@ -5286,7 +5267,7 @@ export default function App() {
           .filter(c => c.status !== "closed")
           .sort((a, b) => b.createdAt - a.createdAt);
         return bubbleCases.length > 0
-          ? <CaseBubbleBar cases={bubbleCases} onOpenCase={handleOpenCase} />
+          ? <CaseBubbleBar cases={bubbleCases} onOpenCase={handleSelectTutorCase} />
           : null;
       })()}
 

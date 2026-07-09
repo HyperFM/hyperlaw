@@ -774,14 +774,12 @@ function CaseBubbleBar({ cases, onOpenCase }: {
             {cases.map((c, i) => {
               const isSel = i === selected;
               const photo = getCasePhoto(c.id);
-              const isLocked = getCaseStageIndex(c.workflowStage) === 0; // Intake = not yet opened
-
               return (
                 <button
                   key={c.id}
                   onClick={() => { emblaApi?.scrollTo(i); onOpenCase(c); }}
                   style={{
-                    flex: `0 0 ${single ? 96 : 60}px`,
+                    flex: `0 0 ${single ? 96 : (photo ? 60 : 76)}px`,
                     borderRadius: 16,
                     border: "none",
                     background: "none",
@@ -789,6 +787,7 @@ function CaseBubbleBar({ cases, onOpenCase }: {
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
+                    justifyContent: photo ? "flex-start" : "center",
                     gap: 5,
                     padding: "4px 2px",
                     transition: "transform 0.25s cubic-bezier(.22,.9,.32,1)",
@@ -797,23 +796,20 @@ function CaseBubbleBar({ cases, onOpenCase }: {
                     position: "relative",
                   }}
                 >
-                  {/* Photo or lock icon */}
-                  <div style={{
-                    width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
-                    border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}${isLocked ? "44" : "2a"}`}`,
-                    background: photo ? undefined : `${ORANGE}10`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    overflow: "hidden",
-                    boxShadow: isSel ? `0 0 14px ${ORANGE}55` : "none",
-                    transition: "box-shadow 0.25s, border-color 0.25s",
-                  }}>
-                    {photo
-                      ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      : <Lock size={14} color={isSel ? ORANGE : `${ORANGE}88`} />
-                    }
-                  </div>
+                  {/* Photo — only shown once the user has actually added one */}
+                  {photo && (
+                    <div style={{
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                      border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}2a`}`,
+                      overflow: "hidden",
+                      boxShadow: isSel ? `0 0 14px ${ORANGE}55` : "none",
+                      transition: "box-shadow 0.25s, border-color 0.25s",
+                    }}>
+                      <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
+                  )}
 
-                  {/* Case name */}
+                  {/* Case name — single slim line, no icon fallback */}
                   <div style={{
                     fontSize: 9, fontWeight: 800, letterSpacing: 0.1,
                     color: isSel ? "#fff" : "#666",
@@ -2443,13 +2439,11 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
       onPointerCancel={reset}
       onPointerMove={onMove}
       onContextMenu={e => e.preventDefault()}
+      className="hl-cloud-shape"
       style={{
-        position: "relative",
-        overflow: "hidden",
         background: color + "18",
         border: `1.5px solid ${holding ? ORANGE : color + "55"}`,
-        borderRadius: 28,
-        padding: "10px 20px",
+        padding: "10px 22px",
         color: holding ? ORANGE : color,
         fontSize: 14, fontWeight: 700,
         cursor: "pointer",
@@ -2465,7 +2459,7 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
       <div style={{ width: 7, height: 7, borderRadius: "50%", background: holding ? ORANGE : color, flexShrink: 0 }} />
       {cloud.label}
       {holding && p < 1 && (
-        <div style={{ position: "absolute", left: 10, right: 10, bottom: 5, height: 2, background: "rgba(217,113,31,0.22)", borderRadius: 2 }}>
+        <div style={{ position: "absolute", left: 10, right: 10, bottom: 5, height: 2, background: "rgba(217,113,31,0.22)", borderRadius: 2, overflow: "hidden" }}>
           <div style={{ width: `${p * 100}%`, height: "100%", background: ORANGE, borderRadius: 2 }} />
         </div>
       )}
@@ -2607,6 +2601,27 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
           0%, 100% { transform: translateY(0px); }
           50%       { transform: translateY(-5px); }
         }
+        .hl-cloud-shape {
+          position: relative;
+          overflow: visible;
+          border-radius: 50% 50% 45% 45% / 65% 65% 35% 35%;
+        }
+        .hl-cloud-shape::before, .hl-cloud-shape::after {
+          content: "";
+          position: absolute;
+          background: inherit;
+          border-radius: 50%;
+          z-index: 0;
+        }
+        .hl-cloud-shape::before {
+          width: 44%; height: 78%;
+          top: -34%; left: 4%;
+        }
+        .hl-cloud-shape::after {
+          width: 36%; height: 62%;
+          top: -24%; right: 10%;
+        }
+        .hl-cloud-shape > * { position: relative; z-index: 1; }
       `;
       document.head.appendChild(s);
     }

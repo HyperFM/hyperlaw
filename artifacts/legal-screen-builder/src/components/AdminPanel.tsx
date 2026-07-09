@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users, MessageSquare, X, Send, Clock, Infinity, ChevronLeft,
   RefreshCw, Shield, Calendar, Mail, Search, BarChart2, Zap, Copy, Check,
@@ -96,6 +96,11 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const TPL_TOGGLE: React.CSSProperties = { background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: 12, display: "flex", alignItems: "center", gap: 6 };
   const ERROR_LOGS_PAGE_SIZE = 50;
 
+  // Refs prevent auto-load loops — each tab only auto-loads once per mount.
+  // Manual paginated calls invoke loadXxx directly, bypassing these guards.
+  const aiAutoLoadedRef = useRef(false);
+  const errorsAutoLoadedRef = useRef(false);
+
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
@@ -142,27 +147,30 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setAiPage(logsResp.page);
       if (stats && "totalCalls" in stats) setAiStats(stats as AiStats);
     } catch (err) {
-      setAiError((err as Error).message ?? "Failed to load AI data");
+      const msg = (err as Error).message ?? "";
+      // Silently swallow 401 — Clerk token hasn't propagated yet; user can retry by paginating.
+      if (!msg.includes("401") && !msg.includes("Unauthorized")) {
+        setAiError(msg || "Failed to load AI data");
+      }
     } finally {
       setAiLoading(false);
     }
   }, [aiStats]);
 
   useEffect(() => {
-    // Guard on aiError: once a fetch fails (e.g. 401 before auth initialises) stop
-    // re-triggering. Without this, aiLoading toggling true→false on every failure
-    // re-fires this effect creating a tight 401 loop. User can retry via pagination.
-    if (view === "ai" && aiLogs.length === 0 && !aiLoading && !aiError) {
+    if (view === "ai" && aiLogs.length === 0 && !aiLoading && !aiAutoLoadedRef.current) {
+      aiAutoLoadedRef.current = true;
       loadAiData(1);
     }
-  }, [view, aiLogs.length, aiLoading, loadAiData, aiError]);
+  }, [view, aiLogs.length, aiLoading, loadAiData]);
 
   useEffect(() => {
-    if (view === "errors" && errorLogs.length === 0 && !errorLogsLoading && !errorLogsError) {
+    if (view === "errors" && errorLogs.length === 0 && !errorLogsLoading && !errorsAutoLoadedRef.current) {
+      errorsAutoLoadedRef.current = true;
       loadErrorLogs(1);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, errorLogsError]);
+  }, [view, errorLogsLoading]);
 
   const loadTemplates = useCallback(async () => {
     setTplLoading(true); setTplError(null);
@@ -385,7 +393,10 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setErrorLogsTotal(resp.total);
       setErrorLogsPage(resp.page);
     } catch (err) {
-      setErrorLogsError((err as Error).message ?? "Failed to load error logs");
+      const msg = (err as Error).message ?? "";
+      if (!msg.includes("401") && !msg.includes("Unauthorized")) {
+        setErrorLogsError(msg || "Failed to load error logs");
+      }
     } finally {
       setErrorLogsLoading(false);
     }

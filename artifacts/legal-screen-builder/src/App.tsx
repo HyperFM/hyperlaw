@@ -4422,6 +4422,7 @@ export default function App() {
   // Server only fills in cases that don't exist locally, or adds structuredCase
   // (which is always server-generated and never exists in local-only state).
   useEffect(() => {
+    if (!user?.id) return; // wait for Clerk to finish loading before syncing
     api.cases.list().then(serverCases => {
       if (!serverCases.length) return;
       setDataRaw(prev => {
@@ -4462,7 +4463,7 @@ export default function App() {
         return next;
       });
     }).catch(() => {}); // Silent failure — user stays on local data
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-trigger Organization Engine when assembly completes ─────────────────
   useEffect(() => {
@@ -4494,6 +4495,7 @@ export default function App() {
   }, [data.cases, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!user?.id) return; // don't call before Clerk session is ready
     fetchCreditBalance();
     // Handle Stripe checkout return URL params
     const params = new URLSearchParams(window.location.search);
@@ -4506,7 +4508,7 @@ export default function App() {
       setTimeout(() => fetchCreditBalance(), 2000);
       setTimeout(() => setCheckoutToast(null), 6000);
     }
-  }, [fetchCreditBalance]);
+  }, [fetchCreditBalance, user?.id]);
 
   function handleSaveIncident(payload: NewIncidentSavePayload) {
     const incident: Incident = {

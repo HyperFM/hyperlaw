@@ -149,17 +149,20 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   }, [aiStats]);
 
   useEffect(() => {
-    if (view === "ai" && aiLogs.length === 0 && !aiLoading) {
+    // Guard on aiError: once a fetch fails (e.g. 401 before auth initialises) stop
+    // re-triggering. Without this, aiLoading toggling true→false on every failure
+    // re-fires this effect creating a tight 401 loop. User can retry via pagination.
+    if (view === "ai" && aiLogs.length === 0 && !aiLoading && !aiError) {
       loadAiData(1);
     }
-  }, [view, aiLogs.length, aiLoading, loadAiData]);
+  }, [view, aiLogs.length, aiLoading, loadAiData, aiError]);
 
   useEffect(() => {
-    if (view === "errors" && errorLogs.length === 0 && !errorLogsLoading) {
+    if (view === "errors" && errorLogs.length === 0 && !errorLogsLoading && !errorLogsError) {
       loadErrorLogs(1);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, errorLogsError]);
 
   const loadTemplates = useCallback(async () => {
     setTplLoading(true); setTplError(null);

@@ -1116,18 +1116,16 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
   // facts in. `notes` is AI-summary-only (no manual Notes UI) and `structuredCase`
   // is engine-only, so either one is honest proof the case was auto-organized. (§2)
   const organizedFromDoc = !!hlCase.structuredCase || (hlCase.notes?.trim().length ?? 0) > 0;
+  // Four stages matching the Intake → Story → Evidence → Case Activated roadmap.
+  // Intake groups Parties + Court (both needed before drafting gates open).
+  // Story is the ONLY stage a document auto-covers (analysis stores the narrative
+  // as the case summary in `notes`, not in the `story` field — so empty story after
+  // upload is by-design). Court is a hard drafting gate and never auto-covered.
   const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean; autoCoverable?: boolean }[] = [
-    { label: "Parties", done: health.parties, stage: "parties" },
-    { label: "Court", done: health.court, stage: "court" },
-    // Story is the ONLY step a document auto-covers: analysis stores the narrative
-    // as the case summary (in `notes`), never in the `story` field, so an empty
-    // story after an upload is by-design, not a gap. Parties/Timeline get their own
-    // fields when extracted, so empty = a real gap (stays dark). Court is a hard
-    // drafting gate — never fake it; it's done only when a jurisdiction/court
-    // actually exists (see computeCaseHealth), otherwise it must surface as a to-do.
-    { label: "Story", done: health.story, stage: "story", autoCoverable: true },
-    { label: "Timeline", done: health.timeline, stage: "timeline" },
-    { label: "Draft", done: hasDrafts, scrollToDraft: true },
+    { label: "Intake",         done: health.parties && health.court, stage: "parties" },
+    { label: "Story",          done: health.story, stage: "story", autoCoverable: true },
+    { label: "Evidence",       done: health.timeline, stage: "timeline" },
+    { label: "Case Activated", done: hasDrafts, scrollToDraft: true },
   ];
   // An auto-coverable step the user hasn't filled but the analyzed document supplies
   // is "auto-organized" (white) — handled, not a red to-do. It counts as handled
@@ -1173,7 +1171,12 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
       {next && (
         <div style={{ marginTop: 12, fontSize: 11.5, color: MILK_TEXT, display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4 }}>
           <span style={{ color: ORANGE, fontWeight: 800, flexShrink: 0 }}>Next:</span>
-          <span>{next.label === "Draft" ? "Generate your first document below." : `Complete ${next.label.toLowerCase()} to strengthen your case.`}</span>
+          <span>{
+            next.label === "Case Activated" ? "Generate your first document below." :
+            next.label === "Intake" ? "Add your parties and court information to continue." :
+            next.label === "Evidence" ? "Organize your timeline and supporting facts." :
+            `Build out your ${next.label.toLowerCase()} to strengthen your case.`
+          }</span>
         </div>
       )}
     </div>

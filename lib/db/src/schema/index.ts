@@ -189,6 +189,13 @@ export const guidanceSessionsTable = pgTable("guidance_sessions", {
   creditCap: integer("credit_cap").notNull().default(1),
   /** Credits actually charged on completion. */
   creditsCharged: integer("credits_charged").notNull().default(0),
+  /**
+   * Billing waived flag captured at session-start (admin or active Apex sub).
+   * Authoritative for the lifetime of this session — /complete honours this
+   * value and never re-queries Stripe, preventing an Apex lapse mid-session
+   * from unexpectedly charging the user.
+   */
+  billingWaived: boolean("billing_waived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),

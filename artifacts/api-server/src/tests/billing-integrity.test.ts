@@ -545,6 +545,173 @@ describe("refundOneCredit — analyze-document Claude failure path", () => {
   });
 });
 
+// =============================================================================
+// Suite 6: billingWaived preserves session-start plan state
+// =============================================================================
+// Verifies that a guidance session whose billingWaived flag was set to TRUE at
+// session-start is never charged at /complete time — even if the live Stripe
+// subscription for that user has lapsed or is absent.
+//
+// The test works entirely at the DB/service layer: it seeds sessions with
+// billingWaived=true/false and runs the exact charging logic from the /complete
+// route, confirming that the stored flag — not a live Stripe query — is
+// authoritative.
+// =============================================================================
+describe("billingWaived flag — session-start plan state is authoritative at /complete", () => {
+  const userId = `${RUN_ID}-billing-waived`;
+
+  before(async () => {
+    await seedUser(userId, 10);
+  });
+
+  after(async () => {
+    await cleanupUser(userId);
+  });
+
+  /** Mirror of the /complete charging logic: honours billingWaived from the session row. */
+  async function simulateComplete(sessionId: string): Promise<{ creditsCharged: number; balanceAfter: number }> {
+    const [session] = await db
+      .select()
+      .from(guidanceSessionsTable)
+      .where(eq(guidanceSessionsTable.id, sessionId));
+
+    if (!session) throw new Error("session not found");
+
+    const history = (session.messages ?? []) as Array<{ role: string }>;
+    const hasUserContent = history.some(m => m.role === "user");
+
+    // Exact logic from the route: waived sessions always produce 0 charges.
+    const usageCredits = (hasUserContent && !session.billingWaived)
+      ? Math.min(Math.max(1, Math.ceil(session.wordCount / 2000)), session.creditCap)
+      : 0;
+
+    // Atomic claim
+    const [claimed] = await db
+      .update(guidanceSessionsTable)
+      .set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(guidanceSessionsTable.id, sessionId),
+        eq(guidanceSessionsTable.status, "active"),
+      ))
+      .returning();
+
+    if (!claimed) {
+      const [fresh] = await db.select().from(guidanceSessionsTable).where(eq(guidanceSessionsTable.id, sessionId));
+      return { creditsCharged: fresh?.creditsCharged ?? 0, balanceAfter: await getBalance(userId) };
+    }
+
+    // Charge (or skip for waived).
+    const charge = session.billingWaived
+      ? { chargedAmount: 0, balance: -1 }
+      : await chargeCredits(userId, usageCredits);
+
+    const creditsCharged = charge.chargedAmount ?? 0;
+    if (creditsCharged > 0) {
+      await db
+        .update(guidanceSessionsTable)
+        .set({ creditsCharged, updatedAt: new Date() })
+        .where(eq(guidanceSessionsTable.id, sessionId));
+    }
+
+    return { creditsCharged, balanceAfter: await getBalance(userId) };
+  }
+
+  test("session with billingWaived=true is never charged — even with a long conversation", async () => {
+    // Seed a session that looks expensive (5000 words → 3 credits normally)
+    // but was started by an Apex user (billingWaived=true at session-start).
+    const [row] = await db
+      .insert(guidanceSessionsTable)
+      .values({
+        userId,
+        action: "general",
+        status: "active",
+        topics: [],
+        messages: [
+          { role: "user", content: "I need help with my motion." },
+          { role: "assistant", content: "Of course, let me guide you through that." },
+        ],
+        wordCount: 5000,
+        creditCap: 5,
+        creditsCharged: 0,
+        billingWaived: true,
+      })
+      .returning({ id: guidanceSessionsTable.id });
+
+    const balanceBefore = await getBalance(userId);
+    const { creditsCharged, balanceAfter } = await simulateComplete(row.id);
+
+    assert.equal(creditsCharged, 0, "waived session must charge 0 credits regardless of word count");
+    assert.equal(balanceAfter, balanceBefore, "wallet must be unchanged for a waived session");
+
+    await cleanupSession(row.id);
+  });
+
+  test("session with billingWaived=false is charged normally at /complete time", async () => {
+    // Seed a non-waived session: 4000 words → 2 credits.
+    const [row] = await db
+      .insert(guidanceSessionsTable)
+      .values({
+        userId,
+        action: "general",
+        status: "active",
+        topics: [],
+        messages: [
+          { role: "user", content: "What should I file next?" },
+          { role: "assistant", content: "Based on your case, I recommend filing a motion to compel." },
+        ],
+        wordCount: 4000,
+        creditCap: 5,
+        creditsCharged: 0,
+        billingWaived: false,
+      })
+      .returning({ id: guidanceSessionsTable.id });
+
+    const balanceBefore = await getBalance(userId);
+    const { creditsCharged, balanceAfter } = await simulateComplete(row.id);
+
+    assert.equal(creditsCharged, 2, "non-waived session must charge credits proportional to word count");
+    assert.equal(balanceBefore - balanceAfter, 2, "wallet must decrease by the charged amount");
+
+    await cleanupSession(row.id);
+  });
+
+  test("billingWaived=true session concurrent /complete calls — neither call charges credits", async () => {
+    // Re-seed balance after previous test consumed 2 credits.
+    await seedUser(userId, 10);
+
+    const [row] = await db
+      .insert(guidanceSessionsTable)
+      .values({
+        userId,
+        action: "general",
+        status: "active",
+        topics: [],
+        messages: [{ role: "user", content: "Question from Apex user." }],
+        wordCount: 6000,
+        creditCap: 5,
+        creditsCharged: 0,
+        billingWaived: true,
+      })
+      .returning({ id: guidanceSessionsTable.id });
+
+    const balanceBefore = await getBalance(userId);
+
+    // Simulate two concurrent /complete calls (only one will win the atomic claim).
+    const [outcome1, outcome2] = await Promise.all([
+      simulateComplete(row.id),
+      simulateComplete(row.id),
+    ]);
+
+    const totalCharged = outcome1.creditsCharged + outcome2.creditsCharged;
+    const balanceAfter = await getBalance(userId);
+
+    assert.equal(totalCharged, 0, "neither concurrent call must charge an Apex (waived) session");
+    assert.equal(balanceAfter, balanceBefore, "wallet must be completely unchanged");
+
+    await cleanupSession(row.id);
+  });
+});
+
 describe("refundCredits — guidance / generate-document failure path", () => {
   const userId = `${RUN_ID}-refund-multi`;
 

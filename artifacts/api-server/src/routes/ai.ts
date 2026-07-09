@@ -18,6 +18,7 @@ import { storage } from "../storage.js";
 import {
   chargeOneCredit, refundOneCredit,
   chargeCredits, refundCredits, checkBalanceForEstimate,
+  isBillingWaived,
   creditsForWords, countWords, WORDS_PER_CREDIT,
 } from "../services/credits.js";
 import { estimateForDocument, estimateForGuidance } from "../services/estimate.js";
@@ -1276,9 +1277,18 @@ router.post("/ai/guidance/start", requireAuth, async (req: Request, res: Respons
     caseId?: string; action?: string; documentLabel?: string; topics?: string[];
   };
 
+  // Capture billing-waived status at session-start (admin or active Apex sub).
+  // This value is stored on the session row and is authoritative for the entire
+  // session lifetime — /complete will honour it rather than re-querying Stripe,
+  // so an Apex lapse (or gain) mid-session never accidentally charges / waives.
+  const billingWaived = await isBillingWaived(userId);
+
   // Verify the user can cover the guidance estimate (the spend cap) before starting.
+  // Waived users always pass; non-waived users must have enough credits.
   const estimate = estimateForGuidance();
-  const balanceCheck = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+  const balanceCheck = billingWaived
+    ? { ok: true, waived: true, balance: -1 }
+    : await checkBalanceForEstimate(userId, estimate.estimatedCredits);
   if (!balanceCheck.ok) {
     res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balanceCheck.balance, estimatedCredits: estimate.estimatedCredits });
     return;
@@ -1300,6 +1310,7 @@ router.post("/ai/guidance/start", requireAuth, async (req: Request, res: Respons
       messages: [{ role: "assistant", content: greeting }],
       wordCount: countWords(greeting),
       creditCap: estimate.estimatedCredits,
+      billingWaived,
     }).returning();
 
     void logAiCall({
@@ -1437,7 +1448,11 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
     }
 
     // Charge by conversation length, capped. Sessions with no user input are free.
-    const usageCredits = hasUserContent ? Math.min(creditsForWords(session.wordCount), session.creditCap) : 0;
+    // billingWaived is captured at session-start and is authoritative — we never
+    // re-query Stripe so an Apex lapse (or gain) mid-session has no effect.
+    const usageCredits = (hasUserContent && !session.billingWaived)
+      ? Math.min(creditsForWords(session.wordCount), session.creditCap)
+      : 0;
 
     // Atomically claim completion: only the request that transitions the session out
     // of "active" is allowed to charge. This makes /complete idempotent under retries
@@ -1465,7 +1480,11 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
     }
 
     // We own the completion — safe to charge exactly once, then record the actual amount.
-    const charge = await chargeCredits(userId, usageCredits);
+    // chargeCredits is only called for non-waived sessions; waived sessions (admin / Apex
+    // at start-time) always produce creditsCharged=0 without touching the wallet.
+    const charge = session.billingWaived
+      ? { chargedAmount: 0, balance: -1 }
+      : await chargeCredits(userId, usageCredits);
     const creditsCharged = charge.chargedAmount ?? 0;
     if (creditsCharged > 0) {
       await db.update(guidanceSessionsTable).set({ creditsCharged, updatedAt: new Date() })

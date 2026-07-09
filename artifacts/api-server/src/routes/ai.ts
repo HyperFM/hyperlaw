@@ -29,6 +29,36 @@ import { recordCaseEvent } from "../services/memorySummarizer.js";
 
 const ADMIN_EMAILS = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
 
+/**
+ * Exported for integration testing.
+ *
+ * Encapsulates the INTENTIONAL ordering inside the Claude failure catch block
+ * for POST /ai/analyze-document:
+ *
+ *   1. Refund the credit (if one was actually deducted)  ← must happen first
+ *   2. Call the provided logFn (may throw — must NOT suppress the refund)
+ *   3. Re-throw the original Claude error
+ *
+ * The ordering guarantee is the contract: a crash in logFn must never prevent
+ * the credit from landing. Tests import and call this function directly so that
+ * any future reordering of steps 1/2 in production code will break the tests.
+ */
+export async function applyDocumentAnalysisRefund(opts: {
+  userId: string;
+  creditDeducted: boolean;
+  logFn: (err: unknown) => Promise<void>;
+  err: unknown;
+}): Promise<never> {
+  // ── Step 1: Refund — MUST execute before logFn is awaited ─────────────────
+  if (opts.creditDeducted) {
+    await db.execute(sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${opts.userId}`);
+  }
+  // ── Step 2: Log — may throw; refund has already committed ──────────────────
+  await opts.logFn(opts.err);
+  // ── Step 3: Rethrow — propagates to the outer handler → 500 response ───────
+  throw opts.err;
+}
+
 const router = Router();
 
 // Per-IP burst protection — supplements the per-user daily limit in aiCache.ts
@@ -494,14 +524,17 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         promptTemplate: "build_case_memory",
       });
     } catch (claudeErr) {
-      // Refund only if a credit was actually charged — admin & Apex users are never deducted,
-      // so refunding them would inflate their balance on every failure.
+      // Delegate to the exported helper so tests can import and pin the ordering.
+      // Ordering guarantee: refund → logFailure → rethrow (see applyDocumentAnalysisRefund).
       if (creditDeducted) {
-        await db.execute(sql`UPDATE users SET credit_balance = credit_balance + 1 WHERE id = ${userId}`);
         console.log(`[analyze-document] credit refunded after Claude failure`);
       }
-      await logFailure("claude-call", claudeErr);
-      throw claudeErr;
+      await applyDocumentAnalysisRefund({
+        userId,
+        creditDeducted,
+        logFn: (e) => logFailure("claude-call", e),
+        err: claudeErr,
+      });
     }
 
     // ── Checkpoint 9: Response parsed ─────────────────────────────────────

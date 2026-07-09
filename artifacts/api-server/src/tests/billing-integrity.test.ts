@@ -24,6 +24,7 @@ import { eq, and, sql } from "drizzle-orm";
 
 // ── Service under test ────────────────────────────────────────────────────────
 import { chargeCredits, chargeOneCredit, refundOneCredit, refundCredits } from "../services/credits.js";
+import { applyDocumentAnalysisRefund } from "../routes/ai.js";
 import { Storage } from "../storage.js";
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -795,5 +796,159 @@ describe("refundCredits — guidance / generate-document failure path", () => {
 
     const afterRefunds = await getBalance(userId);
     assert.equal(afterRefunds, before, "both refunds must restore the full original balance");
+  });
+});
+
+// =============================================================================
+// Suite 8: analyze-document refund fires even when the error logger crashes
+// =============================================================================
+// These tests call the REAL production function `applyDocumentAnalysisRefund`
+// exported from routes/ai.ts — the same function the /ai/analyze-document
+// catch block delegates to. Any reordering of the production steps will break
+// these tests.
+//
+// Intentional ordering pinned by the function (refund → log → rethrow):
+//
+//   1. if (creditDeducted) db.execute(UPDATE credit_balance + 1)  ← FIRST
+//   2. await logFn(err)                                            ← SECOND (may throw)
+//   3. throw err                                                   ← THIRD
+//
+// If step 2 throws, step 3 is skipped — but step 1 has already committed.
+// =============================================================================
+describe("analyze-document refund ordering — credit restored even when error logger crashes", () => {
+  const userId = `${RUN_ID}-refund-order`;
+
+  before(async () => {
+    await seedUser(userId, 5);
+  });
+
+  after(async () => {
+    await cleanupUser(userId);
+  });
+
+  test("refund lands even when logFailure throws — calls real applyDocumentAnalysisRefund", async () => {
+    // Charge 1 credit to simulate the pre-Claude deduction path.
+    const balanceBefore = await getBalance(userId);
+    const charge = await chargeOneCredit(userId);
+    assert.equal(charge.charged, true, "pre-Claude credit must be deducted before calling the route");
+
+    const balanceAfterCharge = await getBalance(userId);
+    assert.equal(balanceBefore - balanceAfterCharge, 1, "balance must decrease by 1 after charge");
+
+    const claudeErr = new Error("Claude API timeout");
+    let caughtErr: Error | undefined;
+
+    // Call the REAL production function — not a local simulation.
+    // creditDeducted=true → the function will run the actual UPDATE SQL.
+    // logFn throws → simulates the errorLogsTable INSERT failing.
+    try {
+      await applyDocumentAnalysisRefund({
+        userId,
+        creditDeducted: true,
+        logFn: async () => { throw new Error("DB insert failed — errorLogsTable unreachable"); },
+        err: claudeErr,
+      });
+    } catch (err) {
+      caughtErr = err as Error;
+    }
+
+    // Something must have been rethrown (route sends 500 to the client).
+    assert.ok(caughtErr, "an error must be rethrown so the route returns 500");
+
+    // Core invariant: the UPDATE credit_balance+1 committed before logFn was
+    // awaited, so the balance is back to its pre-charge value regardless of
+    // the logger crash.
+    const balanceAfterRefund = await getBalance(userId);
+    assert.equal(
+      balanceAfterRefund,
+      balanceBefore,
+      "refund must restore balance even when the error logger itself crashes",
+    );
+  });
+
+  test("refund lands and original Claude error is rethrown when logFn succeeds (baseline)", async () => {
+    // Baseline: logFn does not throw — refund still happens and claudeErr propagates.
+    const balanceBefore = await getBalance(userId);
+    const charge = await chargeOneCredit(userId);
+    assert.equal(charge.charged, true, "pre-Claude credit must be deducted");
+
+    const claudeErr = new Error("Claude 529 overloaded");
+    let caughtErr: Error | undefined;
+
+    try {
+      await applyDocumentAnalysisRefund({
+        userId,
+        creditDeducted: true,
+        logFn: async () => { /* logFailure succeeds — no-op */ },
+        err: claudeErr,
+      });
+    } catch (err) {
+      caughtErr = err as Error;
+    }
+
+    assert.ok(caughtErr, "claudeErr must be rethrown after successful logging");
+    assert.equal(caughtErr!.message, claudeErr.message, "the rethrown error must be the original Claude error");
+
+    const balanceAfterRefund = await getBalance(userId);
+    assert.equal(balanceAfterRefund, balanceBefore, "refund must restore balance in the normal failure path");
+  });
+
+  test("no refund is issued when creditDeducted=false — admin / Apex path leaves balance unchanged", async () => {
+    // Admin and Apex users skip the deduction entirely (creditDeducted stays false).
+    // applyDocumentAnalysisRefund must NOT issue a refund for them — doing so
+    // would inflate their balance on every Claude failure.
+    const balanceBefore = await getBalance(userId);
+
+    let caughtErr: Error | undefined;
+    try {
+      await applyDocumentAnalysisRefund({
+        userId,
+        creditDeducted: false, // admin / Apex: no prior deduction
+        logFn: async () => { /* log succeeds */ },
+        err: new Error("Claude failure for admin user"),
+      });
+    } catch (err) {
+      caughtErr = err as Error;
+    }
+
+    assert.ok(caughtErr, "error must still be rethrown even for admin/Apex users");
+
+    const balanceAfter = await getBalance(userId);
+    assert.equal(balanceAfter, balanceBefore, "balance must be unchanged — no phantom refund for admin/Apex");
+  });
+
+  test("balance is already restored by the time logFn executes — ordering is observable", async () => {
+    // Makes the step-1-before-step-2 ordering directly observable:
+    // we snapshot the balance INSIDE logFn (after step 1 completes, before step 3).
+    // If someone moves the refund after logFn in the production code, the snapshot
+    // will show the un-refunded (lower) balance and this assertion will fail.
+    const balanceBefore = await getBalance(userId);
+    const charge = await chargeOneCredit(userId);
+    assert.equal(charge.charged, true, "pre-flight charge must succeed");
+
+    let balanceDuringLog: number | undefined;
+
+    try {
+      await applyDocumentAnalysisRefund({
+        userId,
+        creditDeducted: true,
+        logFn: async () => {
+          // Step 1 (refund) has already committed at this point.
+          // If the balance is NOT yet restored here, step 1 was moved after step 2.
+          balanceDuringLog = await getBalance(userId);
+          throw new Error("logger DB failure");
+        },
+        err: new Error("Claude timeout"),
+      });
+    } catch {
+      // expected — logger threw, so this propagates
+    }
+
+    assert.ok(balanceDuringLog !== undefined, "logFn must have been invoked");
+    assert.equal(
+      balanceDuringLog,
+      balanceBefore,
+      "balance must already be restored inside logFn — refund (step 1) runs before log (step 2)",
+    );
   });
 });

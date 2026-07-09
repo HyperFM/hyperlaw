@@ -36,6 +36,7 @@ import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
+import VerifyCaseModal from "./components/VerifyCaseModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 import { CaseHealthBar } from "./components/CaseHealthBar";
@@ -1467,6 +1468,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [showMoreDocs, setShowMoreDocs] = useState(false);
   const [recentHistory, setRecentHistory] = useState<Array<{ source: "history" | "timeline"; id: string; date: string; label: string; summary: string; type: string }>>([]);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+  const [showVerify, setShowVerify] = useState(false);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -1734,6 +1736,14 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           <BookOpen size={14} color={ORANGE} />
           <span style={{ fontSize: 13, fontWeight: 700 }}>Discover — analyze this case in Index</span>
           <ChevronRight size={14} color="#333" style={{ marginLeft: "auto" }} />
+        </button>
+
+        {/* Verify — pick a drafted document and hear it read aloud, word-by-word highlighted */}
+        <button onClick={() => setShowVerify(true)}
+          style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 20 }}>
+          <Check size={15} color="#fff" strokeWidth={3} />
+          <span style={{ fontSize: 13, fontWeight: 800, color: "#fff" }}>Verify — read a drafted document aloud</span>
+          <ChevronRight size={14} color="#fff" style={{ marginLeft: "auto", opacity: 0.8 }} />
         </button>
 
         {/* Checklist/Index tabs removed — Assembly is drafting-focused (Section 8) */}
@@ -2363,6 +2373,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         <DocumentViewerModal
           doc={viewingDoc}
           onClose={() => setViewingDoc(null)}
+        />
+      )}
+
+      {/* Verify — pick any drafted document, spend 1 credit, hear it read aloud */}
+      {showVerify && (
+        <VerifyCaseModal
+          docs={genDocs}
+          creditBalance={creditBalance}
+          onBuyCredits={onBuyCredits}
+          onClose={() => setShowVerify(false)}
         />
       )}
 

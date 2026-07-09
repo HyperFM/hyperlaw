@@ -21,3 +21,4 @@
 - [HyperLaw Case Memory](hyperlaw-case-memory.md) — 5-table persistent memory (case_facts/history/timeline/strategy/summaries); context injected into every AI call; rolling haiku summarizer; history strip + sticky status bar UI.
 - [Claude AI robustness](claude-ai-robustness.md) — claude-sonnet-5 routinely leads with a thinking block (scan for first text block); size max_tokens to full JSON/doc output or it truncates silently; refunds must mirror deduction.
 - [Secrets need server restart](secrets-runtime.md) — requestSecrets is write-only (no values to sandbox); process.env picks up rotated secrets only after a workflow restart.
+- [HyperLaw Verify feature](hyperlaw-verify-feature.md) — read-aloud verify uses browser SpeechSynthesis (not real Claude TTS); credit-charge audit/refund pattern; no idempotency-key infra exists yet.

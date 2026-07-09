@@ -34,7 +34,8 @@ export type AiFeature =
   | "defense_analyze"
   | "draft_decision"
   | "guidance_session"
-  | "estimate";
+  | "estimate"
+  | "verify_read";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

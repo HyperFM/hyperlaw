@@ -2,6 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { getAuth } from "@clerk/express";
 import { db, generatedDocumentsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
+import { chargeOneCredit, refundOneCredit } from "../services/credits.js";
+import { logAiCall, type AiFeature } from "../services/aiCache.js";
 
 const router = Router();
 
@@ -93,6 +95,50 @@ router.patch("/ai/generated-documents/:id", requireAuth, async (req: Request, re
     res.json(doc);
   } catch (err) {
     res.status(500).json({ error: "Failed to update document" });
+  }
+});
+
+// ── Charge 1 credit for the "Verify" read-aloud feature ────────────────────────
+// Called once, right before the read-aloud starts, from the case-level Verify
+// flow (separate from the free pre-download TTS check that's mandatory before
+// export). Admin/Apex accounts are waived automatically by chargeOneCredit.
+router.post("/ai/generated-documents/:id/verify-read-charge", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as any).userId as string;
+  const id = String(req.params.id);
+  let charge: Awaited<ReturnType<typeof chargeOneCredit>> | null = null;
+  try {
+    const [doc] = await db.select().from(generatedDocumentsTable)
+      .where(and(eq(generatedDocumentsTable.id, id), eq(generatedDocumentsTable.userId, userId)));
+    if (!doc) { res.status(404).json({ error: "Not found" }); return; }
+
+    charge = await chargeOneCredit(userId);
+    if (!charge.ok) {
+      res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+      return;
+    }
+
+    // Mirror the audit trail used by every other billable AI feature so credit
+    // history stays reconcilable even though this doesn't call Claude directly.
+    void logAiCall({
+      userId,
+      caseId: doc.caseId,
+      feature: "verify_read" as AiFeature,
+      model: "n/a",
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostMicroUsd: 0,
+      responseTimeMs: 0,
+      cacheHit: false,
+      promptTemplate: "verify_read_charge",
+      creditsCharged: charge.charged ? 1 : 0,
+    });
+
+    res.json({ charged: charge.charged, creditBalance: charge.balance });
+  } catch (err) {
+    // Refund if we already took the credit before hitting this failure —
+    // never keep a charge for a request that didn't complete.
+    if (charge?.charged) await refundOneCredit(userId).catch(() => { /* best-effort */ });
+    res.status(500).json({ error: "Failed to process credit charge" });
   }
 });
 

@@ -476,7 +476,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   const hasCases = data.cases.length > 0;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: `28px 20px ${hasCases ? 220 : 120}px` }}>
       {/* Logo */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
@@ -696,6 +696,184 @@ function CaseSlider({ cases, onOpenCase, onContinueCase }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Floating case bubble bar (home screen) ─────────────────────────────────────
+// Fixed strip that rises above the bottom nav on the home screen. Each case is
+// a swipeable bubble: lock icon (or photo) + case name + orange open button.
+// Slides up on mount; hides completely if the user has no active cases.
+function CaseBubbleBar({ cases, onOpenCase }: {
+  cases: HLCase[];
+  onOpenCase: (c: HLCase) => void;
+}) {
+  const [emblaRef, emblaApi] = useEmblaCarousel({
+    loop: false,
+    align: "center",
+    containScroll: "trimSnaps",
+    dragFree: true,
+  });
+  const [selected, setSelected] = useState(0);
+  const [visible, setVisible] = useState(false);
+
+  // Slide-up entrance animation
+  useEffect(() => { const t = setTimeout(() => setVisible(true), 80); return () => clearTimeout(t); }, []);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    const onSel = () => setSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSel);
+    onSel();
+    return () => { emblaApi.off("select", onSel); };
+  }, [emblaApi]);
+
+  if (cases.length === 0) return null;
+
+  const single = cases.length === 1;
+
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: `calc(70px + env(safe-area-inset-bottom))`,
+      left: 0, right: 0,
+      zIndex: 90,
+      display: "flex",
+      justifyContent: "center",
+      pointerEvents: "none",
+      transform: `translateY(${visible ? 0 : 24}px)`,
+      opacity: visible ? 1 : 0,
+      transition: "transform 0.4s cubic-bezier(.22,.9,.32,1), opacity 0.32s ease",
+    }}>
+      <div style={{
+        background: "rgba(9,8,7,0.93)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        border: "1px solid rgba(217,113,31,0.2)",
+        borderRadius: 28,
+        padding: "10px 8px 10px",
+        boxShadow: [
+          "0 -2px 24px rgba(0,0,0,0.55)",
+          "0 12px 48px rgba(0,0,0,0.85)",
+          "inset 0 1px 0 rgba(255,255,255,0.04)",
+        ].join(", "),
+        maxWidth: "calc(100vw - 28px)",
+        width: single ? "auto" : "calc(100vw - 28px)",
+        pointerEvents: "all",
+        overflow: "hidden",
+      }}>
+
+        {/* Swipeable bubble row */}
+        <div ref={emblaRef} style={{ overflow: "hidden" }}>
+          <div style={{
+            display: "flex",
+            gap: 8,
+            paddingLeft: 4, paddingRight: 4,
+            justifyContent: single ? "center" : undefined,
+          }}>
+            {cases.map((c, i) => {
+              const isSel = i === selected;
+              const photo = getCasePhoto(c.id);
+              const isLocked = getCaseStageIndex(c.workflowStage) === 0; // Intake = not yet opened
+
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { emblaApi?.scrollTo(i); onOpenCase(c); }}
+                  style={{
+                    flex: `0 0 ${single ? 160 : 88}px`,
+                    height: 104,
+                    borderRadius: 20,
+                    border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}${isLocked ? "44" : "2a"}`}`,
+                    background: isSel
+                      ? `radial-gradient(ellipse at 50% 0%, ${ORANGE}1e 0%, #0e0c0a 65%)`
+                      : "#0b0a08",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 6px 8px",
+                    boxShadow: isSel
+                      ? `0 0 0 1px ${ORANGE}30, 0 0 22px ${ORANGE}2e, 0 4px 18px rgba(0,0,0,0.7)`
+                      : "0 2px 8px rgba(0,0,0,0.5)",
+                    transition: "all 0.25s cubic-bezier(.22,.9,.32,1)",
+                    WebkitTapHighlightColor: "transparent",
+                    transform: isSel ? "scale(1.06)" : "scale(0.95)",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Active shimmer line */}
+                  {isSel && (
+                    <div aria-hidden style={{
+                      position: "absolute", top: 0, left: "12%", right: "12%", height: 1,
+                      background: `linear-gradient(90deg, transparent, ${ORANGE}99, transparent)`,
+                    }} />
+                  )}
+
+                  {/* Photo or lock icon */}
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 12, flexShrink: 0,
+                    border: `1.5px solid ${isSel ? `${ORANGE}88` : `${ORANGE}33`}`,
+                    background: photo ? undefined : `${ORANGE}10`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    overflow: "hidden",
+                    boxShadow: isSel ? `0 0 14px ${ORANGE}50` : "none",
+                    transition: "box-shadow 0.25s",
+                  }}>
+                    {photo
+                      ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <Lock size={14} color={isSel ? ORANGE : `${ORANGE}88`} />
+                    }
+                  </div>
+
+                  {/* Case name */}
+                  <div style={{
+                    fontSize: 9.5, fontWeight: 800, letterSpacing: 0.15,
+                    color: isSel ? "#fff" : "#666",
+                    textAlign: "center", lineHeight: 1.3, width: "100%",
+                    overflow: "hidden",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical" as const,
+                  }}>
+                    {c.title}
+                  </div>
+
+                  {/* Open/Unlock pill */}
+                  <div style={{
+                    background: isSel ? ORANGE : `${ORANGE}16`,
+                    border: isSel ? "none" : `1px solid ${ORANGE}38`,
+                    borderRadius: 8, padding: "3px 0", width: "100%",
+                    textAlign: "center", fontSize: 8.5, fontWeight: 900, letterSpacing: 0.5,
+                    color: isSel ? "#000" : `${ORANGE}bb`,
+                    transition: "all 0.25s",
+                  }}>
+                    {isLocked ? "UNLOCK →" : "OPEN →"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Indicator dots */}
+        {cases.length > 1 && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 8 }}>
+            {cases.map((_, i) => (
+              <button key={i} onClick={() => emblaApi?.scrollTo(i)}
+                style={{
+                  width: i === selected ? 18 : 5, height: 4, borderRadius: 2,
+                  border: "none", padding: 0, cursor: "pointer",
+                  background: i === selected ? ORANGE : "#232323",
+                  transition: "width 0.22s ease, background 0.22s",
+                  WebkitTapHighlightColor: "transparent",
+                }} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -4978,6 +5156,16 @@ export default function App() {
           </span>
         </div>
       )}
+
+      {/* Floating case bubble strip — home tab, mobile, when active cases exist */}
+      {isMobile && navTab === "home" && view.type === "home" && (() => {
+        const bubbleCases = [...data.cases]
+          .filter(c => c.status !== "closed")
+          .sort((a, b) => b.createdAt - a.createdAt);
+        return bubbleCases.length > 0
+          ? <CaseBubbleBar cases={bubbleCases} onOpenCase={handleOpenCase} />
+          : null;
+      })()}
 
       {isMobile && view.type !== "document_intake" && (
         <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />

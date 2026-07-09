@@ -795,15 +795,6 @@ export const aiApi = {
     verify(id: string): Promise<ServerGeneratedDoc> {
       return aiFetch(`/ai/generated-documents/${id}/verify`, { method: "POST" });
     },
-
-    /**
-     * Charge 1 credit for the dedicated case-level "Verify" read-aloud feature.
-     * Throws an AiError with code "insufficient_credits" (status 402) if the
-     * user doesn't have enough credits — callers should surface a buy-credits prompt.
-     */
-    verifyReadCharge(id: string): Promise<{ charged: boolean; creditBalance: number }> {
-      return aiFetch(`/ai/generated-documents/${id}/verify-read-charge`, { method: "POST" });
-    },
   },
 
   /** Fetch up to 5 most recent events for a case (docs generated, guidance sessions, timeline). */

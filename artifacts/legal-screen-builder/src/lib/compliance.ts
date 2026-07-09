@@ -108,15 +108,6 @@ export const COMPLIANCE = {
     "I have carefully reviewed this document and understand it is AI-generated.",
 
   /**
-   * Verify feature — read-aloud verification, entered from the case screen.
-   * Sets expectations before the user spends a credit and starts listening.
-   */
-  VERIFY_RESPONSIBILITY:
-    "This read-aloud is a courtesy step to help you catch mistakes — it is not a substitute for " +
-    "your own review. It remains solely your responsibility to verify this document word-for-word, " +
-    "a third time, before printing, filing, submitting it to a court, or using it in any other way.",
-
-  /**
    * Compact identity tagline for the app footer bar.
    * Must be short enough to fit on one line at 9pt.
    */
@@ -143,14 +134,6 @@ export const COMPLIANCE = {
  * Bulleted list of consequences shown on the Verify disclaimer screen.
  * Kept separate from COMPLIANCE (which is string-valued) so getNotice()'s typing stays simple.
  */
-export const VERIFY_CONSEQUENCES: readonly string[] = [
-  "Your case or filing could be dismissed.",
-  "Deadlines could be missed if an error isn't caught in time.",
-  "Incorrect names, dates, or case numbers could cause rejection by the clerk's office.",
-  "A judge could sanction you or strike the document from the record.",
-  "You could lose legal rights or remedies you were otherwise entitled to.",
-];
-
 // ── Verification checklist ─────────────────────────────────────────────────────
 //
 // Exact items required by the production specification.

@@ -11,7 +11,6 @@ import {
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
   Party, TimelineEvent,
-  computeCaseHealth,
 } from "./types";
 import {
   loadData, saveData, addIncident, updateIncident, deleteIncident,
@@ -36,7 +35,6 @@ import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
-import VerifyCaseModal from "./components/VerifyCaseModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 import { CaseHealthBar } from "./components/CaseHealthBar";
@@ -1262,35 +1260,18 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
   hasDrafts: boolean;
   onGoToPhase?: (stage: WorkflowStage) => void;
 }) {
-  const health = computeCaseHealth(hlCase);
-  // A source document was uploaded & analyzed → the AI already pulled the case
-  // facts in. `notes` is AI-summary-only (no manual Notes UI) and `structuredCase`
-  // is engine-only, so either one is honest proof the case was auto-organized. (§2)
-  const organizedFromDoc = !!hlCase.structuredCase || (hlCase.notes?.trim().length ?? 0) > 0;
   // Four stages matching the Intake → Story → Evidence → Case Activated roadmap.
-  // Intake groups Parties + Court (both needed before drafting gates open).
-  // Story is the ONLY stage a document auto-covers (analysis stores the narrative
-  // as the case summary in `notes`, not in the `story` field — so empty story after
-  // upload is by-design). Court is a hard drafting gate and never auto-covered.
-  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean; autoCoverable?: boolean }[] = [
-    { label: "Intake",         done: health.parties && health.court, stage: "parties" },
-    { label: "Story",          done: health.story, stage: "story", autoCoverable: true },
-    { label: "Evidence",       done: health.timeline, stage: "timeline" },
-    { label: "Case Activated", done: hasDrafts, scrollToDraft: true },
+  // These no longer gate progress — the case is always shown as fully active
+  // (100%, white, flashing), matching the "Case Activated" badge treatment on
+  // the home-screen card. Discover/Index analysis is optional, not required.
+  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean }[] = [
+    { label: "Intake",         done: true, stage: "parties" },
+    { label: "Story",          done: true, stage: "story" },
+    { label: "Evidence",       done: true, stage: "timeline" },
+    { label: "Case Activated", done: true, scrollToDraft: true },
   ];
-  // An auto-coverable step the user hasn't filled but the analyzed document supplies
-  // is "auto-organized" (white) — handled, not a red to-do. It counts as handled
-  // progress and "Next" skips over it. Non-auto-coverable steps (Court, Parties,
-  // Timeline, Draft) surface normally when empty, so genuine gaps — above all the
-  // jurisdiction gate — are never hidden and drafting is never suggested prematurely.
-  const isSkipped = (s: { done: boolean; autoCoverable?: boolean }) => !s.done && organizedFromDoc && !!s.autoCoverable;
-  const handledCount = steps.filter(s => s.done || isSkipped(s)).length;
-  const pct = Math.round((handledCount / steps.length) * 100);
-  const next = steps.find(s => !s.done && !isSkipped(s));
-  // Everything is in the case — stays orange throughout the journey; only once
-  // the case is fully activated (100%) does the final stage go white, mirroring
-  // the "Case Activated" badge treatment on the home-screen card.
-  const fullyActivated = pct === 100;
+  const pct = 100;
+  const fullyActivated = true;
 
   return (
     <div style={{
@@ -1303,20 +1284,16 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
         <span style={{ fontSize: 12, fontWeight: 900, color: pct === 100 ? "#4ade80" : ORANGE }}>{pct}%</span>
       </div>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-        {steps.map((s, i) => {
+        {steps.map((s) => {
           const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
-          const skipped = isSkipped(s);
-          const isLast = i === steps.length - 1;
-          // Fully activated final stage = white + blink, matching the home-card
-          // "Case Activated" badge. Everything else (done or auto-organized) stays
-          // orange the whole way through — no cream/white mid-journey anymore.
-          const isWhiteBadge = isLast && fullyActivated;
-          const handled = s.done || skipped;
+          // Case is always shown fully active — every stage is white + blinking,
+          // matching the home-card "Case Activated" badge.
+          const isWhiteBadge = fullyActivated;
+          const handled = s.done;
           return (
             <button
               key={s.label}
               disabled={!clickable}
-              title={skipped ? "Organized automatically from your document — tap to review or refine" : undefined}
               onClick={() => {
                 if (s.stage && onGoToPhase) onGoToPhase(s.stage);
                 else if (s.scrollToDraft) document.getElementById("draft-documents-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1338,17 +1315,6 @@ function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
           );
         })}
       </div>
-      {next && (
-        <div style={{ marginTop: 12, fontSize: 11.5, color: MILK_TEXT, display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4 }}>
-          <span style={{ color: ORANGE, fontWeight: 800, flexShrink: 0 }}>Next:</span>
-          <span>{
-            next.label === "Case Activated" ? "Generate your first document below." :
-            next.label === "Intake" ? "Add your parties and court information to continue." :
-            next.label === "Evidence" ? "Organize your timeline and supporting facts." :
-            `Build out your ${next.label.toLowerCase()} to strengthen your case.`
-          }</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -1362,7 +1328,6 @@ function VerifyPanel({ hlCase, hasFacts }: {
   const checks = [
     { label: "Jurisdiction set", done: !!hlCase.jurisdiction?.trim(), hint: "Required before drafting — set it below." },
     { label: "Facts captured", done: hasFacts, hint: "Add parties, a timeline, or your story so drafts have substance." },
-    { label: "Case organized", done: !!hlCase.structuredCase, hint: "Run Discover to structure your facts." },
   ];
   const gaps = hlCase.structuredCase?.gapQuestions ?? [];
   const readyCount = checks.filter(c => c.done).length;
@@ -1468,7 +1433,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [showMoreDocs, setShowMoreDocs] = useState(false);
   const [recentHistory, setRecentHistory] = useState<Array<{ source: "history" | "timeline"; id: string; date: string; label: string; summary: string; type: string }>>([]);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
-  const [showVerify, setShowVerify] = useState(false);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -1728,22 +1692,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
 
-        {/* Discover — slim single entry into the Index analysis (Sections 5 & 8) */}
-        <button onClick={() => onOpenInTutor(hlCase)}
-          style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 10, padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 20, color: "#888" }}
+        {/* Index — small optional shortcut, same cloud icon/behavior as the bottom nav tab */}
+        <button onClick={() => onOpenInTutor(hlCase)} title="Open this case in the Index"
+          style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 10, padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, width: "25%", marginBottom: 20 }}
           onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
           onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-          <BookOpen size={14} color={ORANGE} />
-          <span style={{ fontSize: 13, fontWeight: 700 }}>Discover — analyze this case in Index</span>
-          <ChevronRight size={14} color="#333" style={{ marginLeft: "auto" }} />
-        </button>
-
-        {/* Verify — pick a drafted document and hear it read aloud, word-by-word highlighted */}
-        <button onClick={() => setShowVerify(true)}
-          style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 20 }}>
-          <Check size={15} color="#fff" strokeWidth={3} />
-          <span style={{ fontSize: 13, fontWeight: 800, color: "#fff" }}>Verify — read a drafted document aloud</span>
-          <ChevronRight size={14} color="#fff" style={{ marginLeft: "auto", opacity: 0.8 }} />
+          <IndexIcon size={20} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#888" }}>Index</span>
         </button>
 
         {/* Checklist/Index tabs removed — Assembly is drafting-focused (Section 8) */}
@@ -2373,16 +2328,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         <DocumentViewerModal
           doc={viewingDoc}
           onClose={() => setViewingDoc(null)}
-        />
-      )}
-
-      {/* Verify — pick any drafted document, spend 1 credit, hear it read aloud */}
-      {showVerify && (
-        <VerifyCaseModal
-          docs={genDocs}
-          creditBalance={creditBalance}
-          onBuyCredits={onBuyCredits}
-          onClose={() => setShowVerify(false)}
         />
       )}
 

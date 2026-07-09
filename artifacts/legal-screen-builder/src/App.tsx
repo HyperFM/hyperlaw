@@ -781,46 +781,31 @@ function CaseBubbleBar({ cases, onOpenCase }: {
                   key={c.id}
                   onClick={() => { emblaApi?.scrollTo(i); onOpenCase(c); }}
                   style={{
-                    flex: `0 0 ${single ? 160 : 88}px`,
-                    height: 104,
-                    borderRadius: 20,
-                    border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}${isLocked ? "44" : "2a"}`}`,
-                    background: isSel
-                      ? `radial-gradient(ellipse at 50% 0%, ${ORANGE}1e 0%, #0e0c0a 65%)`
-                      : "#0b0a08",
+                    flex: `0 0 ${single ? 96 : 60}px`,
+                    borderRadius: 16,
+                    border: "none",
+                    background: "none",
                     cursor: "pointer",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 6px 8px",
-                    boxShadow: isSel
-                      ? `0 0 0 1px ${ORANGE}30, 0 0 22px ${ORANGE}2e, 0 4px 18px rgba(0,0,0,0.7)`
-                      : "0 2px 8px rgba(0,0,0,0.5)",
-                    transition: "all 0.25s cubic-bezier(.22,.9,.32,1)",
+                    gap: 5,
+                    padding: "4px 2px",
+                    transition: "transform 0.25s cubic-bezier(.22,.9,.32,1)",
                     WebkitTapHighlightColor: "transparent",
-                    transform: isSel ? "scale(1.06)" : "scale(0.95)",
+                    transform: isSel ? "scale(1.06)" : "scale(0.94)",
                     position: "relative",
-                    overflow: "hidden",
                   }}
                 >
-                  {/* Active shimmer line */}
-                  {isSel && (
-                    <div aria-hidden style={{
-                      position: "absolute", top: 0, left: "12%", right: "12%", height: 1,
-                      background: `linear-gradient(90deg, transparent, ${ORANGE}99, transparent)`,
-                    }} />
-                  )}
-
                   {/* Photo or lock icon */}
                   <div style={{
-                    width: 36, height: 36, borderRadius: 12, flexShrink: 0,
-                    border: `1.5px solid ${isSel ? `${ORANGE}88` : `${ORANGE}33`}`,
+                    width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                    border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}${isLocked ? "44" : "2a"}`}`,
                     background: photo ? undefined : `${ORANGE}10`,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     overflow: "hidden",
-                    boxShadow: isSel ? `0 0 14px ${ORANGE}50` : "none",
-                    transition: "box-shadow 0.25s",
+                    boxShadow: isSel ? `0 0 14px ${ORANGE}55` : "none",
+                    transition: "box-shadow 0.25s, border-color 0.25s",
                   }}>
                     {photo
                       ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -830,27 +815,14 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
                   {/* Case name */}
                   <div style={{
-                    fontSize: 9.5, fontWeight: 800, letterSpacing: 0.15,
+                    fontSize: 9, fontWeight: 800, letterSpacing: 0.1,
                     color: isSel ? "#fff" : "#666",
-                    textAlign: "center", lineHeight: 1.3, width: "100%",
-                    overflow: "hidden",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical" as const,
+                    textAlign: "center", lineHeight: 1.2, width: "100%",
+                    overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    transition: "color 0.25s",
                   }}>
                     {c.title}
-                  </div>
-
-                  {/* Open/Unlock pill */}
-                  <div style={{
-                    background: isSel ? ORANGE : `${ORANGE}16`,
-                    border: isSel ? "none" : `1px solid ${ORANGE}38`,
-                    borderRadius: 8, padding: "3px 0", width: "100%",
-                    textAlign: "center", fontSize: 8.5, fontWeight: 900, letterSpacing: 0.5,
-                    color: isSel ? "#000" : `${ORANGE}bb`,
-                    transition: "all 0.25s",
-                  }}>
-                    {isLocked ? "UNLOCK →" : "OPEN →"}
                   </div>
                 </button>
               );

@@ -126,6 +126,19 @@ export interface DefenseAnalysis {
   deadlinesMentioned: string[];
 }
 
+// ── Credit history ─────────────────────────────────────────────────────────────
+
+export interface CreditHistoryEntry {
+  id: string;
+  /** ISO 8601 timestamp of the charge */
+  date: string;
+  /** ai_logs feature key — use featureLabel() to humanise */
+  feature: string;
+  caseId: string | null;
+  caseTitle: string | null;
+  creditsCharged: number;
+}
+
 // ── Guidance sessions, decision layer & credit estimates ────────────────────────
 
 /** AI Decision Layer verdict shown before a billable draft. */
@@ -772,6 +785,11 @@ export const aiApi = {
   /** Fetch up to 5 most recent events for a case (docs generated, guidance sessions, timeline). */
   getCaseHistory(caseId: string): Promise<Array<{ source: "history" | "timeline"; id: string; date: string; label: string; summary: string; type: string }>> {
     return aiFetch(`/ai/cases/${caseId}/history`);
+  },
+
+  /** Chronological log of every credit-charging event for the signed-in user. */
+  creditHistory(): Promise<{ entries: CreditHistoryEntry[]; total: number }> {
+    return aiFetch("/user/credit-history");
   },
 
   /**

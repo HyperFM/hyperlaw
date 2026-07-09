@@ -1,8 +1,9 @@
 /**
  * User self-service routes:
- *  GET  /user/settings      — per-user preferences (welcome flag)
- *  POST /user/welcome-seen  — mark the one-time Welcome modal as seen
- *  POST /user/delete        — PIN-guarded purge of ALL user data (call before Clerk user.delete())
+ *  GET  /user/settings        — per-user preferences (welcome flag)
+ *  POST /user/welcome-seen    — mark the one-time Welcome modal as seen
+ *  GET  /user/credit-history  — chronological log of credit-charging events
+ *  POST /user/delete          — PIN-guarded purge of ALL user data (call before Clerk user.delete())
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "@clerk/express";
@@ -10,7 +11,7 @@ import {
   db, usersTable, generatedDocumentsTable, aiLogsTable, aiAnalysisCacheTable,
   uploadedDocumentsTable, notificationsTable, chatSessionsTable, casesTable, userSecurityTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, desc, inArray } from "drizzle-orm";
 import { verifyPin } from "../services/security.js";
 
 const router = Router();
@@ -28,6 +29,56 @@ router.get("/user/settings", requireAuth, async (req: Request, res: Response): P
   const [u] = await db.select({ hasSeenWelcome: usersTable.hasSeenWelcome })
     .from(usersTable).where(eq(usersTable.id, uid(req)));
   res.json({ hasSeenWelcome: u?.hasSeenWelcome ?? false });
+});
+
+// GET /user/credit-history — full chronological log of every credit-charging ai_log entry.
+// Returns ALL rows where creditsCharged > 0 (no truncation), enriched with case title.
+router.get("/user/credit-history", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = uid(req);
+  try {
+    // Pull every ai_log row where this user was charged at least 1 credit.
+    // No LIMIT — the goal is a full statement of every charge. The WHERE clause
+    // filters creditsCharged > 0 in SQL, so only genuinely charged rows are returned.
+    const charged = await db
+      .select({
+        id: aiLogsTable.id,
+        caseId: aiLogsTable.caseId,
+        feature: aiLogsTable.feature,
+        creditsCharged: aiLogsTable.creditsCharged,
+        createdAt: aiLogsTable.createdAt,
+      })
+      .from(aiLogsTable)
+      .where(and(
+        eq(aiLogsTable.userId, userId),
+        gt(aiLogsTable.creditsCharged, 0),
+      ))
+      .orderBy(desc(aiLogsTable.createdAt));
+
+    // Look up case titles for all referenced caseIds
+    const caseIds = [...new Set(charged.map(r => r.caseId).filter((id): id is string => !!id))];
+    const caseTitleMap = new Map<string, string>();
+    if (caseIds.length > 0) {
+      const caseRows = await db
+        .select({ id: casesTable.id, title: casesTable.title })
+        .from(casesTable)
+        .where(inArray(casesTable.id, caseIds));
+      caseRows.forEach(c => caseTitleMap.set(c.id, c.title));
+    }
+
+    const result = charged.map(r => ({
+      id: r.id,
+      date: r.createdAt.toISOString(),
+      feature: r.feature,
+      caseId: r.caseId ?? null,
+      caseTitle: r.caseId ? (caseTitleMap.get(r.caseId) ?? null) : null,
+      creditsCharged: r.creditsCharged ?? 1,
+    }));
+
+    res.json({ entries: result, total: result.length });
+  } catch (err) {
+    console.error("[credit-history] error", err);
+    res.status(500).json({ error: "Failed to load credit history" });
+  }
 });
 
 // POST /user/welcome-seen — mark the Welcome modal as seen (per-user, upsert)

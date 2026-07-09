@@ -54,6 +54,7 @@ import DraftDecisionModal from "./components/DraftDecisionModal";
 import GuidanceSessionModal from "./components/GuidanceSessionModal";
 import IfpWizard from "./components/IfpWizard";
 import DefenseModal from "./components/DefenseModal";
+import CreditHistoryModal from "./components/CreditHistoryModal";
 
 const ADMIN_EMAIL = "hypermodula@gmail.com";
 
@@ -3530,6 +3531,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
 
   const [showPlans, setShowPlans] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const [showCreditHistory, setShowCreditHistory] = useState(false);
 
   // Profile photo
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
@@ -3702,6 +3704,25 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         <ChevronRight size={15} color="#333" />
       </button>
 
+
+      {/* Credit history */}
+      <button
+        onClick={() => setShowCreditHistory(true)}
+        style={{
+          width: "100%", background: "#111", border: "1px solid #1e1e1e",
+          borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+        }}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
+      >
+        <Clock size={16} color="#888" style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Credit History</div>
+          <div style={{ fontSize: 12, color: "#555" }}>View every credit spent and what it was for</div>
+        </div>
+        <ChevronRight size={15} color="#333" />
+      </button>
 
       {/* Reminders section */}
       {allReminders.length > 0 && (
@@ -3965,6 +3986,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
 
       {showPlans && <PlansOverlay onClose={() => setShowPlans(false)} onBuyCredits={onBuyCredits} />}
       {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
+      {showCreditHistory && <CreditHistoryModal onClose={() => setShowCreditHistory(false)} />}
     </div>
   );
 }

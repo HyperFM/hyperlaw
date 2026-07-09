@@ -476,7 +476,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   const hasCases = data.cases.length > 0;
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: `28px 20px ${hasCases ? 220 : 120}px` }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px" }}>
       {/* Logo */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
@@ -4735,7 +4735,7 @@ export default function App() {
     };
     const d = addCase(data, newCase);
     setData(d);
-    setNavTab("builder");
+    // Stay on current tab — workflow views render under any navTab
     setView({ type: "case_parties", caseId: newCase.id });
   }
 
@@ -5006,7 +5006,7 @@ export default function App() {
       );
     }
 
-    if (navTab === "builder" && view.type === "case_detail") {
+    if (view.type === "case_detail") {
       const hlCase = data.cases.find(c => c.id === view.hlCase.id) ?? view.hlCase;
       return (
         <CaseDetailView
@@ -5157,8 +5157,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Floating case bubble strip — home tab, mobile, when active cases exist */}
-      {isMobile && navTab === "home" && view.type === "home" && (() => {
+      {/* Floating case bubble strip — Index (tutor) tab only, mobile, when active cases exist */}
+      {isMobile && navTab === "tutor" && (() => {
         const bubbleCases = [...data.cases]
           .filter(c => c.status !== "closed")
           .sort((a, b) => b.createdAt - a.createdAt);

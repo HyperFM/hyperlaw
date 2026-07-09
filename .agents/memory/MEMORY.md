@@ -2,7 +2,8 @@
 - [HyperLaw Architecture](hyperlaw-arch.md) — Cases now server-persisted (casesTable); Organization Engine auto-triggers post-assembly; TutorView reads structuredCase.clouds directly.
 - [Stripe Replit Connector](stripe-replit-connector.md) — credential field names and header quirks; esbuild externalization; syncBackfill behavior.
 - [HyperLaw Phase 3 Payments](hyperlaw-phase3-payments.md) — credit wallet architecture, idempotency table, server-authoritative credit amounts.
-- [HyperLaw Phase 4 Paywall](hyperlaw-phase4-paywall.md) — preview→unlock model, server-side truncation required, race-safe conditional UPDATE, DocumentViewerModal, Admin Revenue tab.
+- [HyperLaw Phase 4 Paywall](hyperlaw-phase4-paywall.md) — SUPERSEDED: paywall retired; unlock route + toClientDoc truncation removed; docs always return full content now.
+- [Credit Charge Integrity](credit-charge-integrity.md) — atomic claim-then-charge pattern; retry loop on lost deduction race; never charge before committing terminal state.
 - [Compliance Language Manager](compliance-language-manager.md) — centralized compliance.ts; getNotice() for future jurisdiction variants; all call sites wired.
 - [HyperLaw Stops 2-3-4](hyperlaw-stops234.md) — auto case from upload, progress bar, TTS word-highlight, verify endpoint, jurisdiction gate, withRetry, rate limiting.
 - [HyperLaw Stops 5-6-7](hyperlaw-stops567.md) — free-case gate (2 max), offline banner, generate retry, error logs table, admin Errors tab, response time chart.
@@ -17,6 +18,6 @@
 - [HyperLaw case sync clobber](hyperlaw-case-sync.md) — full-blob upsert + local-wins hydration; case merges MUST fill empty fields only.
 - [Assembly screen & case card redesign](hyperlaw-assembly-redesign.md) — card stays slim (NO next-step/"Add Parties" CTA, NO health checklist); Notes UI removed from case screen (hlCase.notes data kept); MSJ upfront gates; Progress bar court-health counts jurisdiction + per-step auto-organized(white) rule.
 - [HyperLaw PIN gate](hyperlaw-pin-gate.md) — destructive actions (case/account delete) are PIN-only; never add a passkey/biometric second factor.
-- [HyperLaw Case Memory](hyperlaw-case-memory.md) — buildCaseMemory() replaces analyzeDocumentWithIntake; CaseMemory schema; 11-step logging; success phase UI; goHome() nav fix.
+- [HyperLaw Case Memory](hyperlaw-case-memory.md) — 5-table persistent memory (case_facts/history/timeline/strategy/summaries); context injected into every AI call; rolling haiku summarizer; history strip + sticky status bar UI.
 - [Claude AI robustness](claude-ai-robustness.md) — claude-sonnet-5 routinely leads with a thinking block (scan for first text block); size max_tokens to full JSON/doc output or it truncates silently; refunds must mirror deduction.
 - [Secrets need server restart](secrets-runtime.md) — requestSecrets is write-only (no values to sandbox); process.env picks up rotated secrets only after a workflow restart.

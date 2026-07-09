@@ -1285,6 +1285,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [showIfp, setShowIfp] = useState(false);
   const [showDefense, setShowDefense] = useState(false);
   const [showMoreDocs, setShowMoreDocs] = useState(false);
+  const [recentHistory, setRecentHistory] = useState<Array<{ source: "history" | "timeline"; id: string; date: string; label: string; summary: string; type: string }>>([]);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   useEffect(() => {
     setGenDocsLoading(true);
@@ -1300,6 +1302,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     const t = setTimeout(() => setShowConfirmedFlash(false), 2600);
     return () => clearTimeout(t);
   }, [showConfirmedFlash]);
+
+  // Fetch recent case activity for the history strip.
+  useEffect(() => {
+    aiApi.getCaseHistory(hlCase.id)
+      .then(h => setRecentHistory(h))
+      .catch(() => {});
+  }, [hlCase.id]);
 
   // Step 1 — file selected → store immediately (no AI), show received screen
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1475,6 +1484,31 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             {STATUS_LABELS[hlCase.status]} ▾
           </button>
         </div>
+
+        {/* Recent activity strip */}
+        {recentHistory.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: "#444", textTransform: "uppercase", marginBottom: 8 }}>Recent Activity</div>
+            {recentHistory.map((item, i) => (
+              <div key={item.id}
+                onClick={() => setExpandedHistoryId(prev => prev === item.id ? null : item.id)}
+                style={{ display: "flex", gap: 10, padding: "7px 0", borderBottom: i < recentHistory.length - 1 ? "1px solid #141414" : "none", cursor: "pointer", alignItems: "flex-start" }}>
+                <div style={{ color: "#444", fontSize: 11, minWidth: 54, paddingTop: 1, flexShrink: 0 }}>
+                  {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#bbb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expandedHistoryId === item.id ? "normal" : "nowrap" }}>
+                    {item.label}
+                  </div>
+                  {expandedHistoryId === item.id && item.summary && (
+                    <div style={{ fontSize: 11, color: "#555", marginTop: 3, lineHeight: 1.4 }}>{item.summary}</div>
+                  )}
+                </div>
+                <ChevronRight size={12} color="#333" style={{ marginTop: 2, flexShrink: 0, transform: expandedHistoryId === item.id ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Case progress journey (Sections 1–3) */}
         <AssemblyProgress hlCase={hlCase} hasDrafts={genDocs.length > 0} onGoToPhase={onGoToPhase} />
@@ -2171,6 +2205,17 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       {showCaseDocConfirm && pendingCaseExport && (
         <DocGenConfirmModal onConfirm={pendingCaseExport} onClose={() => { setShowCaseDocConfirm(false); setPendingCaseExport(null); }} />
       )}
+
+      {/* Persistent status bar — pinned to the bottom of the case screen, always visible */}
+      <div style={{ position: "sticky", bottom: 0, background: "#0a0a0a", borderTop: "1px solid #181818", padding: "10px 16px calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", gap: 10, zIndex: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hlCase.title}</div>
+        </div>
+        <button onClick={() => setShowStatusPicker(true)}
+          style={{ background: `${STATUS_COLORS[hlCase.status]}22`, border: `1px solid ${STATUS_COLORS[hlCase.status]}55`, borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: STATUS_COLORS[hlCase.status], cursor: "pointer", flexShrink: 0 }}>
+          {STATUS_LABELS[hlCase.status]}
+        </button>
+      </div>
     </div>
   );
 }

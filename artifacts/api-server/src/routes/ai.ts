@@ -13,7 +13,7 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable, guidanceSessionsTable } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable, guidanceSessionsTable, caseHistory, litigationTimeline } from "@workspace/db";
 import { storage } from "../storage.js";
 import {
   chargeOneCredit, refundOneCredit,
@@ -21,8 +21,10 @@ import {
   creditsForWords, countWords, WORDS_PER_CREDIT,
 } from "../services/credits.js";
 import { estimateForDocument, estimateForGuidance } from "../services/estimate.js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, desc } from "drizzle-orm";
 import { getClerkUserEmail } from "./feedback.js";
+import { buildCaseContext } from "../services/caseContext.js";
+import { recordCaseEvent } from "../services/memorySummarizer.js";
 
 const ADMIN_EMAILS = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
 
@@ -866,6 +868,16 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
       creditsCharged: charge.chargedAmount ?? 0,
     });
 
+    if (caseId) {
+      void recordCaseEvent({
+        caseId,
+        itemType: "document_generated",
+        title: savedDoc.title,
+        contentRef: savedDoc.id,
+        shortSummary: `Generated ${documentType} (${countWords(aiResult.data)} words)`,
+      });
+    }
+
     res.json({ ...savedDoc, creditsCharged: charge.chargedAmount ?? 0, creditBalance: charge.balance });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Document generation failed" });
@@ -1150,7 +1162,10 @@ async function loadCaseContext(userId: string, caseId?: string): Promise<{ caseT
       if (summaries.length) parts.push(`PRIOR GUIDANCE FINDINGS:\n${summaries.join("\n")}`);
     }
 
-    return { caseTitle: (row.title as string) || "Untitled Case", caseContext: parts.join("\n\n") };
+    const baseContext = parts.join("\n\n");
+    const memoryBlock = await buildCaseContext(caseId);
+    const caseContext = memoryBlock ? `CASE CONTEXT:\n${memoryBlock}\n\n${baseContext}` : baseContext;
+    return { caseTitle: (row.title as string) || "Untitled Case", caseContext };
   } catch {
     return { caseTitle: "Untitled Case", caseContext: "" };
   }
@@ -1462,6 +1477,17 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
       catch (mErr) { console.warn(`[guidance/complete] case merge failed session=${sessionId}:`, (mErr as Error).message); }
     }
 
+    if (session.caseId) {
+      void recordCaseEvent({
+        caseId: session.caseId,
+        itemType: "guidance_session",
+        title: session.action ?? "Guidance Session",
+        contentRef: sessionId,
+        shortSummary: (extracted as { summary?: string } | null)?.summary
+          ?? `${session.wordCount ?? 0} words exchanged`,
+      });
+    }
+
     if (extractMeta) {
       void logAiCall({
         userId, caseId: session.caseId, sessionId, feature: "guidance_session" as AiFeature,
@@ -1480,6 +1506,34 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Could not complete guidance session" });
+  }
+});
+
+// ── GET /ai/cases/:caseId/history ─────────────────────────────────────────────
+// Returns up to 5 most recent items merged from case_history + litigation_timeline.
+// Powers the compact history strip on the case screen.
+router.get("/ai/cases/:caseId/history", async (req: Request, res: Response): Promise<void> => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const caseId = String(req.params.caseId);
+  try {
+    const [historyRows, timelineRows] = await Promise.all([
+      db.select().from(caseHistory)
+        .where(eq(caseHistory.caseId, caseId))
+        .orderBy(desc(caseHistory.createdAt))
+        .limit(5),
+      db.select().from(litigationTimeline)
+        .where(eq(litigationTimeline.caseId, caseId))
+        .orderBy(desc(litigationTimeline.createdAt))
+        .limit(5),
+    ]);
+    const combined = [
+      ...historyRows.map(r => ({ source: "history" as const, id: r.id, date: r.createdAt, label: r.title, summary: r.shortSummary, type: r.itemType })),
+      ...timelineRows.map(r => ({ source: "timeline" as const, id: r.id, date: r.eventDate, label: r.description, summary: r.status, type: r.eventType })),
+    ].sort((a, b) => new Date(String(b.date)).getTime() - new Date(String(a.date)).getTime()).slice(0, 5);
+    res.json(combined);
+  } catch {
+    res.status(500).json({ error: "Failed to fetch case history" });
   }
 });
 

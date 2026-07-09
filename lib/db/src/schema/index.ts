@@ -271,6 +271,71 @@ export const errorLogsTable = pgTable("error_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ── Case Memory & Litigation History ──────────────────────────────────────────
+// Five tables that give the AI persistent, structured memory of each case so
+// every Guidance Session, draft, and analysis is informed by prior history —
+// not treated as a first encounter.
+
+export const caseFacts = pgTable("case_facts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: text("case_id").notNull(),
+  factType: text("fact_type").notNull(), // what_happened | party | key_date | damages | claim
+  content: text("content").notNull(),
+  source: text("source").notNull().default("user_entered"), // upload | ai_extracted | user_entered
+  supersededBy: uuid("superseded_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  caseFactsCaseIdx: index("case_facts_case_id_idx").on(t.caseId),
+}));
+
+export const caseHistory = pgTable("case_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: text("case_id").notNull(),
+  itemType: text("item_type").notNull(), // document_generated | document_uploaded | guidance_session | analysis
+  title: text("title").notNull(),
+  contentRef: text("content_ref"),
+  shortSummary: text("short_summary").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  caseHistoryCaseIdx: index("case_history_case_id_idx").on(t.caseId),
+}));
+
+export const litigationTimeline = pgTable("litigation_timeline", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: text("case_id").notNull(),
+  eventType: text("event_type").notNull(), // filing | response | hearing | discovery | deadline
+  eventDate: timestamp("event_date").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("upcoming"), // upcoming | completed | missed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  litigationTimelineCaseIdx: index("litigation_timeline_case_id_idx").on(t.caseId),
+}));
+
+export const caseStrategyMemory = pgTable("case_strategy_memory", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: text("case_id").notNull(),
+  category: text("category").notNull(), // issue_identified | argument_used | weakness | evidence_gap
+  content: text("content").notNull(),
+  status: text("status").notNull().default("open"), // open | resolved | superseded
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  caseStrategyMemoryCaseIdx: index("case_strategy_memory_case_id_idx").on(t.caseId),
+}));
+
+export const memorySummaries = pgTable("memory_summaries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: text("case_id").notNull(),
+  summaryType: text("summary_type").notNull(), // rolling_case_summary | strategy_summary
+  content: text("content").notNull().default(""),
+  tokenCount: integer("token_count").notNull().default(0),
+  lastUpdatedFrom: uuid("last_updated_from"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  memorySummariesCaseIdx: index("memory_summaries_case_id_idx").on(t.caseId),
+}));
+
 // ── Insert schemas ────────────────────────────────────────────────────────────
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({ id: true, createdAt: true });

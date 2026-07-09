@@ -769,6 +769,11 @@ export const aiApi = {
     },
   },
 
+  /** Fetch up to 5 most recent events for a case (docs generated, guidance sessions, timeline). */
+  getCaseHistory(caseId: string): Promise<Array<{ source: "history" | "timeline"; id: string; date: string; label: string; summary: string; type: string }>> {
+    return aiFetch(`/ai/cases/${caseId}/history`);
+  },
+
   /**
    * Upload a document file with real-time upload-progress reporting.
    * Uses XMLHttpRequest so the browser's upload.onprogress event fires.

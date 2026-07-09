@@ -1507,14 +1507,17 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
       });
     }
 
-    if (extractMeta) {
-      void logAiCall({
-        userId, caseId: session.caseId, sessionId, feature: "guidance_session" as AiFeature,
-        model: extractMeta.model, inputTokens: extractMeta.inputTokens, outputTokens: extractMeta.outputTokens,
-        estimatedCostMicroUsd: extractMeta.estimatedCostMicroUsd, responseTimeMs: extractMeta.responseTimeMs,
-        cacheHit: false, promptTemplate: "guidance_complete", creditsCharged,
-      });
-    }
+    // Always log the completion so the charge appears in Credit History, even when
+    // the extraction step failed or was skipped (extractMeta may be null in those cases).
+    void logAiCall({
+      userId, caseId: session.caseId, sessionId, feature: "guidance_session" as AiFeature,
+      model: extractMeta?.model ?? MODEL,
+      inputTokens: extractMeta?.inputTokens ?? 0,
+      outputTokens: extractMeta?.outputTokens ?? 0,
+      estimatedCostMicroUsd: extractMeta?.estimatedCostMicroUsd ?? 0,
+      responseTimeMs: extractMeta?.responseTimeMs ?? 0,
+      cacheHit: false, promptTemplate: "guidance_complete", creditsCharged,
+    });
 
     res.json({
       ok: true,

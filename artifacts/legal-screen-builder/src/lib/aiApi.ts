@@ -137,6 +137,8 @@ export interface CreditHistoryEntry {
   caseId: string | null;
   caseTitle: string | null;
   creditsCharged: number;
+  /** Credits remaining immediately after this charge was applied */
+  balanceAfter: number;
 }
 
 // ── Guidance sessions, decision layer & credit estimates ────────────────────────

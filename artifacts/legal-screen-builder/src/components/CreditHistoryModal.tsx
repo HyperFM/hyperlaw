@@ -138,14 +138,14 @@ export default function CreditHistoryModal({ onClose }: Props) {
                     </div>
                   </div>
 
-                  {/* Credits charged */}
+                  {/* Credits charged + balance after */}
                   <div style={{ flexShrink: 0, textAlign: "right" }}>
                     <div style={{ fontSize: 15, fontWeight: 800, color: "#888" }}>
                       <span style={{ color: "#555", fontSize: 12, marginRight: 2 }}>−</span>
                       {entry.creditsCharged}
                     </div>
-                    <div style={{ fontSize: 10, color: "#333" }}>
-                      credit{entry.creditsCharged !== 1 ? "s" : ""}
+                    <div style={{ fontSize: 10, color: "#333", marginTop: 2 }}>
+                      {entry.balanceAfter} left after
                     </div>
                   </div>
                 </div>

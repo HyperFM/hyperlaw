@@ -39,20 +39,28 @@ router.get("/user/credit-history", requireAuth, async (req: Request, res: Respon
     // Pull every ai_log row where this user was charged at least 1 credit.
     // No LIMIT — the goal is a full statement of every charge. The WHERE clause
     // filters creditsCharged > 0 in SQL, so only genuinely charged rows are returned.
-    const charged = await db
-      .select({
-        id: aiLogsTable.id,
-        caseId: aiLogsTable.caseId,
-        feature: aiLogsTable.feature,
-        creditsCharged: aiLogsTable.creditsCharged,
-        createdAt: aiLogsTable.createdAt,
-      })
-      .from(aiLogsTable)
-      .where(and(
-        eq(aiLogsTable.userId, userId),
-        gt(aiLogsTable.creditsCharged, 0),
-      ))
-      .orderBy(desc(aiLogsTable.createdAt));
+    // Fetch charged rows and current balance in parallel
+    const [charged, userRow] = await Promise.all([
+      db
+        .select({
+          id: aiLogsTable.id,
+          caseId: aiLogsTable.caseId,
+          feature: aiLogsTable.feature,
+          creditsCharged: aiLogsTable.creditsCharged,
+          createdAt: aiLogsTable.createdAt,
+        })
+        .from(aiLogsTable)
+        .where(and(
+          eq(aiLogsTable.userId, userId),
+          gt(aiLogsTable.creditsCharged, 0),
+        ))
+        .orderBy(desc(aiLogsTable.createdAt)),
+      db
+        .select({ creditBalance: usersTable.creditBalance })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1),
+    ]);
 
     // Look up case titles for all referenced caseIds
     const caseIds = [...new Set(charged.map(r => r.caseId).filter((id): id is string => !!id))];
@@ -65,14 +73,25 @@ router.get("/user/credit-history", requireAuth, async (req: Request, res: Respon
       caseRows.forEach(c => caseTitleMap.set(c.id, c.title));
     }
 
-    const result = charged.map(r => ({
-      id: r.id,
-      date: r.createdAt.toISOString(),
-      feature: r.feature,
-      caseId: r.caseId ?? null,
-      caseTitle: r.caseId ? (caseTitleMap.get(r.caseId) ?? null) : null,
-      creditsCharged: r.creditsCharged ?? 1,
-    }));
+    // Reconstruct running balance: entries are newest-first.
+    // balanceAfter[0] (newest) = current balance; each older entry adds back the credits
+    // that were charged by the entries that came after it.
+    const currentBalance = userRow[0]?.creditBalance ?? 0;
+    let runningBalance = currentBalance;
+    const result = charged.map(r => {
+      const creditsCharged = r.creditsCharged ?? 1;
+      const balanceAfter = runningBalance;
+      runningBalance += creditsCharged; // step back in time
+      return {
+        id: r.id,
+        date: r.createdAt.toISOString(),
+        feature: r.feature,
+        caseId: r.caseId ?? null,
+        caseTitle: r.caseId ? (caseTitleMap.get(r.caseId) ?? null) : null,
+        creditsCharged,
+        balanceAfter,
+      };
+    });
 
     res.json({ entries: result, total: result.length });
   } catch (err) {

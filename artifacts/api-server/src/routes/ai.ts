@@ -1517,6 +1517,13 @@ router.get("/ai/cases/:caseId/history", async (req: Request, res: Response): Pro
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   const caseId = String(req.params.caseId);
   try {
+    // Ownership check — 404 if this case doesn't belong to the requesting user.
+    const [ownedCase] = await db
+      .select({ id: casesTable.id })
+      .from(casesTable)
+      .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+    if (!ownedCase) { res.status(404).json({ error: "Case not found" }); return; }
+
     const [historyRows, timelineRows] = await Promise.all([
       db.select().from(caseHistory)
         .where(eq(caseHistory.caseId, caseId))

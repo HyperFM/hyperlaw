@@ -61,7 +61,7 @@ catalogs:
       specifier: ^4.1.14
       version: 4.3.1
     tsx:
-      specifier: ^4.21.0
+      specifier: 4.22.4
       version: 4.22.4
     vite:
       specifier: ^7.3.2
@@ -246,6 +246,9 @@ importers:
       thread-stream:
         specifier: 3.1.0
         version: 3.1.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.22.4
 
   artifacts/legal-screen-builder:
     dependencies:
@@ -5202,7 +5205,7 @@ snapshots:
       '@drizzle-team/brocli': 0.10.2
       '@esbuild-kit/esm-loader': tsx@4.23.0
       esbuild: 0.27.3
-      tsx: 4.22.4
+      tsx: 4.23.0
 
   drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.22.0):
     optionalDependencies:

@@ -334,6 +334,7 @@ export const memorySummaries = pgTable("memory_summaries", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   memorySummariesCaseIdx: index("memory_summaries_case_id_idx").on(t.caseId),
+  memorySummariesCaseTypeIdx: uniqueIndex("memory_summaries_case_type_idx").on(t.caseId, t.summaryType),
 }));
 
 // ── Insert schemas ────────────────────────────────────────────────────────────

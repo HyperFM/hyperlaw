@@ -1041,9 +1041,13 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
           const isActive = i === activeIdx;
           const clr = isActive ? "#fff" : ORANGE;
           const isLast = i === CARD_STAGES.length - 1;
+          const isActivatedBadge = isLast && isActive;
           return (
             <React.Fragment key={stage}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+                animation: isActivatedBadge ? "hlActivatedBlink 1.4s ease-in-out infinite" : "none",
+              }}>
                 <div style={{ width: 5, height: 5, borderRadius: "50%", background: clr }} />
                 <span style={{ fontSize: 9, fontWeight: 800, color: clr, letterSpacing: 0.2 }}>{stage}</span>
               </div>
@@ -2467,6 +2471,98 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
   );
 }
 
+// Thumb-sized floating button, bottom-right of the Index screen. Hold 3s to
+// spend 1 credit and rebuild the case's clouds from the latest case details.
+function HoldToRebuildIndexButton({ onComplete, disabled }: { onComplete: () => void; disabled?: boolean }) {
+  const HOLD_MS = 3000;
+  const [progress, setProgress] = useState(0);
+  const [holding, setHolding] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const startRef = useRef(0);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
+  const doneRef = useRef(false);
+
+  const stop = () => { if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
+  const reset = () => {
+    stop();
+    originRef.current = null;
+    setHolding(false);
+    if (!doneRef.current) setProgress(0);
+  };
+  const tick = (now: number) => {
+    const p = Math.min(1, (now - startRef.current) / HOLD_MS);
+    setProgress(p);
+    if (p >= 1) {
+      doneRef.current = true;
+      stop();
+      onComplete();
+      window.setTimeout(() => { doneRef.current = false; setProgress(0); setHolding(false); }, 220);
+      return;
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  };
+  const begin = (e: React.PointerEvent) => {
+    if (disabled) return;
+    doneRef.current = false;
+    originRef.current = { x: e.clientX, y: e.clientY };
+    startRef.current = performance.now();
+    setHolding(true);
+    stop();
+    rafRef.current = requestAnimationFrame(tick);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const o = originRef.current;
+    if (!o) return;
+    if (Math.abs(e.clientX - o.x) > 10 || Math.abs(e.clientY - o.y) > 10) reset();
+  };
+  useEffect(() => () => stop(), []);
+
+  const p = progress;
+  const R = 24; // radius of the progress ring, sized to a 56px thumb-tip button
+  const CIRC = 2 * Math.PI * R;
+
+  return (
+    <button
+      onPointerDown={begin}
+      onPointerUp={reset}
+      onPointerLeave={reset}
+      onPointerCancel={reset}
+      onPointerMove={onMove}
+      onContextMenu={e => e.preventDefault()}
+      title="Hold 3s to rebuild the Index (1 credit)"
+      disabled={disabled}
+      style={{
+        position: "absolute", right: 16, bottom: 16, zIndex: 30,
+        width: 56, height: 56, borderRadius: "50%",
+        background: "#0e0b06",
+        border: `1.5px solid ${holding ? ORANGE : ORANGE + "55"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.4 : 1,
+        WebkitTapHighlightColor: "transparent",
+        userSelect: "none",
+        boxShadow: holding
+          ? `0 0 ${14 + p * 30}px ${p * 8}px rgba(217,113,31,${0.3 + p * 0.5}), 0 0 0 1px ${ORANGE}33`
+          : `0 0 14px 2px rgba(217,113,31,0.28)`,
+        animation: holding ? "none" : "hlBrainPulse 2.6s ease-in-out infinite",
+        transform: holding ? `scale(${1 + p * 0.08})` : "scale(1)",
+        transition: "border-color 0.12s, transform 0.08s",
+      }}
+    >
+      <svg width={56} height={56} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+        <circle cx={28} cy={28} r={R} fill="none" stroke="rgba(217,113,31,0.15)" strokeWidth={2.5} />
+        {holding && (
+          <circle
+            cx={28} cy={28} r={R} fill="none" stroke={ORANGE} strokeWidth={2.5}
+            strokeDasharray={CIRC} strokeDashoffset={CIRC * (1 - p)} strokeLinecap="round"
+          />
+        )}
+      </svg>
+      <Brain size={22} color={ORANGE} style={{ filter: `drop-shadow(0 0 ${holding ? 10 + p * 8 : 6}px ${ORANGE})` }} />
+    </button>
+  );
+}
+
 function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   data: AppData;
   initialIncident?: Incident | null;
@@ -2510,6 +2606,25 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   const [selectedCloud, setSelectedCloud] = useState<IndexCloud | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [overviewExpanded, setOverviewExpanded] = useState(true);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
+
+  async function handleRebuildIndex() {
+    if (!target || target.kind !== "case" || isRebuilding) return;
+    setRebuildError(null);
+    setIsRebuilding(true);
+    try {
+      const hlCase = target.item as HLCase;
+      const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
+      const result = await aiApi.analyzeCase(hlCase, incs, { forceRefresh: true, billableRebuild: true, caseId: hlCase.id });
+      setAnalysis(result);
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      setRebuildError(e.code === "insufficient_credits" ? "Not enough credits to rebuild the Index." : (e.message || "Rebuild failed. Please try again."));
+    } finally {
+      setIsRebuilding(false);
+    }
+  }
 
   const currentTargetKey = target ? `${target.kind}:${target.item.id}` : null;
 
@@ -2518,6 +2633,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     setSavedTargetKey(null);
     setSelectedCloud(null);
     setActiveCategory("all");
+    setRebuildError(null);
   }, [currentTargetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const relevantIncidentKey = (() => {
@@ -2601,6 +2717,10 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
           0%, 100% { transform: translateY(0px); }
           50%       { transform: translateY(-5px); }
         }
+        @keyframes hlBrainPulse {
+          0%, 100% { box-shadow: 0 0 14px 2px rgba(217,113,31,0.28); }
+          50%       { box-shadow: 0 0 22px 5px rgba(217,113,31,0.48); }
+        }
         .hl-cloud-shape {
           position: relative;
           overflow: visible;
@@ -2628,7 +2748,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   })();
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: "#0a0a0a" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: "#0a0a0a", position: "relative" }}>
 
       {/* ── Minimal top bar: picker + refresh ─────────────────────────────── */}
       <div style={{ padding: "10px 14px", borderBottom: "1px solid #111", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
@@ -2913,6 +3033,22 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Hold-to-rebuild Index button — bottom-right, thumb-sized, 1 credit ── */}
+      {target?.kind === "case" && !isAnalyzing && (
+        <>
+          {rebuildError && (
+            <div style={{
+              position: "absolute", right: 16, bottom: 82, left: 16, zIndex: 30,
+              background: "#1a0d0d", border: "1px solid #4a1a1a", borderRadius: 10,
+              padding: "9px 12px", fontSize: 12, color: "#f0a0a0", textAlign: "right",
+            }}>
+              {rebuildError}
+            </div>
+          )}
+          <HoldToRebuildIndexButton onComplete={handleRebuildIndex} disabled={isRebuilding} />
+        </>
       )}
     </div>
   );

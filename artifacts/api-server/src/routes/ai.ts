@@ -108,13 +108,16 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
-  const { type, incident, hlCase, incidents, forceRefresh, caseId } = req.body as {
+  const { type, incident, hlCase, incidents, forceRefresh, caseId, billableRebuild } = req.body as {
     type: "incident" | "case";
     incident?: Record<string, string>;
     hlCase?: { title: string; notes: string };
     incidents?: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>;
     forceRefresh?: boolean;
     caseId?: string;
+    /** True only for the explicit "hold to rebuild" Index button — spends 1 credit.
+     *  The plain ↻ refresh icon sends forceRefresh alone and stays free. */
+    billableRebuild?: boolean;
   };
 
   const userId = auth.userId;
@@ -124,6 +127,14 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
   // Content used for cache key
   const cacheContent = type === "incident" ? incident : { hlCase, incidents };
   const cacheKey = computeCacheKey(feature, cacheContent);
+
+  // A forced rebuild of a case's Index (the "hold to rebuild" button) spends
+  // 1 credit — everything else (initial load, cache hits, incident analysis)
+  // stays free. `billableRebuild` alone is not enough: it must also actually
+  // bypass the cache (forceRefresh) or a client could set billableRebuild=true
+  // with forceRefresh=false and get charged for a free cache hit.
+  const isBillableRebuild = type === "case" && !!billableRebuild && !!forceRefresh;
+  let creditCharge: Awaited<ReturnType<typeof chargeOneCredit>> | null = null;
 
   try {
     // ── Cache check ──────────────────────────────────────────────────────────
@@ -158,6 +169,15 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // ── Credit charge — only once we know a real Claude call is about to run ──
+    if (isBillableRebuild) {
+      creditCharge = await chargeOneCredit(userId);
+      if (!creditCharge.ok) {
+        res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: creditCharge.balance });
+        return;
+      }
+    }
+
     // ── Library-first context injection ──────────────────────────────────────
     const queryText = type === "incident"
       ? `${(incident as Record<string, string>)?.title ?? ""} ${(incident as Record<string, string>)?.description ?? ""}`
@@ -176,6 +196,9 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
     } else if (type === "case" && hlCase) {
       aiResult = await aiService.analyzeCase(hlCase, incidents ?? [], { libraryContext: libContext });
     } else {
+      if (creditCharge?.charged) {
+        await refundOneCredit(userId).catch(() => { /* best-effort */ });
+      }
       res.status(400).json({ error: "Invalid request body" });
       return;
     }
@@ -195,8 +218,16 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
     });
     void setCache(userId, cacheKey, feature, aiResult.data);
 
-    res.json({ ...aiResult.data, fromCache: false });
+    res.json({
+      ...aiResult.data,
+      fromCache: false,
+      ...(creditCharge ? { creditsCharged: creditCharge.charged ? 1 : 0, creditBalance: creditCharge.balance } : {}),
+    });
   } catch (err) {
+    // Never take a credit for a rebuild that didn't actually happen.
+    if (creditCharge?.charged) {
+      await refundOneCredit(userId).catch(() => { /* best-effort — logged failure below still surfaces */ });
+    }
     res.status(500).json({ error: (err as Error).message || "Analysis failed" });
   }
 });

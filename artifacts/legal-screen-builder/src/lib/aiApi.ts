@@ -36,6 +36,10 @@ export interface TutorAnalysis {
   fromCache?: boolean;
   /** ISO timestamp of when the result was originally cached */
   cachedAt?: string;
+  /** Present only on a billable forced rebuild — 1 when a credit was actually spent, 0 when waived */
+  creditsCharged?: number;
+  /** Remaining credit balance after a billable rebuild (-1 when waived) */
+  creditBalance?: number;
 }
 
 export interface AiChatMessage {
@@ -379,7 +383,7 @@ export const aiApi = {
   analyzeCase(
     hlCase: { title: string; notes: string },
     incidents: Array<{ title: string; description: string; category: string; dateOfEvent?: string; location?: string }>,
-    opts?: { forceRefresh?: boolean; caseId?: string },
+    opts?: { forceRefresh?: boolean; caseId?: string; billableRebuild?: boolean },
   ): Promise<TutorAnalysis> {
     return aiFetch("/ai/analyze", {
       method: "POST",
@@ -389,6 +393,7 @@ export const aiApi = {
         incidents,
         forceRefresh: opts?.forceRefresh ?? false,
         caseId: opts?.caseId,
+        billableRebuild: opts?.billableRebuild ?? false,
       }),
     });
   },

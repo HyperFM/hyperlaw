@@ -51,6 +51,12 @@
   50%      { background-position: 58% 0%; }
 }
 
+/* "Case Activated" stage badge blinks once it's the current stage. */
+@keyframes hlActivatedBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
 /* "Case details confirmed" moment — appears, holds, then fades (brief §2). */
 @keyframes hlConfirmFlash {
   0%   { opacity: 0; transform: translateY(8px) scale(0.96); }

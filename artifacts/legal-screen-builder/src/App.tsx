@@ -702,15 +702,16 @@ function CaseSlider({ cases, onOpenCase, onContinueCase }: {
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
 
-const STAGE_LABELS: Record<import("./types").WorkflowStage, string> = {
-  parties: "Step 1 — Parties",
-  court: "Step 2 — Court",
-  story: "Step 3 — Story",
-  timeline: "Step 4 — Timeline",
-  assembly: "Step 5 — AI Assembly",
-  learning: "Step 6 — Learning",
-  documents: "Step 7 — Documents",
-};
+// Four-stage progress roadmap — replaces the old "Step X" badge system.
+const CARD_STAGES = ["Intake", "Story", "Evidence", "Case Activated"] as const;
+
+function getCaseStageIndex(stage: import("./types").WorkflowStage): number {
+  if (stage === "parties"  || stage === "court")    return 0; // Intake
+  if (stage === "story"    || stage === "timeline") return 1; // Story
+  if (stage === "assembly")                         return 2; // Evidence
+  if (stage === "learning" || stage === "documents") return 3; // Case Activated
+  return 3; // safe default for any future stages
+}
 
 // ─── Per-case photo (localStorage; mirrors the profile-photo pattern) ─────────
 function casePhotoKey(caseId: string) { return `hl_case_photo_${caseId}`; }
@@ -853,22 +854,23 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
 function PrimaryCaseCard({ hlCase, onOpen }: {
   hlCase: HLCase;
   onOpen: () => void;
-  onContinue: (stage: WorkflowStage) => void; // kept for call-site compatibility (unused)
+  onContinue: (stage: WorkflowStage) => void; // kept for call-site compat (unused)
 }) {
   const photo = useCasePhoto(hlCase.id);
   const cardPhotoInputRef = useRef<HTMLInputElement>(null);
+  const activeIdx = getCaseStageIndex(hlCase.workflowStage);
 
-  // Slim card (brief §4): date above, photo + name + stage, then one long document
-  // line as the primary action. No "Add Parties" CTA, no bulky health checklist.
   return (
-    <div style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "13px 14px" }}>
-      {/* Date / court, sitting neatly above the card content */}
+    <div onClick={onOpen}
+      style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "13px 14px", cursor: "pointer" }}>
+
+      {/* Date / court */}
       <div style={{ fontSize: 10.5, color: "#7a6a5c", fontWeight: 600, marginBottom: 9 }}>
         {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
       </div>
 
-      {/* Photo (changeable here on the card) + title + stage — tapping the text opens the case */}
-      <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 12 }}>
+      {/* Photo + title row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 10 }}>
         <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
         <button onClick={e => { e.stopPropagation(); cardPhotoInputRef.current?.click(); }} title="Set a photo for this case"
@@ -880,27 +882,32 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
             <Camera size={8} color="#000" />
           </div>
         </button>
-        <button onClick={onOpen}
-          style={{ flex: 1, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, textAlign: "left" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
-            <div style={{ marginTop: 4 }}>
-              <span style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 5, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: ORANGE }}>
-                {STAGE_LABELS[hlCase.workflowStage] ?? hlCase.workflowStage}
-              </span>
-            </div>
-          </div>
-          <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
-        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
+        </div>
+        <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
       </div>
 
-      {/* One long document line — the primary action, with a subtle drifting color */}
-      <button onClick={onOpen}
-        style={{ width: "100%", border: "none", borderRadius: 10, padding: "12px", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#000", fontSize: 13.5, fontWeight: 900,
-          background: `linear-gradient(90deg, ${ORANGE}, #ff8c00, ${ORANGE})`, backgroundSize: "220% 100%", animation: "hlDocLine 5s linear infinite" }}>
-        <FileText size={15} /> Open case &amp; documents
-      </button>
+      {/* Progress roadmap: Intake → Story → Evidence → Case Activated
+          Active stage = white; all others = HyperLaw orange. */}
+      <div style={{ display: "flex", alignItems: "center" }}>
+        {CARD_STAGES.map((stage, i) => {
+          const isActive = i === activeIdx;
+          const clr = isActive ? "#fff" : ORANGE;
+          const isLast = i === CARD_STAGES.length - 1;
+          return (
+            <React.Fragment key={stage}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <div style={{ width: 5, height: 5, borderRadius: "50%", background: clr }} />
+                <span style={{ fontSize: 9, fontWeight: 800, color: clr, letterSpacing: 0.2 }}>{stage}</span>
+              </div>
+              {!isLast && (
+                <div style={{ flex: 1, height: 1, background: `${ORANGE}33`, margin: "0 4px", minWidth: 6 }} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 }

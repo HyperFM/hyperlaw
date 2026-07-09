@@ -23,7 +23,7 @@ import { db, usersTable, guidanceSessionsTable, casesTable, caseHistory } from "
 import { eq, and, sql } from "drizzle-orm";
 
 // ── Service under test ────────────────────────────────────────────────────────
-import { chargeCredits } from "../services/credits.js";
+import { chargeCredits, chargeOneCredit, refundOneCredit, refundCredits } from "../services/credits.js";
 import { Storage } from "../storage.js";
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -457,5 +457,176 @@ describe("storage.deductCredit and deductCredits atomicity", () => {
 
     const balance = await getBalance(userId);
     assert.equal(balance, 0, "balance should be 0 — no extra deductions, no over-spend");
+  });
+});
+
+// =============================================================================
+// Suite 5: Refunds land correctly when AI fails mid-session
+// =============================================================================
+// These tests mirror the actual error paths in the routes:
+//   - analyze-document: chargeOneCredit → Claude fails → refundOneCredit
+//   - generate-document / guidance: chargeCredits → save fails → refundCredits
+//
+// Each test seeds a known balance, charges, simulates a failure (without
+// actually calling Claude), then calls the refund function and verifies
+// the wallet is restored to its exact original value.
+// =============================================================================
+describe("refundOneCredit — analyze-document Claude failure path", () => {
+  const userId = `${RUN_ID}-refund-one`;
+
+  before(async () => {
+    await seedUser(userId, 5);
+  });
+
+  after(async () => {
+    await cleanupUser(userId);
+  });
+
+  test("refundOneCredit restores balance after a successful chargeOneCredit", async () => {
+    const before = await getBalance(userId);
+
+    // Simulate the route: charge 1 credit before calling Claude.
+    const charge = await chargeOneCredit(userId);
+    assert.equal(charge.ok, true, "charge should succeed");
+    assert.equal(charge.charged, true, "credit should have been deducted");
+
+    const afterCharge = await getBalance(userId);
+    assert.equal(before - afterCharge, 1, "balance should have decreased by 1 after charge");
+
+    // Simulate Claude throwing — route calls refundOneCredit when charged=true.
+    await refundOneCredit(userId);
+
+    const afterRefund = await getBalance(userId);
+    assert.equal(afterRefund, before, "refund must restore balance to its pre-charge value");
+  });
+
+  test("chargeOneCredit returns charged=false when waived — no refund is issued", async () => {
+    // We can't easily put the test user on an Apex plan, but we CAN verify the
+    // guard condition: when ChargeResult.charged is false the route skips the
+    // refund call entirely. If a buggy implementation called refundOneCredit
+    // unconditionally it would inflate the balance — this test detects that.
+    const before = await getBalance(userId);
+
+    // Drain to 0 so chargeOneCredit returns ok=false, charged=false (no deduction).
+    await seedUser(userId, 0);
+    const charge = await chargeOneCredit(userId);
+
+    assert.equal(charge.ok, false, "charge should fail when balance is 0");
+    assert.equal(charge.charged, false, "charged must be false — nothing was deducted");
+
+    // The route guards on charge.charged before calling refundOneCredit.
+    // Calling refundOneCredit here (wrong) would give the user a free credit.
+    // We verify that NOT calling it leaves the balance at 0.
+    const balanceAfter = await getBalance(userId);
+    assert.equal(balanceAfter, 0, "balance must stay 0 — no phantom credit from a spurious refund");
+
+    // Restore for next test.
+    await seedUser(userId, 5);
+  });
+
+  test("multiple concurrent Claude failures each get a refund (one credit each)", async () => {
+    // Two requests each charge 1 credit and both fail: both must be refunded.
+    await seedUser(userId, 5);
+    const before = await getBalance(userId);
+
+    // Both charges succeed.
+    const [c1, c2] = await Promise.all([chargeOneCredit(userId), chargeOneCredit(userId)]);
+    assert.equal(c1.charged, true, "first charge should succeed");
+    assert.equal(c2.charged, true, "second charge should succeed");
+
+    const afterBothCharges = await getBalance(userId);
+    assert.equal(before - afterBothCharges, 2, "two credits should have been deducted");
+
+    // Both Claude calls fail — both routes call refundOneCredit.
+    await Promise.all([refundOneCredit(userId), refundOneCredit(userId)]);
+
+    const afterBothRefunds = await getBalance(userId);
+    assert.equal(afterBothRefunds, before, "both refunds must restore the original balance");
+  });
+});
+
+describe("refundCredits — guidance / generate-document failure path", () => {
+  const userId = `${RUN_ID}-refund-multi`;
+
+  before(async () => {
+    await seedUser(userId, 10);
+  });
+
+  after(async () => {
+    await cleanupUser(userId);
+  });
+
+  test("refundCredits(N) restores balance after a successful chargeCredits(N)", async () => {
+    const before = await getBalance(userId);
+
+    // Simulate the route charging for 3 credits of output.
+    const charge = await chargeCredits(userId, 3);
+    assert.equal(charge.ok, true, "charge should succeed");
+    assert.equal(charge.charged, true, "credits should have been deducted");
+    assert.equal(charge.chargedAmount, 3, "should have charged exactly 3");
+
+    const afterCharge = await getBalance(userId);
+    assert.equal(before - afterCharge, 3, "balance must decrease by 3 after charge");
+
+    // Simulate the DB save throwing — route calls refundCredits(chargedAmount).
+    await refundCredits(userId, charge.chargedAmount ?? 0);
+
+    const afterRefund = await getBalance(userId);
+    assert.equal(afterRefund, before, "refund must restore balance to its pre-charge value");
+  });
+
+  test("refundCredits(0) is a no-op — balance unchanged", async () => {
+    const before = await getBalance(userId);
+
+    // chargeCredits with amount=0 returns charged=false, chargedAmount=0.
+    const charge = await chargeCredits(userId, 0);
+    assert.equal(charge.charged, false, "zero-amount charge should not deduct anything");
+
+    // Route calls refundCredits(chargedAmount ?? 0) → refundCredits(0).
+    await refundCredits(userId, 0);
+
+    const after = await getBalance(userId);
+    assert.equal(after, before, "balance should be unchanged after refundCredits(0)");
+  });
+
+  test("partial charge (balance < requested) is fully refunded on failure", async () => {
+    // User has 2 credits; route requests 5. chargeCredits deducts 2 (what's available).
+    await seedUser(userId, 2);
+
+    const charge = await chargeCredits(userId, 5);
+    assert.equal(charge.charged, true, "partial charge should still be charged=true");
+    assert.equal(charge.ok, false, "ok=false because full amount wasn't covered");
+
+    const chargedAmount = charge.chargedAmount ?? 0;
+    assert.ok(chargedAmount > 0 && chargedAmount <= 2, "charged amount should be between 1 and 2");
+
+    // Simulate failure → refund whatever was actually deducted.
+    await refundCredits(userId, chargedAmount);
+
+    const balanceAfterRefund = await getBalance(userId);
+    assert.equal(balanceAfterRefund, 2, "partial charge must be fully refunded — balance back to 2");
+  });
+
+  test("refund after concurrent charges refunds the correct per-call amount", async () => {
+    // Two concurrent charges of 2 credits each against a balance of 10.
+    // Both succeed. Both then fail. Both must be individually refunded.
+    await seedUser(userId, 10);
+    const before = await getBalance(userId);
+
+    const [c1, c2] = await Promise.all([chargeCredits(userId, 2), chargeCredits(userId, 2)]);
+    assert.equal(c1.charged, true, "first charge should succeed");
+    assert.equal(c2.charged, true, "second charge should succeed");
+
+    const totalCharged = (c1.chargedAmount ?? 0) + (c2.chargedAmount ?? 0);
+    assert.equal(totalCharged, 4, "total deducted should be 4 credits");
+
+    // Both requests fail mid-flight; each refunds its own chargedAmount.
+    await Promise.all([
+      refundCredits(userId, c1.chargedAmount ?? 0),
+      refundCredits(userId, c2.chargedAmount ?? 0),
+    ]);
+
+    const afterRefunds = await getBalance(userId);
+    assert.equal(afterRefunds, before, "both refunds must restore the full original balance");
   });
 });

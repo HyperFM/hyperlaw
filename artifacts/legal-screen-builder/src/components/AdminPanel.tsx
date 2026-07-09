@@ -147,10 +147,12 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setAiPage(logsResp.page);
       if (stats && "totalCalls" in stats) setAiStats(stats as AiStats);
     } catch (err) {
-      const msg = (err as Error).message ?? "";
-      // Silently swallow 401 — Clerk token hasn't propagated yet; user can retry by paginating.
-      if (!msg.includes("401") && !msg.includes("Unauthorized")) {
-        setAiError(msg || "Failed to load AI data");
+      // On 401 (auth race before Clerk propagates), reset the ref so the tab
+      // auto-retries on the next visit once the session is ready.
+      if ((err as { status?: number }).status === 401) {
+        aiAutoLoadedRef.current = false;
+      } else {
+        setAiError((err as Error).message || "Failed to load AI data");
       }
     } finally {
       setAiLoading(false);
@@ -393,9 +395,10 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setErrorLogsTotal(resp.total);
       setErrorLogsPage(resp.page);
     } catch (err) {
-      const msg = (err as Error).message ?? "";
-      if (!msg.includes("401") && !msg.includes("Unauthorized")) {
-        setErrorLogsError(msg || "Failed to load error logs");
+      if ((err as { status?: number }).status === 401) {
+        errorsAutoLoadedRef.current = false; // retry next tab visit
+      } else {
+        setErrorLogsError((err as Error).message || "Failed to load error logs");
       }
     } finally {
       setErrorLogsLoading(false);

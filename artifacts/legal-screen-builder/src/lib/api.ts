@@ -6,7 +6,10 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
     ...opts,
   });
-  if (!r.ok) throw new Error(`API ${path} failed: ${r.status}`);
+  if (!r.ok) {
+    if (r.status === 401) throw new Error("Session not ready — please try again in a moment.");
+    throw new Error(`API ${path} failed: ${r.status}`);
+  }
   return r.json() as Promise<T>;
 }
 

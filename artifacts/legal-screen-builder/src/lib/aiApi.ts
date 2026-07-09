@@ -267,6 +267,8 @@ const BASE = "/api";
 interface AiError extends Error {
   code?: string;
   creditBalance?: number;
+  /** HTTP status code from the server, used for structured error handling */
+  status?: number;
 }
 
 async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -281,7 +283,13 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
   if (!r.ok) {
     const body = await r.json().catch(() => ({ error: "Request failed" })) as { error?: string; code?: string };
-    const err: AiError = new Error(body.error || `AI request failed (${r.status})`);
+    // Map 401 to a friendly message — raw "Unauthorized" from body.error should never
+    // reach the UI and confuse users who are signed in but hit a brief auth race.
+    const message = r.status === 401
+      ? "Session not ready — please try again in a moment."
+      : (body.error || `AI request failed (${r.status})`);
+    const err: AiError = new Error(message);
+    err.status = r.status;
     err.code = body.code;
     if (r.status === 402 && (body as Record<string, unknown>).creditBalance !== undefined) {
       err.creditBalance = (body as Record<string, unknown>).creditBalance as number;

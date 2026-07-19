@@ -3,8 +3,9 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
+  Scissors, Monitor, PlayCircle, StopCircle,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 
@@ -119,11 +120,27 @@ function VideoTimeline({ duration, currentTime, markers, zoom, onSeek, activeMar
 
   return (
     <div style={{ padding: "8px 0 20px", position: "relative" }}>
-      {/* Track */}
       <div ref={trackRef}
-        style={{ height: 36, background: "#111", borderRadius: 8, position: "relative", cursor: "pointer", border: "1px solid #1a1a1a", overflow: "visible" }}
+        style={{ height: 44, background: "#111", borderRadius: 8, position: "relative", cursor: "pointer", border: "1px solid #1a1a1a", overflow: "visible" }}
         onMouseDown={e => { isDragging.current = true; seekFromEvent(e); }}
-        onClick={e => { if (!isDragging.current) seekFromEvent(e); }}>
+        onClick={e => { if (!isDragging.current) seekFromEvent(e); }}
+        onTouchStart={e => {
+          const touch = e.touches[0];
+          const el = trackRef.current;
+          if (!el || !duration) return;
+          const rect = el.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+          onSeek(pct * duration);
+        }}
+        onTouchMove={e => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const el = trackRef.current;
+          if (!el || !duration) return;
+          const rect = el.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+          onSeek(pct * duration);
+        }}>
 
         {/* Filled portion */}
         <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${progress}%`, background: "rgba(217,113,31,0.15)", borderRadius: "8px 0 0 8px", pointerEvents: "none" }} />
@@ -137,12 +154,20 @@ function VideoTimeline({ duration, currentTime, markers, zoom, onSeek, activeMar
         {duration > 0 && markers.map(m => {
           const pct = (m.timestamp / duration) * 100;
           const isActive = m.id === activeMarkerId;
+          const isCut = m.type === "screen_cut";
           return (
             <div key={m.id} onClick={e => { e.stopPropagation(); onSelectMarker(m.id); }}
               style={{ position: "absolute", left: `${pct}%`, top: 0, bottom: 0, transform: "translateX(-50%)", zIndex: 3, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
-              <div style={{ width: 3, height: "100%", background: isActive ? "#fff" : ORANGE + "cc", borderRadius: 2 }} />
-              <div style={{ position: "absolute", bottom: -18, fontSize: 9, color: isActive ? "#fff" : ORANGE, fontWeight: 700, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {m.label || `EX-${markers.indexOf(m) + 1}`}
+              {/* Marker line */}
+              <div style={{ width: isCut ? 2 : 3, height: "100%", background: isCut ? (isActive ? "#fff" : "#60a5fa") : (isActive ? "#fff" : ORANGE + "cc"), borderRadius: 2 }} />
+              {/* Marker icon for screen cuts */}
+              {isCut && (
+                <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", width: 18, height: 18, background: isActive ? "#fff" : "#60a5fa", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Monitor size={10} color={isActive ? "#000" : "#000"} />
+                </div>
+              )}
+              <div style={{ position: "absolute", bottom: -18, fontSize: 9, color: isCut ? (isActive ? "#fff" : "#60a5fa") : (isActive ? "#fff" : ORANGE), fontWeight: 700, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {m.label || (isCut ? "Screen" : `EX-${markers.indexOf(m) + 1}`)}
               </div>
             </div>
           );
@@ -172,7 +197,6 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 700, display: "flex", flexDirection: "column" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 20px" }}>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 20 }}>
           <div style={{ background: ORANGE, borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 900, color: "#000", letterSpacing: 0.5, flexShrink: 0, marginTop: 2 }}>
             EXHIBIT {exhibitNumber}
@@ -190,15 +214,12 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
 
         {draft ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Supporting Quote */}
             {draft.supportingQuote && (
               <div style={{ background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 12, padding: "14px 16px" }}>
                 <div style={{ fontSize: 10, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>SUPPORTING QUOTE</div>
                 <div style={{ fontSize: 14, color: "#ccc", lineHeight: 1.55, fontStyle: "italic" }}>"{draft.supportingQuote}"</div>
               </div>
             )}
-
-            {/* Key Observations */}
             {draft.keyObservations?.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>KEY OBSERVATIONS</div>
@@ -210,16 +231,12 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
                 ))}
               </div>
             )}
-
-            {/* Timeline Context */}
             {draft.timelineContext && (
               <div>
                 <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>TIMELINE CONTEXT</div>
                 <div style={{ fontSize: 13, color: "#888", lineHeight: 1.55 }}>{draft.timelineContext}</div>
               </div>
             )}
-
-            {/* Parties + Evidence */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {draft.relevantParties?.length > 0 && (
                 <div style={{ background: "#111", borderRadius: 10, padding: "12px 14px" }}>
@@ -234,8 +251,6 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
                 </div>
               )}
             </div>
-
-            {/* Legal Authorities */}
             {draft.legalAuthorities?.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>LEGAL AUTHORITIES</div>
@@ -246,8 +261,6 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
                 ))}
               </div>
             )}
-
-            {/* Why This Moment Matters */}
             <div>
               <div style={{ fontSize: 10, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>WHY THIS MOMENT MATTERS</div>
               <textarea
@@ -260,8 +273,6 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
                 onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
               />
             </div>
-
-            {/* Footer */}
             <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 11, color: "#444" }}>Exhibit {exhibitNumber} of record</span>
               <div style={{ fontSize: 11, color: "#333", fontStyle: "italic" }}>
@@ -279,6 +290,338 @@ function ExhibitDraftSheet({ marker, exhibitNumber, onClose, onUpdateWhyItMatter
   );
 }
 
+// ── Cut Screen Builder ────────────────────────────────────────────────────────
+
+const BG_PRESETS = [
+  { label: "Black",   color: "#080808" },
+  { label: "Navy",    color: "#0a1628" },
+  { label: "Slate",   color: "#0f1923" },
+  { label: "Forest",  color: "#0a1a0f" },
+  { label: "Crimson", color: "#1a0808" },
+  { label: "Amber",   color: "#1a0e00" },
+  { label: "Violet",  color: "#0f0a1a" },
+  { label: "White",   color: "#f0f0f0" },
+];
+
+type BodyLines = [string, string, string];
+
+interface ScreenDraft {
+  title: string;
+  subtitle: string;
+  bgColor: string;
+  bodyLines: BodyLines;
+}
+
+function ScreenPreviewCard({ screen, mini = false }: { screen: ScreenDraft; mini?: boolean }) {
+  const isLight = screen.bgColor === "#f0f0f0";
+  const textColor = isLight ? "#111" : "#fff";
+  const mutedColor = isLight ? "#555" : "#888";
+  return (
+    <div style={{
+      background: screen.bgColor,
+      borderRadius: mini ? 8 : 14,
+      border: "1px solid rgba(255,255,255,0.06)",
+      aspectRatio: "16/9",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: mini ? "6px 8px" : "20px 24px",
+      textAlign: "center",
+      gap: mini ? 3 : 10,
+      overflow: "hidden",
+    }}>
+      {screen.title ? (
+        <div style={{ fontSize: mini ? 10 : 20, fontWeight: 900, color: textColor, lineHeight: 1.2, maxWidth: "100%", overflow: "hidden" }}>
+          {screen.title}
+        </div>
+      ) : null}
+      {screen.subtitle ? (
+        <div style={{ fontSize: mini ? 7 : 13, color: mutedColor, lineHeight: 1.4 }}>
+          {screen.subtitle}
+        </div>
+      ) : null}
+      {!mini && screen.bodyLines.filter(Boolean).length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, width: "100%", textAlign: "left" }}>
+          {screen.bodyLines.filter(Boolean).map((line, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ width: 4, height: 4, borderRadius: "50%", background: ORANGE, marginTop: 8, flexShrink: 0 }} />
+              <div style={{ fontSize: 13, color: mutedColor, lineHeight: 1.5 }}>{line}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!screen.title && !screen.subtitle && (
+        <div style={{ fontSize: mini ? 8 : 13, color: "rgba(255,255,255,0.15)", fontStyle: "italic" }}>Screen preview</div>
+      )}
+    </div>
+  );
+}
+
+function CutScreenBuilderModal({
+  initialTime,
+  duration,
+  existingMarkers,
+  onInsert,
+  onCancel,
+}: {
+  initialTime: number;
+  duration: number;
+  existingMarkers: ExhibitMarker[];
+  onInsert: (time: number, screen: ScreenInsert, holdSec: number) => void;
+  onCancel: () => void;
+}) {
+  const [step, setStep] = useState<"build" | "place">("build");
+  const [screen, setScreen] = useState<ScreenDraft>({
+    title: "",
+    subtitle: "",
+    bgColor: "#080808",
+    bodyLines: ["", "", ""],
+  });
+  const [placementTime, setPlacementTime] = useState(initialTime);
+  const [holdSec, setHoldSec] = useState(4);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  function seekFromXY(clientX: number) {
+    const el = trackRef.current;
+    if (!el || !duration) return;
+    const rect = el.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setPlacementTime(pct * duration);
+  }
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) { if (isDragging.current) seekFromXY(e.clientX); }
+    function onUp() { isDragging.current = false; }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [duration]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const placePct = duration > 0 ? (placementTime / duration) * 100 : 50;
+  const existingCuts = existingMarkers.filter(m => m.type === "screen_cut");
+
+  /* ── Step 1: Build ── */
+  if (step === "build") {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#050505", zIndex: 900, display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ flexShrink: 0, background: "#0a0a0a", borderBottom: "1px solid #151515", padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={onCancel} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+            <X size={20} color="#666" />
+          </button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: "#ddd" }}>Build Insert Screen</div>
+            <div style={{ fontSize: 10, color: "#444" }}>Step 1 of 2 — Design the screen</div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 110px", display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Live preview */}
+          <ScreenPreviewCard screen={screen} />
+
+          {/* Background */}
+          <div>
+            <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>BACKGROUND</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {BG_PRESETS.map(p => (
+                <button key={p.color} onClick={() => setScreen(s => ({ ...s, bgColor: p.color }))} title={p.label}
+                  style={{ width: 36, height: 36, borderRadius: 8, background: p.color, border: `2px solid ${screen.bgColor === p.color ? ORANGE : "rgba(255,255,255,0.08)"}`, cursor: "pointer", boxShadow: screen.bgColor === p.color ? `0 0 8px ${ORANGE}88` : "none", transition: "all 0.15s" }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Title */}
+          <div>
+            <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>TITLE</div>
+            <input value={screen.title}
+              onChange={e => setScreen(s => ({ ...s, title: e.target.value }))}
+              placeholder="Main headline — e.g. EXHIBIT A · USE OF FORCE"
+              style={{ width: "100%", background: "#111", border: "1px solid #222", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 14, fontWeight: 700, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+              onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+              onBlur={e => (e.target.style.borderColor = "#222")}
+            />
+          </div>
+
+          {/* Subtitle */}
+          <div>
+            <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>
+              SUBTITLE <span style={{ color: "#333", fontWeight: 400 }}>optional</span>
+            </div>
+            <input value={screen.subtitle}
+              onChange={e => setScreen(s => ({ ...s, subtitle: e.target.value }))}
+              placeholder="Date, location, case number…"
+              style={{ width: "100%", background: "#111", border: "1px solid #222", borderRadius: 10, padding: "12px 14px", color: "#ccc", fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+              onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+              onBlur={e => (e.target.style.borderColor = "#222")}
+            />
+          </div>
+
+          {/* Body lines */}
+          <div>
+            <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>
+              KEY POINTS <span style={{ color: "#333", fontWeight: 400 }}>optional — up to 3</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {([0, 1, 2] as const).map(i => (
+                <input key={i} value={screen.bodyLines[i]}
+                  onChange={e => setScreen(s => {
+                    const lines = [...s.bodyLines] as BodyLines;
+                    lines[i] = e.target.value;
+                    return { ...s, bodyLines: lines };
+                  })}
+                  placeholder={`Point ${i + 1}`}
+                  style={{ width: "100%", background: "#111", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", color: "#ccc", fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+                  onFocus={e => (e.target.style.borderColor = ORANGE + "88")}
+                  onBlur={e => (e.target.style.borderColor = "#222")}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "#0a0a0a", borderTop: "1px solid #151515" }}>
+          <button
+            onClick={() => { if (screen.title.trim()) setStep("place"); }}
+            disabled={!screen.title.trim()}
+            style={{ width: "100%", background: screen.title.trim() ? ORANGE : "#1a1a1a", border: "none", borderRadius: 14, padding: "16px", fontSize: 15, fontWeight: 800, color: screen.title.trim() ? "#000" : "#555", cursor: screen.title.trim() ? "pointer" : "not-allowed" }}>
+            Place in Video →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Step 2: Place ── */
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#050505", zIndex: 900, display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ flexShrink: 0, background: "#0a0a0a", borderBottom: "1px solid #151515", padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => setStep("build")} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+          <ArrowLeft size={18} color="#666" />
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 900, color: "#ddd" }}>Place in Video</div>
+          <div style={{ fontSize: 10, color: "#444" }}>Step 2 of 2 — Slide to choose the cut point</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 110px", display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* Mini preview */}
+        <div>
+          <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>YOUR SCREEN INSERT</div>
+          <ScreenPreviewCard screen={screen} />
+        </div>
+
+        {/* Timeline placer */}
+        <div>
+          <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>DRAG TO SET CUT POINT</div>
+          <div ref={trackRef}
+            style={{ height: 56, background: "#111", borderRadius: 10, position: "relative", cursor: "col-resize", border: "1px solid #1a1a1a", userSelect: "none", touchAction: "none" }}
+            onMouseDown={e => { isDragging.current = true; seekFromXY(e.clientX); }}
+            onTouchStart={e => { e.preventDefault(); seekFromXY(e.touches[0].clientX); }}
+            onTouchMove={e => { e.preventDefault(); seekFromXY(e.touches[0].clientX); }}>
+
+            {/* Existing cut ghosts */}
+            {existingCuts.map(m => (
+              duration > 0 && <div key={m.id} style={{ position: "absolute", top: 0, bottom: 0, left: `${(m.timestamp / duration) * 100}%`, width: 2, background: "#60a5fa33", pointerEvents: "none" }} />
+            ))}
+
+            {/* Active placement line */}
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${placePct}%`, transform: "translateX(-50%)", zIndex: 3, display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none" }}>
+              <div style={{ width: 3, height: "100%", background: ORANGE }} />
+              <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", width: 26, height: 26, background: ORANGE, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Scissors size={12} color="#000" />
+              </div>
+            </div>
+
+            {/* Time labels */}
+            {duration > 0 && [0, 0.25, 0.5, 0.75, 1].map(t => (
+              <div key={t} style={{ position: "absolute", left: `${t * 100}%`, bottom: 4, fontSize: 8, color: "#333", transform: t === 1 ? "translateX(-100%)" : t === 0 ? "none" : "translateX(-50%)", userSelect: "none", pointerEvents: "none" }}>
+                {formatTime(t * (duration || 0))}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
+            <div style={{ background: "#111", borderRadius: 8, padding: "6px 16px", fontSize: 16, fontWeight: 900, color: ORANGE, letterSpacing: 0.5 }}>
+              ✂ {formatTime(placementTime)}
+            </div>
+          </div>
+        </div>
+
+        {/* Hold duration */}
+        <div>
+          <div style={{ fontSize: 10, color: "#555", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>SCREEN HOLD DURATION</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[2, 4, 6, 8, 10].map(s => (
+              <button key={s} onClick={() => setHoldSec(s)}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 10, background: holdSec === s ? ORANGE : "#111", border: `1px solid ${holdSec === s ? ORANGE : "#222"}`, fontSize: 13, fontWeight: 700, color: holdSec === s ? "#000" : "#666", cursor: "pointer" }}>
+                {s}s
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#444", marginTop: 6, textAlign: "center" }}>
+            Video pauses for this long while the screen is shown
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ flexShrink: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "#0a0a0a", borderTop: "1px solid #151515" }}>
+        <button
+          onClick={() => onInsert(placementTime, {
+            title: screen.title,
+            subtitle: screen.subtitle || undefined,
+            bgColor: screen.bgColor,
+            bodyLines: screen.bodyLines.filter(Boolean),
+          }, holdSec)}
+          style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 14, padding: "16px", fontSize: 15, fontWeight: 800, color: "#000", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <Scissors size={16} color="#000" /> Cut & Insert Here
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Preview Screen Overlay ────────────────────────────────────────────────────
+function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDone: () => void }) {
+  const si = marker.screenInsert;
+  if (!si) return null;
+  const isLight = si.bgColor === "#f0f0f0";
+  const textColor = isLight ? "#111" : "#fff";
+  const mutedColor = isLight ? "#555" : "#bbb";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: si.bgColor, zIndex: 500, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 32px", textAlign: "center" }}>
+      <div style={{ maxWidth: 600, width: "100%" }}>
+        <div style={{ fontSize: 28, fontWeight: 900, color: textColor, lineHeight: 1.2, marginBottom: si.subtitle ? 12 : 0 }}>
+          {si.title}
+        </div>
+        {si.subtitle && (
+          <div style={{ fontSize: 16, color: mutedColor, marginBottom: 20 }}>{si.subtitle}</div>
+        )}
+        {si.bodyLines.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left", marginTop: 20 }}>
+            {si.bodyLines.map((line, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: ORANGE, marginTop: 9, flexShrink: 0 }} />
+                <div style={{ fontSize: 16, color: mutedColor, lineHeight: 1.5 }}>{line}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {/* Skip button */}
+      <button onClick={onDone}
+        style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
+        Skip
+      </button>
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 interface Props {
   hlCase: HLCase;
@@ -291,13 +634,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  /** Always tracks the latest object URL so cleanup can revoke it reliably */
   const videoUrlRef = useRef<string | null>(null);
   const [videoFileName, setVideoFileName] = useState(hlCase.studioProject?.videoFileName ?? "");
   const [duration, setDuration] = useState(hlCase.studioProject?.videoDurationSec ?? 0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [largFileWarning, setLargeFileWarning] = useState(false);
 
   // ── Markers ────────────────────────────────────────────────────
   const [markers, setMarkersRaw] = useState<ExhibitMarker[]>(() => hlCase.studioProject?.markers ?? []);
@@ -312,6 +655,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [dictationMarkerId, setDictationMarkerId] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  // ── Cut screen builder ─────────────────────────────────────────
+  const [showCutBuilder, setShowCutBuilder] = useState(false);
+
+  // ── Preview mode ───────────────────────────────────────────────
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [previewOverlayMarkerId, setPreviewOverlayMarkerId] = useState<string | null>(null);
+  const previewTriggeredRef = useRef<Set<string>>(new Set());
+
   // ── Jurisdiction verification ──────────────────────────────────
   const [verifying, setVerifying] = useState(false);
   const [showVerifResult, setShowVerifResult] = useState(false);
@@ -321,10 +672,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Info panel ─────────────────────────────────────────────────
-  const [showInfo, setShowInfo] = useState(false);
-
-  // ── Video export ───────────────────────────────────────────────
+  // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
 
   // ── Helpers ────────────────────────────────────────────────────
@@ -349,7 +697,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     triggerAutosave(updated);
   }
 
-  /** Update how long an exhibit screen holds in the exported video (persists via autosave, no undo entry). */
   function updateMarkerHold(markerId: string, sec: number) {
     setMarkers(markers.map(m => (m.id === markerId ? { ...m, holdSec: sec } : m)), false);
   }
@@ -359,13 +706,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       const project = getOrCreateProject();
-      const next: StudioProject = {
-        ...project,
-        videoFileName,
-        videoDurationSec: duration,
-        markers: updatedMarkers,
-        updatedAt: Date.now(),
-      };
+      const next: StudioProject = { ...project, videoFileName, videoDurationSec: duration, markers: updatedMarkers, updatedAt: Date.now() };
       onUpdateCase({ ...hlCase, studioProject: next });
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
@@ -399,14 +740,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setVideoFileName(file.name);
     setCurrentTime(0);
     setIsPlaying(false);
+    // Warn (non-blocking) for very large files
+    const gb2 = 2 * 1024 * 1024 * 1024;
+    setLargeFileWarning(file.size > gb2);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const maxBytes = 60 * 60 * 1024 * 1024 * 2; // ~2 GB (hour of compressed video)
-    if (file.size > maxBytes) { alert("File may be too large. Recommend trimming to the relevant sections."); }
-    loadVideo(file);
+    if (file) loadVideo(file);
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
   }
 
   function togglePlay() {
@@ -421,28 +764,85 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (v) { v.currentTime = t; setCurrentTime(t); }
   }
 
-  // ── Exhibit marker insertion ────────────────────────────────────
+  // ── Preview mode — fire screen overlay at cut markers ──────────
+  useEffect(() => {
+    if (!isPreviewMode || !isPlaying) return;
+    const cuts = markers.filter(m => m.type === "screen_cut").sort((a, b) => a.timestamp - b.timestamp);
+    for (const cut of cuts) {
+      // Trigger within a 0.3s window of the cut point (timeupdate fires ~4x/s)
+      if (Math.abs(currentTime - cut.timestamp) < 0.35 && !previewTriggeredRef.current.has(cut.id)) {
+        previewTriggeredRef.current.add(cut.id);
+        const v = videoRef.current;
+        if (v) { v.pause(); setIsPlaying(false); }
+        setPreviewOverlayMarkerId(cut.id);
+        // Auto-dismiss after holdSec
+        const hold = (cut.holdSec ?? 4) * 1000;
+        setTimeout(() => {
+          setPreviewOverlayMarkerId(null);
+          const vid = videoRef.current;
+          if (vid) { vid.play().catch(() => {}); setIsPlaying(true); }
+        }, hold);
+        break;
+      }
+    }
+  }, [currentTime, isPreviewMode, isPlaying, markers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset triggered set when preview mode exits or video position rewinds
+  useEffect(() => {
+    if (!isPreviewMode) previewTriggeredRef.current = new Set();
+  }, [isPreviewMode]);
+
+  // Clear already-triggered cuts when user seeks backward past them
+  useEffect(() => {
+    previewTriggeredRef.current = new Set(
+      [...previewTriggeredRef.current].filter(id => {
+        const m = markers.find(x => x.id === id);
+        return m ? m.timestamp < currentTime : false;
+      })
+    );
+  }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Analysis marker insertion ───────────────────────────────────
   function insertMarker() {
     const id = crypto.randomUUID();
-    const exhibitNum = markers.length + 1;
+    const exhibitNum = markers.filter(m => !m.type || m.type === "analysis").length + 1;
     const newMarker: ExhibitMarker = {
       id, timestamp: currentTime,
       label: `Exhibit ${exhibitNum}`,
       dictation: "", whyItMatters: "",
       status: "draft", createdAt: Date.now(),
+      type: "analysis",
     };
-    // Pause video
     if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
     setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
     setActiveMarkerId(id);
-    // Start dictation immediately
     startDictation(id);
+  }
+
+  // ── Cut screen insertion ────────────────────────────────────────
+  function handleCutInsert(time: number, screenData: ScreenInsert, holdSec: number) {
+    const id = crypto.randomUUID();
+    const cutNum = markers.filter(m => m.type === "screen_cut").length + 1;
+    const newMarker: ExhibitMarker = {
+      id,
+      timestamp: time,
+      label: `Screen ${cutNum}`,
+      dictation: "",
+      whyItMatters: "",
+      status: "ready",
+      holdSec,
+      createdAt: Date.now(),
+      type: "screen_cut",
+      screenInsert: screenData,
+    };
+    setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
+    setActiveMarkerId(id);
+    setShowCutBuilder(false);
   }
 
   // ── Dictation ──────────────────────────────────────────────────
   function startDictation(markerId: string) {
-    const SpeechRecognition = (window as Window & { SpeechRecognition?: typeof window.SpeechRecognition; webkitSpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition
-      || (window as Window & { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setDictationMarkerId(markerId);
       setDictationText("");
@@ -454,7 +854,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     r.interimResults = true;
     r.lang = "en-US";
     let finalText = "";
-    r.onresult = (e) => {
+    r.onresult = (e: any) => {
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalText += e.results[i][0].transcript + " ";
@@ -462,7 +862,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }
       setDictationText(finalText + interim);
     };
-    r.onend = () => { /* keep updating but don't auto-stop */ };
+    r.onend = () => {};
     r.start();
     recognitionRef.current = r;
     setDictationMarkerId(markerId);
@@ -474,18 +874,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     setIsDictating(false);
     if (!saveText || !dictationMarkerId) { setDictationMarkerId(null); setDictationText(""); return; }
-
     const text = dictationText.trim();
     const midId = dictationMarkerId;
     setDictationMarkerId(null);
     setDictationText("");
-
-    if (!text) {
-      // Nothing to extract — leave marker as draft so user can dictate again
-      return;
-    }
-
-    // Mark as extracting and kick off the Builder Engine
+    if (!text) return;
     const updated = markers.map(m =>
       m.id === midId ? { ...m, dictation: text, status: "extracting" as const } : m
     );
@@ -495,10 +888,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }
 
   // ── Claude Builder Engine ───────────────────────────────────────
-  // Uses functional setMarkersRaw so in-flight updates never overwrite concurrent edits.
   async function extractAndDraft(marker: ExhibitMarker) {
-    // Compute exhibit number from the current sorted position
-    const exhibitNumber = markers.filter(m => m.timestamp <= marker.timestamp).length;
+    const exhibitNumber = markers.filter(m => m.timestamp <= marker.timestamp && (!m.type || m.type === "analysis")).length;
     const markerId = marker.id;
     try {
       const result = await aiApi.builderExtract({
@@ -533,16 +924,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Jurisdiction verification ───────────────────────────────────
   async function handleVerify(forceRefresh = false) {
     if (!hlCase.court) return;
-    // Show saved result on first tap; hold-to-verify fires with forceRefresh=true
     if (verification && !forceRefresh) { setShowVerifResult(true); return; }
     setVerifying(true);
     try {
-      const result = await aiApi.jurisdictionVerify({
-        state: hlCase.court.state,
-        county: "",
-        courtName: hlCase.court.name,
-        caseId: hlCase.id,
-      });
+      const result = await aiApi.jurisdictionVerify({ state: hlCase.court.state, county: "", courtName: hlCase.court.name, caseId: hlCase.id });
       const verif: JurisdictionVerification = { ...result, verifiedAt: Date.now() };
       const project = getOrCreateProject();
       onUpdateCase({ ...hlCase, studioProject: { ...project, jurisdictionVerification: verif, updatedAt: Date.now() } });
@@ -557,10 +942,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Cleanup ─────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      // Revoke via ref so the latest URL is always cleaned up, not the initial one
       if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-      // Stop any in-progress speech recognition
       if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -569,9 +952,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const viewingMarker = markers.find(m => m.id === viewingDraftId);
   const sortedMarkers = [...markers].sort((a, b) => a.timestamp - b.timestamp);
   const court = hlCase.court;
+  const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#050505" }}>
+
       {/* ── Top Bar ──────────────────────────────────────────────── */}
       <div style={{ flexShrink: 0, background: "#0a0a0a", borderBottom: "1px solid #151515", padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
@@ -599,7 +984,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         </button>
       </div>
 
-      {/* ── Jurisdiction strip — always visible ──────────────────── */}
+      {/* ── Jurisdiction strip ───────────────────────────────────── */}
       <div style={{ flexShrink: 0, background: "#0d0d0d", borderBottom: "1px solid #131313", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
           {verification ? (
@@ -616,7 +1001,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             {court ? `${court.state}${court.name ? ` · ${court.name}` : ""}` : "not set — add court in Case Profile"}
           </span>
         </div>
-        {/* Verify button */}
         {verification ? (
           <button onClick={() => setShowVerifResult(true)}
             style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: verification.verdict === "permitted" ? "#22c55e" : verification.verdict === "limited" ? "#f59e0b" : "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
@@ -627,59 +1011,91 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         )}
       </div>
 
-      {/* ── Evidence preservation reminder ──────────────────────── */}
+      {/* ── Evidence preservation reminder ───────────────────────── */}
       <div style={{ flexShrink: 0, background: "#0a0800", borderBottom: "1px solid #1a1500", padding: "6px 16px", fontSize: 11, color: "#6b5a00", display: "flex", alignItems: "center", gap: 6 }}>
         <AlertCircle size={11} color="#6b5a00" />
         Always preserve and retain the complete, unedited original recording for evidentiary purposes.
       </div>
 
-      {/* ── Scrollable content ────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 120px" }}>
+      {/* ── Scrollable content ─────────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
 
         {/* ── Video area ────────────────────────────────────────────── */}
         {videoUrl ? (
-          <div style={{ marginBottom: 12 }}>
-            <video ref={videoRef} src={videoUrl} style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 240 }}
+          <div style={{ marginBottom: 12, position: "relative" }}>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              playsInline
+              preload="metadata"
+              style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
               onTimeUpdate={e => setCurrentTime(e.currentTarget.currentTime)}
               onDurationChange={e => setDuration(e.currentTarget.duration)}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
-              onEnded={() => setIsPlaying(false)}
+              onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
             />
+            {/* Preview mode badge */}
+            {isPreviewMode && (
+              <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
+                ● PREVIEW
+              </div>
+            )}
           </div>
         ) : (
-          <button onClick={() => fileInputRef.current?.click()}
-            style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "40px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16 }}
+          /* ── Upload drop zone — label-based for reliable mobile trigger ── */
+          <label htmlFor="studio-video-input"
+            style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}
             onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
             onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-            <Film size={40} color="#333" />
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#555" }}>Upload Video</div>
-            <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 260, lineHeight: 1.5 }}>
-              Tap to select a video file. Videos up to one hour are supported.
-              <br />Trim unnecessary portions before uploading when possible.
+            <Film size={44} color="#333" />
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#555" }}>Tap to Load Video</div>
+            <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 280, lineHeight: 1.55 }}>
+              Any length supported — 30 minutes, 1 hour, or longer.
+              <br />Videos stay on your device; nothing is uploaded to the server.
             </div>
-          </button>
+          </label>
         )}
-        <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} style={{ display: "none" }} />
 
-        {/* ── Relink banner (video unlinked after session) ────────── */}
+        {/* Hidden file input — accepts any video, no size limit enforced */}
+        <input
+          id="studio-video-input"
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+
+        {/* Large file warning (non-blocking) */}
+        {largFileWarning && (
+          <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cc6600" }}>
+            <AlertCircle size={13} color="#cc6600" />
+            <div style={{ flex: 1 }}>Large file detected. If playback is slow, trim unnecessary portions of the video before loading.</div>
+            <button onClick={() => setLargeFileWarning(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+              <X size={14} color="#cc6600" />
+            </button>
+          </div>
+        )}
+
+        {/* ── Relink banner ─────────────────────────────────────────── */}
         {!videoUrl && videoFileName && (
           <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cc6600" }}>
             <AlertCircle size={13} color="#cc6600" />
             <div style={{ flex: 1 }}>
-              Previously linked: <strong>{videoFileName}</strong> — relink to continue editing.
+              Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue editing.
             </div>
-            <button onClick={() => fileInputRef.current?.click()}
+            <label htmlFor="studio-video-input"
               style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer" }}>
               Relink
-            </button>
+            </label>
           </div>
         )}
 
         {/* ── Controls ──────────────────────────────────────────────── */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
           <button onClick={togglePlay} disabled={!videoUrl}
-            style={{ width: 40, height: 40, borderRadius: 20, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
+            style={{ width: 42, height: 42, borderRadius: 21, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
             {isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
           </button>
           <div style={{ fontSize: 14, fontWeight: 800, color: videoUrl ? "#fff" : "#444", letterSpacing: 0.5, minWidth: 80, flexShrink: 0 }}>
@@ -687,6 +1103,30 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(duration) : "--:--"}</span>
           </div>
           <div style={{ flex: 1 }} />
+
+          {/* Preview mode toggle */}
+          {videoUrl && markers.some(m => m.type === "screen_cut") && (
+            <button
+              onClick={() => {
+                if (isPreviewMode) {
+                  setIsPreviewMode(false);
+                } else {
+                  previewTriggeredRef.current = new Set();
+                  seek(0);
+                  setIsPreviewMode(true);
+                  setTimeout(() => {
+                    const v = videoRef.current;
+                    if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+                  }, 150);
+                }
+              }}
+              title={isPreviewMode ? "Exit preview" : "Preview with screen cuts"}
+              style={{ background: isPreviewMode ? ORANGE : "#111", border: `1px solid ${isPreviewMode ? ORANGE : "#222"}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: isPreviewMode ? "#000" : "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+              {isPreviewMode ? <StopCircle size={12} /> : <PlayCircle size={12} />}
+              {isPreviewMode ? "Stop Preview" : "Preview"}
+            </button>
+          )}
+
           {/* Zoom */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => setZoom(z => Math.max(1, z - 1))} disabled={zoom <= 1}
@@ -699,12 +1139,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <ZoomIn size={14} color="#666" />
             </button>
           </div>
-          {/* Relink video */}
+
+          {/* Change video */}
           {videoUrl && (
-            <button onClick={() => fileInputRef.current?.click()} title="Change video"
+            <label htmlFor="studio-video-input" title="Change video"
               style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: "#555", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
               <Upload size={11} /> Change
-            </button>
+            </label>
           )}
         </div>
 
@@ -719,17 +1160,48 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onSelectMarker={id => { setActiveMarkerId(id); }}
         />
 
+        {/* ── Legend ────────────────────────────────────────────────── */}
+        {sortedMarkers.some(m => m.type === "screen_cut") && (
+          <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
+              <div style={{ width: 10, height: 3, background: ORANGE, borderRadius: 2 }} />
+              Analysis marker
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
+              <div style={{ width: 10, height: 3, background: "#60a5fa", borderRadius: 2 }} />
+              Screen cut
+            </div>
+          </div>
+        )}
+
         {/* ── Action buttons ────────────────────────────────────────── */}
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          {/* Analysis exhibit */}
           <button onClick={insertMarker} disabled={!videoUrl}
-            style={{ flex: 1, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13, color: videoUrl ? "#000" : "#444" }}>
-            <Plus size={16} /> Insert Exhibit
+            style={{ flex: 1, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12, padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 12, color: videoUrl ? "#000" : "#444" }}>
+            <Plus size={15} /> Exhibit
           </button>
+
+          {/* Cut + Build Screen */}
+          <button
+            onClick={() => {
+              if (!videoUrl) return;
+              if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
+              setShowCutBuilder(true);
+            }}
+            disabled={!videoUrl}
+            style={{ flex: 1, background: videoUrl ? "#111" : "#111", border: `1px solid ${videoUrl ? "#60a5fa55" : "#222"}`, borderRadius: 12, padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 12, color: videoUrl ? "#60a5fa" : "#444" }}
+            onMouseEnter={e => { if (videoUrl) e.currentTarget.style.borderColor = "#60a5fa"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = videoUrl ? "#60a5fa55" : "#222"; }}>
+            <Scissors size={14} /> Cut + Screen
+          </button>
+
+          {/* Dictation mic */}
           <button
             onClick={() => {
               if (activeMarkerId) {
                 const m = markers.find(x => x.id === activeMarkerId);
-                if (m && !isDictating) startDictation(activeMarkerId);
+                if (m && m.type !== "screen_cut" && !isDictating) startDictation(activeMarkerId);
               } else if (videoUrl) {
                 insertMarker();
               }
@@ -753,7 +1225,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Export Exhibit Video</div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>
                 {videoUrl
-                  ? `Source clip + ${sortedMarkers.length} exhibit hold${sortedMarkers.length !== 1 ? "s" : ""}`
+                  ? `${sortedMarkers.filter(m => !m.type || m.type === "analysis").length} exhibit${sortedMarkers.filter(m => !m.type || m.type === "analysis").length !== 1 ? "s" : ""}` +
+                    (sortedMarkers.some(m => m.type === "screen_cut") ? ` + ${sortedMarkers.filter(m => m.type === "screen_cut").length} screen cut${sortedMarkers.filter(m => m.type === "screen_cut").length !== 1 ? "s" : ""}` : "")
                   : "Relink your video to export"}
               </div>
             </div>
@@ -761,56 +1234,85 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </button>
         )}
 
-        {/* ── Exhibits list ─────────────────────────────────────────── */}
+        {/* ── Markers list ──────────────────────────────────────────── */}
         {sortedMarkers.length > 0 && (
           <>
-            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>EXHIBITS</div>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>TIMELINE ITEMS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {sortedMarkers.map((m, i) => (
-                <div key={m.id}
-                  style={{ background: m.id === activeMarkerId ? "#1a1a1a" : "#111", border: `1px solid ${m.id === activeMarkerId ? ORANGE + "44" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
-                  onClick={() => { setActiveMarkerId(m.id); seek(m.timestamp); }}>
-                  <div style={{ width: 30, height: 30, borderRadius: 8, background: "#0d0d0d", border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <span style={{ fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</span>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</div>
-                    <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
-                      {formatTime(m.timestamp)}
-                      {m.dictation && ` · ${m.dictation.slice(0, 40)}${m.dictation.length > 40 ? "…" : ""}`}
+              {sortedMarkers.map((m, i) => {
+                const isCut = m.type === "screen_cut";
+                const isActive = m.id === activeMarkerId;
+                return (
+                  <div key={m.id}
+                    style={{ background: isActive ? "#1a1a1a" : "#111", border: `1px solid ${isActive ? (isCut ? "#60a5fa44" : ORANGE + "44") : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
+                    onClick={() => { setActiveMarkerId(m.id); seek(m.timestamp); }}>
+
+                    {/* Marker number / icon */}
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: "#0d0d0d", border: `1px solid ${isCut ? "#60a5fa33" : ORANGE + "33"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {isCut
+                        ? <Monitor size={14} color="#60a5fa" />
+                        : <span style={{ fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</span>
+                      }
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</div>
+                        {isCut && <div style={{ fontSize: 9, fontWeight: 700, color: "#60a5fa", background: "#60a5fa15", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>SCREEN</div>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
+                        {formatTime(m.timestamp)}
+                        {isCut && m.screenInsert && ` · "${m.screenInsert.title}"`}
+                        {!isCut && m.dictation && ` · ${m.dictation.slice(0, 40)}${m.dictation.length > 40 ? "…" : ""}`}
+                        {m.holdSec && ` · holds ${m.holdSec}s`}
+                      </div>
+                    </div>
+
+                    {/* Action */}
+                    <div style={{ flexShrink: 0 }}>
+                      {!isCut && m.status === "extracting" && <Loader2 size={15} color="#555" style={{ animation: "spin 1s linear infinite" }} />}
+                      {!isCut && m.status === "ready" && (
+                        <button onClick={e => { e.stopPropagation(); setViewingDraftId(m.id); }}
+                          style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: ORANGE, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                          <Eye size={11} /> View
+                        </button>
+                      )}
+                      {!isCut && m.status === "error" && (
+                        <button onClick={e => {
+                          e.stopPropagation();
+                          setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
+                          extractAndDraft({ ...m, status: "extracting" as const });
+                        }}
+                          style={{ background: "none", border: "1px solid #444", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#888", cursor: "pointer" }}>
+                          Retry
+                        </button>
+                      )}
+                      {!isCut && m.status === "draft" && m.dictation && (
+                        <button onClick={e => {
+                          e.stopPropagation();
+                          setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
+                          extractAndDraft({ ...m, status: "extracting" as const });
+                        }}
+                          style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#000", cursor: "pointer" }}>
+                          Build
+                        </button>
+                      )}
+                      {isCut && (
+                        <button onClick={e => {
+                          e.stopPropagation();
+                          setMarkers(markers.filter(x => x.id !== m.id));
+                          if (activeMarkerId === m.id) setActiveMarkerId(null);
+                        }}
+                          title="Remove screen cut"
+                          style={{ background: "none", border: "1px solid #333", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#666", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                          <X size={11} />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div style={{ flexShrink: 0 }}>
-                    {m.status === "extracting" && <Loader2 size={15} color="#555" style={{ animation: "spin 1s linear infinite" }} />}
-                    {m.status === "ready" && (
-                      <button onClick={e => { e.stopPropagation(); setViewingDraftId(m.id); }}
-                        style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: ORANGE, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-                        <Eye size={11} /> View
-                      </button>
-                    )}
-                    {m.status === "error" && (
-                      <button onClick={e => {
-                        e.stopPropagation();
-                        setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
-                        extractAndDraft({ ...m, status: "extracting" as const });
-                      }}
-                        style={{ background: "none", border: "1px solid #444", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-                        Retry
-                      </button>
-                    )}
-                    {m.status === "draft" && m.dictation && (
-                      <button onClick={e => {
-                        e.stopPropagation();
-                        setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
-                        extractAndDraft({ ...m, status: "extracting" as const });
-                      }}
-                        style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#000", cursor: "pointer" }}>
-                        Build
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -819,7 +1321,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       {/* ── Dictation overlay ─────────────────────────────────────── */}
       {isDictating && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 800, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 24px" }}>
-          {/* Pulsing mic */}
           <div style={{ width: 80, height: 80, borderRadius: 40, background: "#1a0000", border: "2px solid #ef4444", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, boxShadow: "0 0 0 8px rgba(239,68,68,0.1), 0 0 0 16px rgba(239,68,68,0.05)" }}>
             <Mic size={36} color="#ef4444" />
           </div>
@@ -827,7 +1328,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ fontSize: 12, color: "#666", textAlign: "center", marginBottom: 24, maxWidth: 320, lineHeight: 1.6 }}>
             Describe exactly what happened in this moment. Include actions, statements, contradictions, and anything a judge or jury should notice.
           </div>
-          {/* Live transcript */}
           <div style={{ width: "100%", maxWidth: 380, background: "#111", borderRadius: 12, padding: "14px 16px", minHeight: 80, fontSize: 14, color: "#ccc", lineHeight: 1.6, marginBottom: 24, border: "1px solid #1e1e1e" }}>
             {dictationText || <span style={{ color: "#444", fontStyle: "italic" }}>Listening…</span>}
           </div>
@@ -857,6 +1357,29 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         />
       )}
 
+      {/* ── Cut Screen Builder Modal ───────────────────────────────── */}
+      {showCutBuilder && (
+        <CutScreenBuilderModal
+          initialTime={currentTime}
+          duration={duration}
+          existingMarkers={markers}
+          onInsert={handleCutInsert}
+          onCancel={() => setShowCutBuilder(false)}
+        />
+      )}
+
+      {/* ── Preview Screen Overlay ─────────────────────────────────── */}
+      {previewOverlayMarkerId && previewOverlayMarker && (
+        <PreviewScreenOverlay
+          marker={previewOverlayMarker}
+          onDone={() => {
+            setPreviewOverlayMarkerId(null);
+            const v = videoRef.current;
+            if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+          }}
+        />
+      )}
+
       {/* ── Jurisdiction result sheet ──────────────────────────────── */}
       {showVerifResult && verification && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 700, display: "flex", alignItems: "flex-end" }}
@@ -865,9 +1388,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 24px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
             <div style={{ width: 36, height: 3, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              {verification.verdict === "permitted"    && <><CheckCircle2 size={22} color="#22c55e" /><div style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>✅ Generally permitted.</div></>}
-              {verification.verdict === "limited"      && <><AlertCircle  size={22} color="#f59e0b" /><div style={{ fontSize: 18, fontWeight: 900, color: "#f59e0b" }}>⚠ Allowed with limitations.</div></>}
-              {verification.verdict === "not_accepted" && <><XCircle      size={22} color="#ef4444" /><div style={{ fontSize: 18, fontWeight: 900, color: "#ef4444" }}>❌ Not generally accepted.</div></>}
+              {verification.verdict === "permitted"    && <><CheckCircle2 size={22} color="#22c55e" /><div style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>Generally permitted.</div></>}
+              {verification.verdict === "limited"      && <><AlertCircle  size={22} color="#f59e0b" /><div style={{ fontSize: 18, fontWeight: 900, color: "#f59e0b" }}>Allowed with limitations.</div></>}
+              {verification.verdict === "not_accepted" && <><XCircle      size={22} color="#ef4444" /><div style={{ fontSize: 18, fontWeight: 900, color: "#ef4444" }}>Not generally accepted.</div></>}
             </div>
             <p style={{ fontSize: 14, color: "#888", lineHeight: 1.6, margin: "0 0 16px" }}>{verification.explanation}</p>
             <div style={{ fontSize: 11, color: "#444", marginBottom: 20 }}>
@@ -881,7 +1404,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         </div>
       )}
 
-      {/* ── Export Exhibit Video modal ─────────────────────────────── */}
+      {/* ── Export modal ───────────────────────────────────────────── */}
       {showExport && (
         <ExhibitVideoExportModal
           videoUrl={videoUrl}

@@ -168,6 +168,15 @@ export interface ExhibitDraft {
   whyItMatters: string;
 }
 
+/** Data for a screen that is cut into the video at a specific timestamp */
+export interface ScreenInsert {
+  title: string;
+  subtitle?: string;
+  /** Hex background color */
+  bgColor: string;
+  bodyLines: string[];
+}
+
 export interface ExhibitMarker {
   id: string;
   /** Seconds from start of video */
@@ -181,6 +190,14 @@ export interface ExhibitMarker {
   /** Seconds this exhibit screen holds on-screen in the exported video (default 10) */
   holdSec?: number;
   createdAt: number;
+  /**
+   * "analysis" = dictation-driven Claude extraction (original flow)
+   * "screen_cut" = a built screen inserted as a video cut
+   * Defaults to "analysis" if omitted (backward compat).
+   */
+  type?: "analysis" | "screen_cut";
+  /** Populated when type === "screen_cut" */
+  screenInsert?: ScreenInsert;
 }
 
 export interface JurisdictionVerification {

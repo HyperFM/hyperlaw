@@ -653,7 +653,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [isDictating, setIsDictating] = useState(false);
   const [dictationText, setDictationText] = useState("");
   const [dictationMarkerId, setDictationMarkerId] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // ── Cut screen builder ─────────────────────────────────────────
   const [showCutBuilder, setShowCutBuilder] = useState(false);
@@ -733,14 +735,29 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   // ── Video controls ─────────────────────────────────────────────
   function loadVideo(file: File) {
-    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    setVideoError(null);
+    // Revoke previous blob URL to free memory
+    if (videoUrlRef.current) {
+      URL.revokeObjectURL(videoUrlRef.current);
+      videoUrlRef.current = null;
+    }
     const url = URL.createObjectURL(file);
     videoUrlRef.current = url;
+
+    // Set state so React renders the <video> element
     setVideoUrl(url);
     setVideoFileName(file.name);
     setCurrentTime(0);
     setIsPlaying(false);
-    // Warn (non-blocking) for very large files
+
+    // Also wire the ref directly — React may batch the state update and the
+    // video element might already be mounted from a previous load
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.src = url;
+      videoRef.current.load();
+    }
+
     const gb2 = 2 * 1024 * 1024 * 1024;
     setLargeFileWarning(file.size > gb2);
   }
@@ -748,7 +765,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) loadVideo(file);
-    // Reset input so the same file can be re-selected
+    // Reset so same file can be picked again
     e.target.value = "";
   }
 
@@ -1021,11 +1038,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
 
         {/* ── Video area ────────────────────────────────────────────── */}
-        {videoUrl ? (
+        {videoUrl && (
           <div style={{ marginBottom: 12, position: "relative" }}>
             <video
-              ref={videoRef}
-              src={videoUrl}
+              ref={el => {
+                (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
+                // When the element first mounts, ensure src is set even if React
+                // batched the state update and the element didn't see the prop yet
+                if (el && videoUrlRef.current && el.src !== videoUrlRef.current) {
+                  el.src = videoUrlRef.current;
+                  el.load();
+                }
+              }}
+              src={videoUrl ?? undefined}
               playsInline
               preload="metadata"
               style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
@@ -1034,6 +1059,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
+              onError={e => {
+                const v = e.currentTarget;
+                const code = v.error?.code;
+                const msgs: Record<number, string> = {
+                  1: "Load aborted.",
+                  2: "Network error loading video.",
+                  3: "Video decoding failed — the file may be corrupted.",
+                  4: "Format not supported by this browser. Try MP4 (H.264).",
+                };
+                setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
+                setIsPlaying(false);
+              }}
             />
             {/* Preview mode badge */}
             {isPreviewMode && (
@@ -1042,7 +1079,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {/* Video error banner */}
+        {videoError && (
+          <div style={{ background: "#1a0000", border: "1px solid #5a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#ef4444" }}>
+            <AlertCircle size={13} color="#ef4444" />
+            <div style={{ flex: 1 }}>{videoError} — try a different file or format.</div>
+            <label htmlFor="studio-video-input" style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer", flexShrink: 0 }}>
+              Try another
+            </label>
+          </div>
+        )}
+
+        {!videoError && !videoUrl && (
           /* ── Upload drop zone — label-based for reliable mobile trigger ── */
           <label htmlFor="studio-video-input"
             style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}

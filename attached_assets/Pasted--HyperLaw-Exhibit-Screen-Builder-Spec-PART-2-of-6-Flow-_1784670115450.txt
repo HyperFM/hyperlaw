@@ -1,0 +1,44 @@
+# HyperLaw — Exhibit Screen Builder Spec — PART 2 of 6
+
+## Flow (detailed)
+
+1. User pauses video, clicks "Add Exhibit Screen."
+2. Show context controls: "Selected Moment: 03:41" with rewatch options (15/30/60 seconds before).
+3. User dictates freely via native OS dictation - no paid transcription service. Field behaves like a normal text box: type, dictate, or edit before submitting.
+4. Transcript autosaves to IndexedDB, debounced ~2-3s after typing/speaking pauses. Draft recovers on refresh or failed generation.
+5. User presses "Generate Exhibit Screen" - the only trigger for the AI call.
+6. Agent retrieves, in order: timestamped video moment + dictation first, then checks against existing exhibits, complaint, discovery, evidence files for support. This is retrieval order, not a belief-priority ranking - a claim traces to a real source or it isn't asserted as fact, regardless of which source it came from.
+7. Agent selects an exhibit type (which determines the layout) and fills that layout's schema fields, following the type's framing guidance. No freeform layout, no markdown lists, no essay paragraphs.
+8. Code-level verification: for every claim-bearing field, check the source excerpt actually appears in/matches the source material sent. If not, auto-flag as unsupported before it reaches the review panel - don't rely on the model self-reporting.
+9. Exhibit Review panel shown before insertion.
+10. User approves -> inserted as a marker.
+
+## Alternative Layouts
+Agent output includes an alternativeLayouts list - 2-3 other layouts that could also reasonably fit the moment, so the UI can offer "Try Another Layout" without a full regeneration. No numeric confidence score.
+
+## Hard Requirement - Source Tracing (non-negotiable)
+Every factual statement must trace to an actual source: user dictation, complaint, discovery, uploaded evidence, or existing case record. Untraceable claims cannot be presented as fact.
+
+Field-level source object + classification:
+- verified_fact - supported by a specific source (document, exhibit #, paragraph, or dictation timestamp)
+- observation - supported but interpretive
+- speculation - no direct support (intent, motive, state of mind). Must be phrased as a question, not an assertion.
+
+If no source found, agent flags field as unsupported rather than inventing one.
+
+Narrative consistency (soft guidance, not hard reject): agent has visibility into prior exhibits to avoid repeating arguments.
+
+## Exhibit Review Panel (shown before insertion)
+- Evidence support rating
+- Source coverage %
+- Unsupported claims (flagged individually - convert to question / attach evidence / keep as user opinion)
+- Speculation risk
+- Missing evidence worth citing
+- "Try Another Layout" option using alternativeLayouts
+
+## Validation
+Reject and regenerate if returned JSON doesn't match the selected layout's schema. "One core argument per slide" enforced via proxies (word count, finding count, single headline field).
+
+Debug/internal only: log selectedType + selectedLayout + reason string for QA. Never shown to user as evidence of AI "reasoning."
+
+Aspect ratio: square and portrait (9:16) versions of each layout.

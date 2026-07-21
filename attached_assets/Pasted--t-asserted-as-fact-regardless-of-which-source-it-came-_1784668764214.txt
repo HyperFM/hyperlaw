@@ -1,0 +1,613 @@
+
+'t asserted as fact, regardless of which source it came from.
+7. Agent selects an exhibit type (which determines the layout) and fills that layout's schema fields, following the type's framing guidance. No freeform layout, no markdown lists, no essay paragraphs.
+8. Code-level verification: for every claim-bearing field, check the `source` excerpt actually appears in/matches the source material sent. If not, auto-flag as unsupported before it reaches the review panel — don't rely on the model self-reporting.
+9. Exhibit Review panel shown before insertion.
+10. User approves → inserted as a marker.
+
+## Alternative Layouts
+Agent output includes an `alternativeLayouts` list — 2-3 other layouts that could also reasonably fit the moment, so the UI can offer "Try Another Layout" without a full regeneration. No numeric confidence score — LLM self-reported confidence numbers aren't reliably calibrated and would imply false precision.
+
+## Hard Requirement — Source Tracing (non-negotiable)
+Every factual statement must trace to an actual source: user dictation, complaint, discovery, uploaded evidence, or existing case record. Untraceable claims cannot be presented as fact.
+
+Field-level `source` object + `classification`:
+- **verified_fact** — supported by a specific source (document, exhibit #, paragraph, or dictation timestamp)
+- **observation** — supported but interpretive
+- **speculation** — no direct support (intent, motive, state of mind). Must be phrased as a question, not an assertion.
+
+If no source found, agent flags field as unsupported rather than inventing one. This applies identically across all 8 layouts.
+
+**Narrative consistency** (soft guidance, not hard reject): agent has visibility into prior exhibits to avoid repeating arguments.
+
+## Exhibit Review Panel (shown before insertion)
+- Evidence support rating
+- Source coverage %
+- Unsupported claims (flagged individually — convert to question / attach evidence / keep as user opinion)
+- Speculation risk
+- Missing evidence worth citing
+- "Try Another Layout" option using `alternativeLayouts`
+
+## Validation
+Reject and regenerate if returned JSON doesn't match the selected layout's schema — missing fields, array counts out of range, word count over limit. "One core argument per slide" enforced via proxies (word count, finding count, single headline field).
+
+**Debug/internal only:** log `selectedType` + `selectedLayout` + `reason` string for QA/prompt tuning. Never shown to user as evidence of AI "reasoning."
+
+**Aspect ratio:** square and portrait (9:16) versions of each layout — same schema, different layout component per orientation.
+
+---
+
+## Code: theme.ts
+
+\`\`\`ts
+export const HyperLawTheme = {
+  orange: "#E8611A",
+  white: "#F2F0EC",
+  black: "#0A0A0A",
+  gray: "#9A9A9A",
+  grayLight: "#D0D0D0",
+  divider: "#3A3A3A",
+} as const;
+
+export type HyperLawThemeKey = keyof typeof HyperLawTheme;
+\`\`\`
+
+---
+
+## Code: icons.tsx
+
+\`\`\`tsx
+export const ExhibitIcons = {
+  check: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M8 12l3 3 5-6" />
+    </svg>
+  ),
+  x: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9 9l6 6M15 9l-6 6" />
+    </svg>
+  ),
+  comment: (color: string) => (
+    <svg viewBox="0 0 24 24" fill={color}>
+      <path d="M4 4h16v12H8l-4 4V4z" />
+      <circle cx="9" cy="10" r="1" fill="black" />
+      <circle cx="12" cy="10" r="1" fill="black" />
+      <circle cx="15" cy="10" r="1" fill="black" />
+    </svg>
+  ),
+  shield: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4z" />
+    </svg>
+  ),
+  shieldCheck: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  ),
+  person: (color: string) => (
+    <svg viewBox="0 0 24 24" fill={color}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+    </svg>
+  ),
+  question: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 4" />
+      <circle cx="12" cy="17" r="0.5" fill={color} />
+    </svg>
+  ),
+  document: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M6 2h9l5 5v15H6V2z" />
+      <path d="M9 12h6M9 15h6" />
+      <circle cx="17" cy="18" r="3" />
+      <path d="M19.5 20.5L22 23" />
+    </svg>
+  ),
+  arrow: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5">
+      <path d="M4 12h16M14 6l6 6-6 6" />
+    </svg>
+  ),
+  scale: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M12 3v18M6 7l-3 5a3 3 0 006 0l-3-5zM18 7l-3 5a3 3 0 006 0l-3-5zM5 21h14M9 21h6" />
+      <path d="M4 7h16" />
+    </svg>
+  ),
+  play: (color: string) => (
+    <svg viewBox="0 0 24 24" fill={color}>
+      <path d="M8 5v14l11-7-11-7z" />
+    </svg>
+  ),
+} as const;
+
+export type ExhibitIconKey = keyof typeof ExhibitIcons;
+\`\`\`
+
+---
+
+## Code: exhibitLayoutSchemas.ts
+
+\`\`\`ts
+import { z } from "zod";
+
+const SourceRef = z.object({
+  origin: z.enum(["dictation", "complaint", "discovery", "evidence", "existing_exhibit"]),
+  ref: z.string(),
+});
+
+const ClaimField = z.object({
+  text: z.string(),
+  source: SourceRef.nullable(),
+  classification: z.enum(["verified_fact", "observation", "speculation"]),
+});
+
+export const HeaderSchema = z.object({
+  actor: z.string(),
+  category: z.string(),
+  badgeNumber: z.string(),
+});
+
+// 1. Hero Argument
+export const HeroHeadlineLayout = z.object({
+  layout: z.literal("hero_headline_argument"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  quote: z.object({
+    text: z.string(),
+    contextNote: z.string().optional(),
+    source: SourceRef,
+  }),
+  findings: z.array(z.object({
+    icon: z.enum(["check", "x", "comment", "shield"]),
+    title: z.string(),
+    body: ClaimField,
+  })).min(3).max(5),
+  conclusion: z.object({ lines: z.array(z.string()).max(3) }),
+  footerCitations: z.array(z.string()),
+});
+
+// 2. Narrative Reveal
+export const NarrativeRevealLayout = z.object({
+  layout: z.literal("narrative_reveal"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  facts: z.array(z.object({
+    icon: z.enum(["person", "comment", "shield", "shieldCheck"]),
+    text: ClaimField,
+  })).min(2).max(5),
+  pivotQuote: z.object({
+    leadIn: z.string(),
+    text: z.string(),
+    highlightedFragment: z.string().optional(),
+    source: SourceRef,
+  }),
+  ctaLabel: z.string().default("Watch What Happens Next"),
+  closingParagraph: z.object({
+    text: z.string(),
+    boldFragment: z.string().optional(),
+  }),
+  footerCitations: z.array(z.string()),
+});
+
+// 3. Question Board
+export const QuestionBoardLayout = z.object({
+  layout: z.literal("question_board"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  leftColumn: z.object({
+    steps: z.array(z.object({
+      icon: z.enum(["person", "shield"]),
+      label: z.string(),
+      quote: ClaimField,
+    })).max(2),
+    questionBox: z.object({ prompt: z.string(), answer: z.string() }),
+  }),
+  rightColumn: z.object({
+    intro: z.string(),
+    checklist: z.array(ClaimField).max(5),
+    closingHighlight: z.string(),
+  }),
+  footerCitations: z.array(z.string()),
+});
+
+// 4. Split Screen
+export const SplitScreenLayout = z.object({
+  layout: z.literal("split_screen"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  leftSide: z.object({ label: z.string(), content: ClaimField }),
+  rightSide: z.object({ label: z.string(), content: ClaimField }),
+  takeaway: z.object({ text: z.string(), phrasedAsQuestion: z.boolean() }),
+  footerCitations: z.array(z.string()),
+});
+
+// 5. Timeline
+export const TimelineLayout = z.object({
+  layout: z.literal("timeline"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  events: z.array(z.object({
+    label: z.string(),
+    detail: ClaimField,
+    timestamp: z.string().optional(),
+  })).min(2).max(6),
+  conclusion: z.object({ lines: z.array(z.string()).max(3) }),
+  footerCitations: z.array(z.string()),
+});
+
+// 6. Quote Focus
+export const QuoteFocusLayout = z.object({
+  layout: z.literal("quote_focus"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  dominantQuote: z.object({ text: z.string(), source: SourceRef }),
+  context: z.array(ClaimField).max(4),
+  implication: z.object({ text: z.string(), phrasedAsQuestion: z.boolean() }),
+  footerCitations: z.array(z.string()),
+});
+
+// 7. Evidence Grid
+export const EvidenceGridLayout = z.object({
+  layout: z.literal("evidence_grid"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  items: z.array(z.object({
+    icon: z.enum(["check", "x", "shield", "document"]),
+    label: z.string(),
+    source: SourceRef,
+  })).min(3).max(8),
+  conclusion: z.object({ lines: z.array(z.string()).max(2) }),
+  footerCitations: z.array(z.string()),
+});
+
+// 8. Summary Board
+export const SummaryBoardLayout = z.object({
+  layout: z.literal("summary_board"),
+  header: HeaderSchema,
+  headline: z.array(z.string()).min(1).max(2),
+  recapPoints: z.array(z.object({
+    exhibitRef: z.string(),
+    summary: z.string(),
+  })).min(2).max(6),
+  finalTakeaway: z.object({ lines: z.array(z.string()).max(3) }),
+  footerCitations: z.array(z.string()),
+});
+
+export const ExhibitLayout = z.discriminatedUnion("layout", [
+  HeroHeadlineLayout,
+  NarrativeRevealLayout,
+  QuestionBoardLayout,
+  SplitScreenLayout,
+  TimelineLayout,
+  QuoteFocusLayout,
+  EvidenceGridLayout,
+  SummaryBoardLayout,
+]);
+
+export type ExhibitLayoutType = z.infer<typeof ExhibitLayout>;
+
+export const ExhibitGenerationResponse = z.object({
+  selectedType: z.string(),
+  content: ExhibitLayout,
+  alternativeLayouts: z.array(z.string()).max(3).default([]),
+});
+
+export type ExhibitGenerationResponseType = z.infer<typeof ExhibitGenerationResponse>;
+\`\`\`
+
+---
+
+## Code: exhibitTypes.ts
+
+\`\`\`ts
+export interface ExhibitTypeConfig {
+  id: string;
+  name: string;
+  layout: string;
+  icon: string;
+  description: string;
+  guidance: string;
+}
+
+export const EXHIBIT_TYPES: ExhibitTypeConfig[] = [
+  {
+    id: "contradiction",
+    name: "Contradiction",
+    layout: "split_screen",
+    icon: "scale",
+    description: "Compare two conflicting accounts of the same event.",
+    guidance: "Left side = statement/claim, right side = evidence that conflicts with it. Takeaway should pose which version is accurate rather than assert one is false, unless directly sourced.",
+  },
+  {
+    id: "narrative_reveal",
+    name: "Narrative Reveal",
+    layout: "narrative_reveal",
+    icon: "document",
+    description: "Show known facts, then reveal a contradictory statement.",
+    guidance: "List known facts in the order they were established, then reveal the pivot quote that contradicts them.",
+  },
+  {
+    id: "escalation",
+    name: "Escalation",
+    layout: "question_board",
+    icon: "shield",
+    description: "Show a disproportionate response to a minor event.",
+    guidance: "Left column shows the minor triggering event and the disproportionate response. Right column poses what justified the gap.",
+  },
+  {
+    id: "policy_comparison",
+    name: "Policy Comparison",
+    layout: "split_screen",
+    icon: "document",
+    description: "Compare stated policy against actual conduct.",
+    guidance: "Left side = stated policy/rule. Right side = actual conduct. Takeaway highlights the gap.",
+  },
+  {
+    id: "timeline_conflict",
+    name: "Timeline Conflict",
+    layout: "timeline",
+    icon: "arrow",
+    description: "Lay out a sequence of events to highlight a conflict in timing.",
+    guidance: "Order events strictly chronologically. Conclusion should highlight why the sequence itself matters or where it breaks down.",
+  },
+  {
+    id: "quote_breakdown",
+    name: "Quote Breakdown",
+    layout: "quote_focus",
+    icon: "comment",
+    description: "Center one statement and unpack its implications.",
+    guidance: "The quote should dominate. Context explains what was known before the quote was said. Implication should be phrased as a question unless directly sourced as fact.",
+  },
+  {
+    id: "evidence_stack",
+    name: "Evidence Stack",
+    layout: "evidence_grid",
+    icon: "check",
+    description: "Show multiple independent pieces of evidence supporting one point.",
+    guidance: "List every independent piece of evidence supporting one point, using check icons. Headline should reflect convergence.",
+  },
+  {
+    id: "missing_investigation",
+    name: "Missing Investigation",
+    layout: "evidence_grid",
+    icon: "x",
+    description: "Show steps that were never taken during an investigation.",
+    guidance: "Items represent things that were NOT done/checked, using 'x' icons. Headline poses a question about the adequacy of the investigation.",
+  },
+  {
+    id: "question_analysis",
+    name: "Question Analysis",
+    layout: "question_board",
+    icon: "question",
+    description: "Walk from an event through a response to a central question.",
+    guidance: "Event → response → central question. Right column checklist should show what did NOT justify the response.",
+  },
+  {
+    id: "watch_this_moment",
+    name: "Watch This Moment",
+    layout: "narrative_reveal",
+    icon: "play",
+    description: "Set up context right before a critical video clip plays.",
+    guidance: "Facts block sets up what's about to be seen. CTA should explicitly cue the viewer to watch the upcoming clip.",
+  },
+];
+\`\`\`
+
+---
+
+## Code: HeroHeadlineArgument.tsx
+
+\`\`\`tsx
+import React from "react";
+import { ExhibitIcons, ExhibitIconKey } from "./icons";
+import { HyperLawTheme } from "./theme";
+import type { HeroHeadlineLayout } from "./exhibitLayoutSchemas";
+import { z } from "zod";
+
+type HeroArgumentProps = {
+  data: z.infer<typeof HeroHeadlineLayout>;
+  orientation?: "square" | "portrait";
+};
+
+const { orange, white, gray, grayLight, black, divider } = HyperLawTheme;
+
+export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
+  data,
+  orientation = "square",
+}) => {
+  const dimensions =
+    orientation === "portrait"
+      ? { width: 1080, height: 1920 }
+      : { width: 1254, height: 1254 };
+
+  return (
+    <div
+      style={{
+        width: dimensions.width,
+        height: dimensions.height,
+        backgroundColor: black,
+        border: \`3px solid \${orange}\`,
+        borderRadius: 12,
+        padding: "48px 56px",
+        boxSizing: "border-box",
+        fontFamily: "'Arial Black', 'Helvetica Neue', sans-serif",
+        color: white,
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 16,
+          top: 48,
+          bottom: 48,
+          width: 6,
+          backgroundColor: orange,
+          borderRadius: 3,
+        }}
+      />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginLeft: 24 }}>
+        <div>
+          <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
+            {data.header.actor}
+          </div>
+          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+            {data.header.category}
+          </div>
+        </div>
+        <div style={{ color: gray, fontSize: 36, fontWeight: 900 }}>
+          {data.header.badgeNumber}
+        </div>
+      </div>
+
+      <div style={{ marginLeft: 24, marginTop: 20 }}>
+        {data.headline.map((line, i) => (
+          <div
+            key={i}
+            style={{
+              fontSize: 58,
+              fontWeight: 900,
+              lineHeight: 1.05,
+              textTransform: "uppercase",
+              color: i === data.headline.length - 1 ? orange : white,
+              letterSpacing: -1,
+            }}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ height: 2, backgroundColor: orange, marginLeft: 24, marginTop: 24, marginBottom: 24, width: "70%" }} />
+
+      <div style={{ marginLeft: 24, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ color: orange, fontSize: 48, lineHeight: 1, fontWeight: 900 }}>"</div>
+          <div>
+            <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.3, color: white }}>
+              {data.quote.text}
+            </div>
+            {data.quote.contextNote && (
+              <div style={{ fontSize: 15, color: gray, marginTop: 10, fontWeight: 400 }}>
+                {data.quote.contextNote}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ height: 1, backgroundColor: divider, marginLeft: 24, marginBottom: 20 }} />
+
+      <div style={{ marginLeft: 24, display: "flex", flexDirection: "column", gap: 18, flex: 1 }}>
+        {data.findings.map((finding, i) => (
+          <div key={i} style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div style={{ width: 32, height: 32, flexShrink: 0 }}>
+              {ExhibitIcons[finding.icon as ExhibitIconKey](orange)}
+            </div>
+            <div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: white, lineHeight: 1.3 }}>
+                {finding.title}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 400, color: grayLight, lineHeight: 1.4, marginTop: 2 }}>
+                {finding.body.text}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          marginLeft: 24,
+          marginTop: 20,
+          border: \`2px solid \${orange}\`,
+          borderRadius: 8,
+          padding: "16px 20px",
+          display: "flex",
+          gap: 16,
+          alignItems: "flex-start",
+        }}
+      >
+        <div style={{ width: 40, height: 40, flexShrink: 0 }}>
+          {ExhibitIcons.scale(orange)}
+        </div>
+        <div>
+          {data.conclusion.lines.map((line, i) => (
+            <div
+              key={i}
+              style={{
+                fontSize: 18,
+                fontWeight: i === data.conclusion.lines.length - 1 ? 400 : 900,
+                color: i === 1 ? orange : white,
+                lineHeight: 1.4,
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginLeft: 24, marginTop: 16, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+        {data.footerCitations.join("  •  ")}
+      </div>
+    </div>
+  );
+};
+\`\`\`
+
+---
+
+## System Prompt (generation call)
+
+\`\`\`
+You are HyperLaw's exhibit slide generator. You will receive: a video timestamp, a user's spoken dictation transcript, the case complaint, discovery materials, and prior exhibits already built. You will also receive a list of available exhibit types, each with an id, a target layout, and framing guidance.
+
+Your job:
+1. Select the exhibit type that best matches what the user described.
+2. Fill the fields of that type's target layout schema — follow the type's guidance for framing, but do not deviate from the layout's schema shape.
+3. Identify 2-3 alternative layouts that could also reasonably fit this moment, for the "Try Another Layout" option.
+4. Never output HTML, markdown, or layout instructions — only JSON matching the schema below.
+
+RULES:
+1. Every claim-bearing field must include a "source" citing where it came from. If you cannot trace a claim to actual source material, set source to null and classification to "speculation" — do not invent a source.
+2. Classify every claim as verified_fact, observation, or speculation. Speculation about intent, motive, or state of mind must be phrased as a question, never an assertion.
+3. One core argument per slide. If the dictation clearly contains multiple distinct arguments, indicate this rather than merging them into one overloaded slide.
+4. Do not restate arguments already made in prior exhibits.
+5. Stay within field limits in the schema.
+6. Do not include a numeric confidence score.
+7. Return valid JSON only, matching this shape:
+{ "selectedType": "<type id>", "content": <layout schema JSON>, "alternativeLayouts": ["<layout id>", ...] }
+\`\`\`
+
+---
+
+## Renderer Notes
+Build 8 layout components total, one per schema: `HeroHeadlineArgument.tsx` (done, above), `NarrativeReveal.tsx`, `QuestionBoard.tsx`, `SplitScreen.tsx`, `Timeline.tsx`, `QuoteFocus.tsx`, `EvidenceGrid.tsx`, `SummaryBoard.tsx`.
+
+These 8 components are the **only** rendering path used for workspace preview, full-screen preview, and `html2canvas` export.
+
+## Open Items / Not Yet Started
+- [x] theme.ts
+- [x] HeroHeadlineArgument.tsx JSX
+- [ ] NarrativeReveal.tsx JSX
+- [ ] QuestionBoard.tsx JSX
+- [ ] SplitScreen.tsx JSX
+- [ ] Timeline.tsx, QuoteFocus.tsx, EvidenceGrid.tsx, SummaryBoard.tsx JSX
+- [ ] Portrait (9:16) layout variants for all 8
+- [ ] Source-verification check implementation (code-level match against source material)
+- [ ] "Try Another Layout" UI using alternativeLayouts
+- [ ] v2 backlog: visual intensity levels
+- [ ] Backlog: process_flow / causal_chain layout
+```

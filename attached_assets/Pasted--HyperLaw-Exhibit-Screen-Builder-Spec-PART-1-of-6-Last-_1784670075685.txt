@@ -1,0 +1,39 @@
+# HyperLaw — Exhibit Screen Builder Spec — PART 1 of 6
+Last updated: 2026-07-21
+Status: Ready for implementation.
+
+## Final Architectural Decisions (Locked)
+
+1. Layouts and types are different things. Layouts = React components + schemas. Types = config entries that map to a layout + framing guidance. Multiple types (Contradiction, Policy Comparison, Before & After) can share one layout (Split Screen). A new exhibit type should almost always be a config addition, not a new component.
+
+2. The AI never generates layout. It may select a type, fill schema fields, and suggest alternative layouts. It may not generate HTML, CSS, positioning, or component structure. Rendering belongs exclusively to HyperLaw's own components.
+
+3. Source verification happens in code, not just in the prompt. Every claim-bearing field must pass: generated claim -> attached source -> code-level verification check -> supported/unsupported.
+
+4. Exhibits are stored as structured JSON, never rendered HTML. Store { selectedType, content, sources, metadata }.
+
+5. Single render path. The exact same component renders workspace preview, full-screen preview, and export.
+
+6. Central theme system. All layouts import theme.ts. No layout hardcodes colors.
+
+7. Human review is mandatory. Flow is: Generate -> Review Panel -> Approve -> Insert. No automatic insertion.
+
+8. One core argument per exhibit.
+
+9. Alternative layouts are suggestions, not regenerations. Agent returns alternativeLayouts: [].
+
+10. Layout expansion is deliberately slow. Launch with 8 layouts.
+
+## Build Order
+1. Build 4 layouts first: Hero Argument, Narrative Reveal, Split Screen, Question Board.
+2. Wire 4-5 exhibit types to those layouts and confirm the full pipeline works.
+3. Add remaining 4 layouts (Timeline, Quote Focus, Evidence Grid, Summary Board).
+4. Expand exhibit type list over time as config additions only.
+5. QA dictation on iOS Safari specifically.
+
+## Deferred to v2
+- Visual intensity levels (Informational / Persuasive / Dramatic)
+- Expansion beyond 8 launch layouts unless genuinely needed
+
+## Backlog
+- 9th layout: process_flow / causal_chain, for causal sequences. Add only after first 8 are proven.

@@ -47,6 +47,10 @@ export default function ExhibitVideoExportModal({
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultExt, setResultExt] = useState("mp4");
   const cancelRef = useRef(false);
+  const exportStartRef = useRef<number | null>(null);
+  const lastReachedMarkerRef = useRef<{ index: number; total: number } | null>(null);
+  const [timeRemainingStr, setTimeRemainingStr] = useState<string | null>(null);
+  const [interruptedAt, setInterruptedAt] = useState<{ index: number; total: number } | null>(null);
 
   // Report setting changes back to parent for IndexedDB persistence
   useEffect(() => {
@@ -57,6 +61,14 @@ export default function ExhibitVideoExportModal({
   useEffect(() => {
     return () => { if (resultUrl) URL.revokeObjectURL(resultUrl); };
   }, [resultUrl]);
+
+  // Show a browser "leave page?" dialog while an export is running so users don't accidentally kill it.
+  useEffect(() => {
+    if (!exporting) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [exporting]);
 
   const sorted = useMemo(() => [...markers].sort((a, b) => a.timestamp - b.timestamp), [markers]);
   const res = RESOLUTIONS.find(r => r.key === resKey) || RESOLUTIONS[1];
@@ -70,9 +82,13 @@ export default function ExhibitVideoExportModal({
     if (!videoUrl) return;
     setError(null);
     setResultUrl(null);
+    setInterruptedAt(null);
     setExporting(true);
     setProgress(0);
+    setTimeRemainingStr(null);
     cancelRef.current = false;
+    exportStartRef.current = Date.now();
+    lastReachedMarkerRef.current = null;
     try {
       const result = await exportExhibitVideo({
         videoUrl,
@@ -84,11 +100,28 @@ export default function ExhibitVideoExportModal({
         fps,
         prefer: format,
         includeAudio,
-        onProgress: setProgress,
+        onProgress: (fraction) => {
+          setProgress(fraction);
+          if (fraction > 0.001 && exportStartRef.current !== null) {
+            const elapsed = (Date.now() - exportStartRef.current) / 1000;
+            const remaining = Math.max(0, elapsed / fraction - elapsed);
+            setTimeRemainingStr(
+              remaining >= 10
+                ? remaining < 90
+                  ? `~${Math.round(remaining)}s remaining`
+                  : `~${Math.round(remaining / 60)} min remaining`
+                : null
+            );
+          }
+        },
         onStage: setStage,
         shouldCancel: () => cancelRef.current,
+        onReachMarker: (index, total) => { lastReachedMarkerRef.current = { index, total }; },
       });
-      if (result.cancelled) { setExporting(false); setStage(""); return; }
+      if (result.cancelled) {
+        if (lastReachedMarkerRef.current) setInterruptedAt(lastReachedMarkerRef.current);
+        return;
+      }
       const url = URL.createObjectURL(result.blob);
       setResultUrl(url);
       setResultExt(result.ext);
@@ -100,10 +133,12 @@ export default function ExhibitVideoExportModal({
       a.click();
       document.body.removeChild(a);
     } catch (e) {
+      if (lastReachedMarkerRef.current) setInterruptedAt(lastReachedMarkerRef.current);
       setError(e instanceof Error ? e.message : "Export failed. Please try again.");
     } finally {
       setExporting(false);
       setStage("");
+      setTimeRemainingStr(null);
     }
   }
 
@@ -132,6 +167,17 @@ export default function ExhibitVideoExportModal({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px 28px" }}>
+
+        {/* ── Keep-alive banner — only visible while recording ── */}
+        {exporting && (
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "#1a1000", border: "1px solid #6b4500", borderRadius: 10, padding: "11px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <AlertCircle size={14} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#f59e0b", lineHeight: 1.45 }}>
+              Keep this tab open — closing it will cancel the export.
+              {timeRemainingStr && <span style={{ fontWeight: 400, color: "#b07800", marginLeft: 8 }}>{timeRemainingStr}</span>}
+            </div>
+          </div>
+        )}
 
         {noVideo ? (
           <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 12, padding: "16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -278,10 +324,19 @@ export default function ExhibitVideoExportModal({
             </div>
           </>
         ) : (
-          <button onClick={run} disabled={noVideo || noMarkers}
-            style={{ width: "100%", background: noVideo || noMarkers ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: "15px", color: noVideo || noMarkers ? "#555" : "#000", fontWeight: 900, fontSize: 15, cursor: noVideo || noMarkers ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Film size={17} /> Export Video
-          </button>
+          <>
+            {/* Interrupted-export callout — shown when a previous run stopped mid-way */}
+            {interruptedAt && (
+              <div style={{ fontSize: 12, color: "#c47000", marginBottom: 10, background: "#1a1200", border: "1px solid #3a2800", borderRadius: 8, padding: "10px 12px", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                <AlertCircle size={13} color="#c47000" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>Last export stopped at marker {interruptedAt.index} of {interruptedAt.total} — tap Export to start a fresh render.</span>
+              </div>
+            )}
+            <button onClick={run} disabled={noVideo || noMarkers}
+              style={{ width: "100%", background: noVideo || noMarkers ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: "15px", color: noVideo || noMarkers ? "#555" : "#000", fontWeight: 900, fontSize: 15, cursor: noVideo || noMarkers ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Film size={17} /> Export Video
+            </button>
+          </>
         )}
       </div>
     </div>

@@ -274,6 +274,8 @@ export interface ExportOptions {
   onProgress?: (fraction: number) => void;
   onStage?: (label: string) => void;
   shouldCancel?: () => boolean;
+  /** Fired when the frame loop enters a marker's hold/clip. 1-based markerIndex, total = sorted marker count. */
+  onReachMarker?: (markerIndex: number, total: number) => void;
 }
 
 export interface ExportResult {
@@ -284,7 +286,7 @@ export interface ExportResult {
 }
 
 export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportResult> {
-  const { videoUrl, markers, caseTitle, width, height, fps, prefer, includeAudio, onProgress, onStage, shouldCancel } = opts;
+  const { videoUrl, markers, caseTitle, width, height, fps, prefer, includeAudio, onProgress, onStage, shouldCancel, onReachMarker } = opts;
 
   if (typeof MediaRecorder === "undefined") throw new Error("This browser cannot record video.");
   const mimeType = pickMimeType(prefer, includeAudio);
@@ -431,6 +433,7 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
       const enterHoldOrClip = () => {
         try { video.pause(); } catch {}
         holdStart = performance.now();
+        onReachMarker?.(idx + 1, sorted.length); // 1-based marker index
         const slot = slots[idx];
         if (slot.kind === "clip") {
           mode = "clip"; currentClip = slot; clipEnded = false;

@@ -110,7 +110,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onOpenScreenBui
                       </div>
                     )}
                   </div>
-                  <ChevronRight size={16} color="#333" flexShrink={0} />
+                  <ChevronRight size={16} color="#333" style={{ flexShrink: 0 }} />
                 </button>
               );
             })}

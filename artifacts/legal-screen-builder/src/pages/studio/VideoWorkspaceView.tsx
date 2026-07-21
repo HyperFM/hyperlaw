@@ -3,11 +3,13 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
+import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
 
@@ -17,6 +19,15 @@ function formatTime(sec: number): string {
   const s = Math.floor(sec % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function relativeTime(ms: number): string {
+  const diff = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diff < 60) return `${diff} second${diff !== 1 ? "s" : ""} ago`;
+  const mins = Math.floor(diff / 60);
+  if (mins < 60) return `${mins} minute${mins !== 1 ? "s" : ""} ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs} hour${hrs !== 1 ? "s" : ""} ago`;
 }
 
 // ── Jurisdiction verify hold button ─────────────────────────────────────────
@@ -676,6 +687,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
+  const [exportSettings, setExportSettings] = useState<ExportSettings>({
+    resKey: "1080", fps: 30, format: "mp4", includeAudio: true,
+  });
+
+  // ── IndexedDB recovery ─────────────────────────────────────────
+  const [recoverySnapshot, setRecoverySnapshot] = useState<StudioSnapshot | null>(null);
+  const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentTimeRef = useRef(0);
+  // snapshotRef holds latest values so the debounced IDB write always sees fresh data
+  const snapshotRef = useRef<{ markers: ExhibitMarker[]; videoFileName: string; exportSettings: ExportSettings }>({
+    markers: hlCase.studioProject?.markers ?? [],
+    videoFileName: hlCase.studioProject?.videoFileName ?? "",
+    exportSettings: { resKey: "1080", fps: 30, format: "mp4", includeAudio: true },
+  });
+  // Keep snapshotRef current on every render (synchronous, safe)
+  snapshotRef.current.markers = markers;
+  snapshotRef.current.videoFileName = videoFileName;
+  snapshotRef.current.exportSettings = exportSettings;
 
   // ── Helpers ────────────────────────────────────────────────────
   function getOrCreateProject(): StudioProject {
@@ -697,6 +726,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
     setMarkersRaw(updated);
     triggerAutosave(updated);
+    triggerIndexedDBSave();
   }
 
   function updateMarkerHold(markerId: string, sec: number) {
@@ -713,6 +743,38 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
     }, 800);
+  }
+
+  /** Debounced IndexedDB save — 3 s after last call, writes the full snapshot.
+   *  Reads from snapshotRef so it always captures the latest state even if
+   *  called from a closure that has stale marker/settings values. */
+  function triggerIndexedDBSave() {
+    if (idbSaveTimer.current) clearTimeout(idbSaveTimer.current);
+    idbSaveTimer.current = setTimeout(async () => {
+      await saveStudioSnapshot({
+        caseId: hlCase.id,
+        savedAt: Date.now(),
+        markers: snapshotRef.current.markers,
+        timelinePosition: currentTimeRef.current,
+        videoFileName: snapshotRef.current.videoFileName,
+        exportSettings: snapshotRef.current.exportSettings,
+      });
+    }, 3000);
+  }
+
+  async function handleRestore() {
+    if (!recoverySnapshot) return;
+    setMarkersRaw(recoverySnapshot.markers);
+    setExportSettings(recoverySnapshot.exportSettings);
+    setRecoverySnapshot(null);
+    await clearStudioSnapshot(hlCase.id);
+    // Immediately persist restored markers to server
+    triggerAutosave(recoverySnapshot.markers);
+  }
+
+  async function handleDiscard() {
+    setRecoverySnapshot(null);
+    await clearStudioSnapshot(hlCase.id);
   }
 
   function undo() {
@@ -956,11 +1018,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
   }
 
+  // ── Recovery check on mount ─────────────────────────────────────
+  useEffect(() => {
+    loadStudioSnapshot(hlCase.id).then(snapshot => {
+      if (!snapshot) return;
+      const serverUpdatedAt = hlCase.studioProject?.updatedAt ?? 0;
+      const serverMarkersJson = JSON.stringify(hlCase.studioProject?.markers ?? []);
+      if (snapshot.savedAt > serverUpdatedAt && JSON.stringify(snapshot.markers) !== serverMarkersJson) {
+        setRecoverySnapshot(snapshot);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Cleanup ─────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      if (idbSaveTimer.current) clearTimeout(idbSaveTimer.current);
       if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1037,6 +1112,31 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       {/* ── Scrollable content ─────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
 
+        {/* ── Recovery banner ───────────────────────────────────────── */}
+        {recoverySnapshot && (
+          <div style={{ background: "#1a1000", border: "1px solid #6b4a00", borderRadius: 12, padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <RotateCcw size={15} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#f59e0b", marginBottom: 3 }}>
+                Unsaved workspace recovered
+              </div>
+              <div style={{ fontSize: 12, color: "#a37a00", lineHeight: 1.55, marginBottom: 10 }}>
+                {recoverySnapshot.markers.length} marker{recoverySnapshot.markers.length !== 1 ? "s" : ""} from {relativeTime(recoverySnapshot.savedAt)} — restore to pick up where you left off.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleRestore}
+                  style={{ background: "#f59e0b", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                  Restore
+                </button>
+                <button onClick={handleDiscard}
+                  style={{ background: "none", border: "1px solid #4a3000", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, color: "#7a5a00", cursor: "pointer" }}>
+                  Discard
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Video area ────────────────────────────────────────────── */}
         {videoUrl && (
           <div style={{ marginBottom: 12, position: "relative" }}>
@@ -1054,7 +1154,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               playsInline
               preload="metadata"
               style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
-              onTimeUpdate={e => setCurrentTime(e.currentTarget.currentTime)}
+              onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
               onDurationChange={e => setDuration(e.currentTarget.duration)}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
@@ -1463,6 +1563,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           caseTitle={hlCase.title}
           onClose={() => setShowExport(false)}
           onUpdateHold={updateMarkerHold}
+          initialResKey={exportSettings.resKey}
+          initialFps={exportSettings.fps}
+          initialFormat={exportSettings.format}
+          initialIncludeAudio={exportSettings.includeAudio}
+          onSettingsChange={s => { setExportSettings(s); triggerIndexedDBSave(); }}
         />
       )}
     </div>

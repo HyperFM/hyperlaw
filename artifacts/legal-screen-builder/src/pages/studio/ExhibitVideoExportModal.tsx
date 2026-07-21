@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, Film, Download, Clock, AlertCircle, CheckCircle2, Loader2, Volume2, VolumeX } from "lucide-react";
 import type { ExhibitMarker } from "../../types";
+import type { ExportSettings } from "./studioIndexedDB";
 import {
   RESOLUTIONS, FPS_OPTIONS, DEFAULT_HOLD_SEC, mp4Supported, exportExhibitVideo,
 } from "./exhibitVideoExport";
@@ -20,14 +21,24 @@ interface Props {
   caseTitle: string;
   onClose: () => void;
   onUpdateHold: (markerId: string, sec: number) => void;
+  /** Optional initial values restored from IndexedDB snapshot */
+  initialResKey?: string;
+  initialFps?: number;
+  initialFormat?: "mp4" | "webm";
+  initialIncludeAudio?: boolean;
+  /** Called whenever a setting changes so the workspace can persist it */
+  onSettingsChange?: (s: ExportSettings) => void;
 }
 
-export default function ExhibitVideoExportModal({ videoUrl, durationSec, markers, caseTitle, onClose, onUpdateHold }: Props) {
+export default function ExhibitVideoExportModal({
+  videoUrl, durationSec, markers, caseTitle, onClose, onUpdateHold,
+  initialResKey, initialFps, initialFormat, initialIncludeAudio, onSettingsChange,
+}: Props) {
   const canMp4 = useMemo(() => mp4Supported(), []);
-  const [resKey, setResKey] = useState("1080");
-  const [fps, setFps] = useState<number>(30);
-  const [format, setFormat] = useState<"mp4" | "webm">(canMp4 ? "mp4" : "webm");
-  const [includeAudio, setIncludeAudio] = useState(true);
+  const [resKey, setResKey] = useState(initialResKey ?? "1080");
+  const [fps, setFps] = useState<number>(initialFps ?? 30);
+  const [format, setFormat] = useState<"mp4" | "webm">(initialFormat ?? (canMp4 ? "mp4" : "webm"));
+  const [includeAudio, setIncludeAudio] = useState(initialIncludeAudio ?? true);
 
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -36,6 +47,11 @@ export default function ExhibitVideoExportModal({ videoUrl, durationSec, markers
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultExt, setResultExt] = useState("mp4");
   const cancelRef = useRef(false);
+
+  // Report setting changes back to parent for IndexedDB persistence
+  useEffect(() => {
+    onSettingsChange?.({ resKey, fps, format, includeAudio });
+  }, [resKey, fps, format, includeAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Revoke a previous export's object URL whenever it is replaced or the modal unmounts.
   useEffect(() => {

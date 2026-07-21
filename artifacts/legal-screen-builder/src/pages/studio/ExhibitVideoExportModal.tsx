@@ -37,6 +37,21 @@ export default function ExhibitVideoExportModal({
   const canMp4 = useMemo(() => mp4Supported(), []);
   const [resKey, setResKey] = useState(initialResKey ?? "1080");
   const [fps, setFps] = useState<number>(initialFps ?? 30);
+
+  // Derive aspect ratio from the selected resolution key — portrait keys end in "_v"
+  const isPortraitMode = resKey.endsWith("_v");
+  const portraitResolutions  = RESOLUTIONS.filter(r => r.portrait);
+  const landscapeResolutions = RESOLUTIONS.filter(r => !r.portrait);
+
+  function switchAspectRatio(toPortrait: boolean) {
+    if (toPortrait === isPortraitMode) return;
+    // Map current resolution label to the matching preset in the new orientation,
+    // falling back to "1080" / "1080_v" when no match exists (e.g., 4K → 1440p portrait)
+    const currentLabel = RESOLUTIONS.find(r => r.key === resKey)?.label ?? "1080p";
+    const candidates = toPortrait ? portraitResolutions : landscapeResolutions;
+    const match = candidates.find(r => r.label === currentLabel) ?? candidates.find(r => r.note === "Recommended");
+    setResKey(match?.key ?? (toPortrait ? "1080_v" : "1080"));
+  }
   const [format, setFormat] = useState<"mp4" | "webm">(initialFormat ?? (canMp4 ? "mp4" : "webm"));
   const [includeAudio, setIncludeAudio] = useState(initialIncludeAudio ?? true);
 
@@ -188,10 +203,43 @@ export default function ExhibitVideoExportModal({
           </div>
         ) : (
           <>
+            {/* ── Aspect ratio ── */}
+            <SectionLabel>ASPECT RATIO</SectionLabel>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              <Chip active={!isPortraitMode} onClick={() => switchAspectRatio(false)} style={{ flex: 1 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    {/* Landscape icon */}
+                    <span style={{
+                      display: "inline-block", width: 22, height: 14,
+                      border: `2px solid ${!isPortraitMode ? "#000" : "#555"}`,
+                      borderRadius: 3, flexShrink: 0,
+                    }} />
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>Landscape</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: !isPortraitMode ? "#000a" : "#666", fontWeight: 700 }}>16:9 · Court / presentation</div>
+                </div>
+              </Chip>
+              <Chip active={isPortraitMode} onClick={() => switchAspectRatio(true)} style={{ flex: 1 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    {/* Portrait icon */}
+                    <span style={{
+                      display: "inline-block", width: 14, height: 22,
+                      border: `2px solid ${isPortraitMode ? "#000" : "#555"}`,
+                      borderRadius: 3, flexShrink: 0,
+                    }} />
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>Portrait</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: isPortraitMode ? "#000a" : "#666", fontWeight: 700 }}>9:16 · AI screens fill frame</div>
+                </div>
+              </Chip>
+            </div>
+
             {/* ── Resolution ── */}
             <SectionLabel>RESOLUTION</SectionLabel>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-              {RESOLUTIONS.map(r => (
+              {(isPortraitMode ? portraitResolutions : landscapeResolutions).map(r => (
                 <Chip key={r.key} active={resKey === r.key} onClick={() => setResKey(r.key)}>
                   <div style={{ fontWeight: 800, fontSize: 14 }}>{r.label}</div>
                   {r.note && <div style={{ fontSize: 10, color: resKey === r.key ? "#000a" : "#666", marginTop: 2, fontWeight: 700 }}>{r.note}</div>}

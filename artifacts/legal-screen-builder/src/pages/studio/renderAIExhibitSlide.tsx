@@ -19,24 +19,27 @@ import { QuoteFocus }            from "./exhibits/QuoteFocus";
 import { EvidenceGrid }          from "./exhibits/EvidenceGrid";
 import { SummaryBoard }          from "./exhibits/SummaryBoard";
 
+type Orientation = "square" | "portrait";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function pickLayoutElement(content: Record<string, unknown>): React.ReactNode {
+function pickLayoutElement(content: Record<string, unknown>, orientation: Orientation): React.ReactNode {
   const p = content as any;
+  const o = orientation;
   switch (content.layout as string) {
-    case "hero_headline_argument": return <HeroHeadlineArgument data={p} />;
-    case "narrative_reveal":       return <NarrativeReveal       data={p} />;
-    case "question_board":         return <QuestionBoard         data={p} />;
-    case "split_screen":           return <SplitScreen           data={p} />;
-    case "timeline":               return <Timeline              data={p} />;
-    case "quote_focus":            return <QuoteFocus            data={p} />;
-    case "evidence_grid":          return <EvidenceGrid          data={p} />;
-    case "summary_board":          return <SummaryBoard          data={p} />;
-    default:
+    case "hero_headline_argument": return <HeroHeadlineArgument data={p} orientation={o} />;
+    case "narrative_reveal":       return <NarrativeReveal       data={p} orientation={o} />;
+    case "question_board":         return <QuestionBoard         data={p} orientation={o} />;
+    case "split_screen":           return <SplitScreen           data={p} orientation={o} />;
+    case "timeline":               return <Timeline              data={p} orientation={o} />;
+    case "quote_focus":            return <QuoteFocus            data={p} orientation={o} />;
+    case "evidence_grid":          return <EvidenceGrid          data={p} orientation={o} />;
+    case "summary_board":          return <SummaryBoard          data={p} orientation={o} />;
+    default: {
+      const dim = orientation === "portrait" ? { width: 1080, height: 1920 } : { width: 1254, height: 1254 };
       return (
         <div
           style={{
-            width: 1254, height: 1254,
-            background: "#0a0a0a",
+            ...dim, background: "#0a0a0a",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
@@ -45,28 +48,40 @@ function pickLayoutElement(content: Record<string, unknown>): React.ReactNode {
           </div>
         </div>
       );
+    }
   }
 }
 
 /**
  * Renders an AI-generated exhibit layout component to a canvas at export resolution.
+ * Orientation is detected automatically from the export dimensions:
+ *   • landscape (width ≥ height) — 1920×1080 host, component at square orientation (1254×1254)
+ *   • portrait  (height >  width) — 1080×1920 host, component at portrait orientation (1080×1920)
  *
  * @param content      - Raw `ExhibitScreenData.content` (the AI-returned layout object)
- * @param scale        - html2canvas raster scale = exportHeight / 1080  (e.g. 0.667 for 720p)
- * @param exportWidth  - Target canvas pixel width  (e.g. 1280 for 720p)
- * @param exportHeight - Target canvas pixel height (e.g. 720  for 720p)
+ * @param exportWidth  - Target canvas pixel width  (e.g. 1280 for 720p landscape, 720 for 720p portrait)
+ * @param exportHeight - Target canvas pixel height (e.g.  720 for 720p landscape, 1280 for 720p portrait)
  */
 export async function renderAIExhibitSlide(
   content: Record<string, unknown>,
-  scale: number,
   exportWidth: number,
   exportHeight: number,
 ): Promise<HTMLCanvasElement> {
-  // 1. Off-screen 1920×1080 host — black bg, component centered via flex
+  const isPortrait = exportHeight > exportWidth;
+
+  // Native host dimensions and raster scale depend on orientation:
+  //   Landscape: native 1920×1080, scale = exportHeight/1080
+  //   Portrait:  native 1080×1920, scale = exportWidth/1080
+  const nativeW = isPortrait ? 1080 : 1920;
+  const nativeH = isPortrait ? 1920 : 1080;
+  const scale   = isPortrait ? exportWidth / 1080 : exportHeight / 1080;
+  const orientation = isPortrait ? "portrait" : "square";
+
+  // 1. Off-screen host at native dimensions — black bg, component centered via flex
   const host = document.createElement("div");
   host.style.cssText =
     "position:fixed;left:-10000px;top:0;" +
-    "width:1920px;height:1080px;" +
+    `width:${nativeW}px;height:${nativeH}px;` +
     "background:#000000;" +
     "display:flex;align-items:center;justify-content:center;" +
     "overflow:hidden;box-sizing:border-box;";
@@ -75,22 +90,22 @@ export async function renderAIExhibitSlide(
   const root = createRoot(host);
 
   try {
-    // 2. Mount the layout component and wait two animation frames:
+    // 2. Mount the layout component at the correct orientation and wait two rAFs:
     //    • Frame 1 — React flushes its commit (DOM writes)
     //    • Frame 2 — Browser paints (images / fonts settle)
     await new Promise<void>(resolve => {
-      root.render(pickLayoutElement(content));
+      root.render(pickLayoutElement(content, orientation));
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
 
-    // 3. Rasterize the full 1920×1080 frame at the export scale
+    // 3. Rasterize the full native frame at the export scale
     const raw = await html2canvas(host, {
       backgroundColor: "#000000",
       scale,
-      width:        1920,
-      height:       1080,
-      windowWidth:  1920,
-      windowHeight: 1080,
+      width:        nativeW,
+      height:       nativeH,
+      windowWidth:  nativeW,
+      windowHeight: nativeH,
       logging:   false,
       useCORS:   true,
       allowTaint: true,

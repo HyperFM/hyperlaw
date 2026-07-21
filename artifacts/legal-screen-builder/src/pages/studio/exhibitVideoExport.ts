@@ -20,14 +20,23 @@ export interface ResolutionPreset {
   width: number;
   height: number;
   note?: string;
+  /** True for 9:16 portrait (Reels / TikTok / vertical court display) */
+  portrait?: boolean;
 }
 
-// All 16:9 so exhibit slides (designed at 1920×1080) fill the frame exactly.
+// Landscape 16:9 — exhibit slides fill the frame exactly.
+// Portrait 9:16  — AI exhibit screens use the native 1080×1920 portrait layout;
+//                  legacy slides (exhibits, screen-cuts) are letterboxed in.
 export const RESOLUTIONS: ResolutionPreset[] = [
-  { key: "720",  label: "720p",  width: 1280, height: 720,  note: "Fastest" },
-  { key: "1080", label: "1080p", width: 1920, height: 1080, note: "Recommended" },
-  { key: "1440", label: "1440p", width: 2560, height: 1440, note: "Sharper" },
-  { key: "2160", label: "4K",    width: 3840, height: 2160, note: "Slowest — overkill for court" },
+  // ── Landscape ──────────────────────────────────────────────────────────────
+  { key: "720",    label: "720p",  width: 1280, height:  720, note: "Fastest" },
+  { key: "1080",   label: "1080p", width: 1920, height: 1080, note: "Recommended" },
+  { key: "1440",   label: "1440p", width: 2560, height: 1440, note: "Sharper" },
+  { key: "2160",   label: "4K",    width: 3840, height: 2160, note: "Slowest — overkill for court" },
+  // ── Portrait 9:16 ─────────────────────────────────────────────────────────
+  { key: "720_v",  label: "720p",  width:  720, height: 1280, note: "Fastest",     portrait: true },
+  { key: "1080_v", label: "1080p", width: 1080, height: 1920, note: "Recommended", portrait: true },
+  { key: "1440_v", label: "1440p", width: 1440, height: 2560, note: "Sharper",     portrait: true },
 ];
 
 export const FPS_OPTIONS = [30, 60] as const;
@@ -74,6 +83,28 @@ export function mp4Supported(): boolean {
 function bitrateFor(height: number, fps: number): number {
   const base = height <= 720 ? 5e6 : height <= 1080 ? 10e6 : height <= 1440 ? 18e6 : 40e6;
   return Math.round(base * (fps >= 60 ? 1.6 : 1));
+}
+
+// ── Portrait letterbox helper ──────────────────────────────────────────────────
+// Legacy slides (built at 1920×1080) are shrunk to fit the portrait width and
+// centered vertically. AI exhibit screens use a native 1080×1920 layout instead.
+function letterboxIntoPortrait(
+  landscapeCanvas: HTMLCanvasElement,
+  exportWidth: number,
+  exportHeight: number,
+): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = exportWidth;
+  out.height = exportHeight;
+  const ctx = out.getContext("2d")!;
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, exportWidth, exportHeight);
+  const s = exportWidth / landscapeCanvas.width;
+  const dw = landscapeCanvas.width * s;
+  const dh = landscapeCanvas.height * s;
+  const dy = (exportHeight - dh) / 2;
+  ctx.drawImage(landscapeCanvas, 0, dy, dw, dh);
+  return out;
 }
 
 // ── Exhibit slide rasterization ────────────────────────────────────────────────
@@ -235,17 +266,19 @@ async function getMarkerSlot(
   scale: number,
   exportWidth: number,
   exportHeight: number,
+  isPortrait: boolean,
 ): Promise<Slot> {
   if (marker.type === "media_insert" && marker.mediaInsert) {
     const mi: MediaInsert = marker.mediaInsert;
     if (mi.kind === "photo") {
       try {
+        // renderPhotoSlide uses Math.min letterbox — handles both orientations
         return { kind: "canvas", canvas: await renderPhotoSlide(mi.blobUrl, exportWidth, exportHeight) };
       } catch {
         return { kind: "canvas", canvas: renderMissingMediaPlaceholder(mi.fileName, exportWidth, exportHeight) };
       }
     } else {
-      // clip — load video off-screen
+      // clip — load video off-screen; draw loop uses Math.min too
       try {
         const vid = await loadClipVideo(mi.blobUrl);
         const durationSec = isFinite(vid.duration) && vid.duration > 0 ? vid.duration : (marker.holdSec ?? DEFAULT_HOLD_SEC);
@@ -256,17 +289,22 @@ async function getMarkerSlot(
     }
   }
   if (marker.type === "screen_cut" && marker.screenInsert) {
-    return { kind: "canvas", canvas: await renderScreenCutSlide(marker.screenInsert, scale) };
+    const canvas = await renderScreenCutSlide(marker.screenInsert, scale);
+    // Legacy slides are designed landscape; letterbox into portrait when needed
+    return { kind: "canvas", canvas: isPortrait ? letterboxIntoPortrait(canvas, exportWidth, exportHeight) : canvas };
   }
   if (marker.type === "exhibit_screen") {
+    // renderAIExhibitSlide detects portrait from exportWidth/exportHeight and uses
+    // the native 1080×1920 portrait layout components — no letterboxing needed.
     const content = (marker.exhibitScreen?.content ?? {}) as Record<string, unknown>;
     return {
       kind: "canvas",
-      canvas: await renderAIExhibitSlide(content, scale, exportWidth, exportHeight),
+      canvas: await renderAIExhibitSlide(content, exportWidth, exportHeight),
     };
   }
   // "analysis" (and undefined — backward compat)
-  return { kind: "canvas", canvas: await renderExhibitSlide(marker, index, caseTitle, scale) };
+  const canvas = await renderExhibitSlide(marker, index, caseTitle, scale);
+  return { kind: "canvas", canvas: isPortrait ? letterboxIntoPortrait(canvas, exportWidth, exportHeight) : canvas };
 }
 
 export interface ExportOptions {
@@ -304,12 +342,17 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
 
   // 1) Pre-render slides and load clip videos (first ~15% of progress)
   onStage?.("Preparing slides and clips…");
-  const slideScale = height / 1080;
+  const isPortrait = height > width;
+  // slideScale maps the 1920×1080 (landscape) or 1080×1920 (portrait) native design
+  // dimensions down to the export pixel dimensions.  For landscape, scale by the
+  // shorter export side (height) relative to 1080.  For portrait, scale by the
+  // shorter export side (width) relative to 1080 — the portrait host is 1080 wide.
+  const slideScale = Math.min(width, height) / 1080;
   const slots: Slot[] = [];
   const clipVideos: HTMLVideoElement[] = []; // tracked for cleanup in finally
   for (let i = 0; i < sorted.length; i++) {
     if (shouldCancel?.()) return emptyCancelled(mimeType);
-    const slot = await getMarkerSlot(sorted[i], i + 1, caseTitle, slideScale, width, height);
+    const slot = await getMarkerSlot(sorted[i], i + 1, caseTitle, slideScale, width, height, isPortrait);
     slots.push(slot);
     if (slot.kind === "clip") clipVideos.push(slot.video);
     onProgress?.(((i + 1) / Math.max(sorted.length, 1)) * 0.15);

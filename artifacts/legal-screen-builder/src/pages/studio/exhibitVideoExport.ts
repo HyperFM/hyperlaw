@@ -126,6 +126,63 @@ async function renderExhibitSlide(
   }
 }
 
+// ── Screen-cut slide rasterization ────────────────────────────────────────────
+// Renders a ScreenInsert (user-built insert screen) to a canvas at 1920×1080,
+// matching the ScreenPreviewCard visual design but at full export resolution.
+async function renderScreenCutSlide(
+  si: import("../../types").ScreenInsert,
+  scale: number,
+): Promise<HTMLCanvasElement> {
+  const isLight = si.bgColor === "#f0f0f0";
+  const textColor = isLight ? "#111111" : "#ffffff";
+  const mutedColor = isLight ? "#555555" : "#aaaaaa";
+  const bodyLines = (si.bodyLines || []).filter(Boolean).slice(0, 5);
+
+  const hasSubtitle = Boolean(si.subtitle);
+  const hasBody = bodyLines.length > 0;
+
+  const node = document.createElement("div");
+  node.style.cssText = `position:fixed;left:-10000px;top:0;width:1920px;height:1080px;background:${si.bgColor};color:${textColor};font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:100px 160px;`;
+  node.innerHTML = `
+    <div style="font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:88px;line-height:1.08;color:${textColor};margin-bottom:${hasSubtitle || hasBody ? "30px" : "0"};">${escapeHtml(si.title)}</div>
+    ${hasSubtitle ? `<div style="font-size:42px;line-height:1.4;color:${mutedColor};margin-bottom:${hasBody ? "48px" : "0"};">${escapeHtml(si.subtitle!)}</div>` : ""}
+    ${hasBody ? `<div style="display:flex;flex-direction:column;gap:22px;text-align:left;width:100%;max-width:1400px;">${
+      bodyLines.map(line => `<div style="display:flex;gap:28px;align-items:flex-start;"><div style="width:18px;height:18px;border-radius:50%;background:${ORANGE};margin-top:18px;flex-shrink:0;"></div><div style="font-size:38px;line-height:1.45;color:${mutedColor};">${escapeHtml(line)}</div></div>`).join("")
+    }</div>` : ""}`;
+
+  document.body.appendChild(node);
+  try {
+    return await html2canvas(node, {
+      backgroundColor: si.bgColor,
+      scale,
+      width: 1920,
+      height: 1080,
+      windowWidth: 1920,
+      windowHeight: 1080,
+      logging: false,
+    });
+  } finally {
+    try { document.body.removeChild(node); } catch { /* noop */ }
+  }
+}
+
+// ── Unified marker canvas dispatcher ──────────────────────────────────────────
+// Returns the correct pre-rendered canvas for any marker type.
+// The frame loop calls this once per marker in Phase 1 and then just draws
+// slides[idx] — it never needs to know which type it's showing.
+async function getMarkerCanvas(
+  marker: import("../../types").ExhibitMarker,
+  index: number,
+  caseTitle: string,
+  scale: number,
+): Promise<HTMLCanvasElement> {
+  if (marker.type === "screen_cut" && marker.screenInsert) {
+    return renderScreenCutSlide(marker.screenInsert, scale);
+  }
+  // "analysis" markers (and anything else) use the exhibit slide renderer
+  return renderExhibitSlide(marker, index, caseTitle, scale);
+}
+
 export interface ExportOptions {
   videoUrl: string;
   durationSec: number;
@@ -157,13 +214,13 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
 
   const sorted = [...markers].sort((a, b) => a.timestamp - b.timestamp);
 
-  // 1) Pre-render every exhibit slide (first ~15% of progress)
-  onStage?.("Preparing exhibit slides…");
+  // 1) Pre-render every slide (analysis → exhibit card, screen_cut → insert screen)
+  onStage?.("Preparing slides…");
   const slideScale = height / 1080;
   const slides: HTMLCanvasElement[] = [];
   for (let i = 0; i < sorted.length; i++) {
     if (shouldCancel?.()) return emptyCancelled(mimeType);
-    slides.push(await renderExhibitSlide(sorted[i], i + 1, caseTitle, slideScale));
+    slides.push(await getMarkerCanvas(sorted[i], i + 1, caseTitle, slideScale));
     onProgress?.(((i + 1) / Math.max(sorted.length, 1)) * 0.15);
   }
 

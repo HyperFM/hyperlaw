@@ -7,7 +7,7 @@
 // real time, so a 2-minute clip takes roughly 2 minutes (plus the hold seconds).
 
 import html2canvas from "html2canvas";
-import type { ExhibitMarker } from "../../types";
+import type { ExhibitMarker, MediaInsert } from "../../types";
 
 const ORANGE = "#d9711f";
 
@@ -166,21 +166,99 @@ async function renderScreenCutSlide(
   }
 }
 
-// ── Unified marker canvas dispatcher ──────────────────────────────────────────
-// Returns the correct pre-rendered canvas for any marker type.
-// The frame loop calls this once per marker in Phase 1 and then just draws
-// slides[idx] — it never needs to know which type it's showing.
-async function getMarkerCanvas(
-  marker: import("../../types").ExhibitMarker,
+// ── Photo slide rasterization ─────────────────────────────────────────────────
+// Draws a photo full-frame at export resolution (letterbox, black bars).
+// Uses native canvas — no html2canvas needed.
+function renderPhotoSlide(blobUrl: string, w: number, h: number): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
+      const s = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+      ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      resolve(canvas);
+    };
+    img.onerror = () => reject(new Error("Could not load photo"));
+    img.src = blobUrl;
+  });
+}
+
+/** Placeholder canvas shown when a media file's blob URL has expired. */
+function renderMissingMediaPlaceholder(fileName: string, w: number, h: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#0d0d0d"; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#555";
+  const titleSize = Math.round(w * 0.022);
+  const subSize = Math.round(w * 0.016);
+  ctx.font = `bold ${titleSize}px Arial`; ctx.textAlign = "center";
+  ctx.fillText("Media unavailable — relink required", w / 2, h / 2 - titleSize);
+  ctx.font = `${subSize}px Arial`; ctx.fillStyle = "#3a3a3a";
+  ctx.fillText(fileName, w / 2, h / 2 + subSize);
+  return canvas;
+}
+
+/** Load a clip video off-screen and await metadata. Element is appended to DOM;
+ *  caller must remove it via the clipVideos cleanup array. */
+async function loadClipVideo(blobUrl: string): Promise<HTMLVideoElement> {
+  const vid = document.createElement("video");
+  vid.src = blobUrl; vid.crossOrigin = "anonymous";
+  vid.playsInline = true; vid.preload = "auto"; vid.muted = true;
+  vid.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:180px;opacity:0;pointer-events:none;";
+  document.body.appendChild(vid);
+  await new Promise<void>((resolve, reject) => {
+    vid.onloadedmetadata = () => resolve();
+    vid.onerror = () => reject(new Error("Could not load clip"));
+  });
+  return vid;
+}
+
+// ── Slot type ─────────────────────────────────────────────────────────────────
+// Phase 1 produces one Slot per sorted marker. The frame loop reads Slot.kind
+// to decide whether to draw a static canvas (hold mode) or play a live video
+// (clip mode) — it never branches on marker type itself.
+type Slot =
+  | { kind: "canvas"; canvas: HTMLCanvasElement }
+  | { kind: "clip"; video: HTMLVideoElement; durationSec: number };
+
+// ── Unified marker slot dispatcher ────────────────────────────────────────────
+async function getMarkerSlot(
+  marker: ExhibitMarker,
   index: number,
   caseTitle: string,
   scale: number,
-): Promise<HTMLCanvasElement> {
-  if (marker.type === "screen_cut" && marker.screenInsert) {
-    return renderScreenCutSlide(marker.screenInsert, scale);
+  exportWidth: number,
+  exportHeight: number,
+): Promise<Slot> {
+  if (marker.type === "media_insert" && marker.mediaInsert) {
+    const mi: MediaInsert = marker.mediaInsert;
+    if (mi.kind === "photo") {
+      try {
+        return { kind: "canvas", canvas: await renderPhotoSlide(mi.blobUrl, exportWidth, exportHeight) };
+      } catch {
+        return { kind: "canvas", canvas: renderMissingMediaPlaceholder(mi.fileName, exportWidth, exportHeight) };
+      }
+    } else {
+      // clip — load video off-screen
+      try {
+        const vid = await loadClipVideo(mi.blobUrl);
+        const durationSec = isFinite(vid.duration) && vid.duration > 0 ? vid.duration : (marker.holdSec ?? DEFAULT_HOLD_SEC);
+        return { kind: "clip", video: vid, durationSec };
+      } catch {
+        return { kind: "canvas", canvas: renderMissingMediaPlaceholder(mi.fileName, exportWidth, exportHeight) };
+      }
+    }
   }
-  // "analysis" markers (and anything else) use the exhibit slide renderer
-  return renderExhibitSlide(marker, index, caseTitle, scale);
+  if (marker.type === "screen_cut" && marker.screenInsert) {
+    return { kind: "canvas", canvas: await renderScreenCutSlide(marker.screenInsert, scale) };
+  }
+  // "analysis" (and undefined — backward compat)
+  return { kind: "canvas", canvas: await renderExhibitSlide(marker, index, caseTitle, scale) };
 }
 
 export interface ExportOptions {
@@ -214,13 +292,16 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
 
   const sorted = [...markers].sort((a, b) => a.timestamp - b.timestamp);
 
-  // 1) Pre-render every slide (analysis → exhibit card, screen_cut → insert screen)
-  onStage?.("Preparing slides…");
+  // 1) Pre-render slides and load clip videos (first ~15% of progress)
+  onStage?.("Preparing slides and clips…");
   const slideScale = height / 1080;
-  const slides: HTMLCanvasElement[] = [];
+  const slots: Slot[] = [];
+  const clipVideos: HTMLVideoElement[] = []; // tracked for cleanup in finally
   for (let i = 0; i < sorted.length; i++) {
     if (shouldCancel?.()) return emptyCancelled(mimeType);
-    slides.push(await getMarkerCanvas(sorted[i], i + 1, caseTitle, slideScale));
+    const slot = await getMarkerSlot(sorted[i], i + 1, caseTitle, slideScale, width, height);
+    slots.push(slot);
+    if (slot.kind === "clip") clipVideos.push(slot.video);
     onProgress?.(((i + 1) / Math.max(sorted.length, 1)) * 0.15);
   }
 
@@ -241,6 +322,7 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
     try { audioTracks.forEach(t => t.stop()); } catch { /* noop */ }
     try { canvasStream?.getTracks().forEach(t => t.stop()); } catch { /* noop */ }
     try { document.body.removeChild(video); } catch { /* noop */ }
+    clipVideos.forEach(v => { try { v.pause(); v.src = ""; } catch {} try { document.body.removeChild(v); } catch {} });
   };
 
   try {
@@ -288,34 +370,86 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
     recorder.start(250);
     onStage?.("Recording… (runs in real time)");
 
-    const totalHold = sorted.reduce((s, m) => s + (m.holdSec ?? DEFAULT_HOLD_SEC), 0);
+    // Use actual clip durations for totalHold (photos use holdSec as usual)
+    const totalHold = slots.reduce((sum, slot, i) =>
+      sum + (slot.kind === "clip" ? slot.durationSec : (sorted[i].holdSec ?? DEFAULT_HOLD_SEC)), 0);
     const totalDur = Math.max(0.001, duration + totalHold);
-    const STALL_MS = 8000; // watchdog: if currentTime wedges, flush remaining holds and stop rather than hang
+    const STALL_MS = 8000; // watchdog: if currentTime wedges, terminate rather than hang
     let cancelled = false;
 
     const drawVideoFrame = () => {
-      ctx!.fillStyle = "#000";
-      ctx!.fillRect(0, 0, width, height);
-      const vw = video.videoWidth || 16;
-      const vh = video.videoHeight || 9;
+      ctx!.fillStyle = "#000"; ctx!.fillRect(0, 0, width, height);
+      const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
       const s = Math.min(width / vw, height / vh);
-      const dw = vw * s, dh = vh * s;
-      ctx!.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh);
+      ctx!.drawImage(video, (width - vw * s) / 2, (height - vh * s) / 2, vw * s, vh * s);
+    };
+
+    const drawClipFrame = (clipVid: HTMLVideoElement) => {
+      ctx!.fillStyle = "#000"; ctx!.fillRect(0, 0, width, height);
+      const cw = clipVid.videoWidth || 16, ch = clipVid.videoHeight || 9;
+      const s = Math.min(width / cw, height / ch);
+      ctx!.drawImage(clipVid, (width - cw * s) / 2, (height - ch * s) / 2, cw * s, ch * s);
     };
 
     await new Promise<void>((resolve) => {
       let idx = 0;
-      let mode: "video" | "hold" = "video";
+      let mode: "video" | "hold" | "clip" = "video";
       let holdStart = 0;
       let holdDoneSec = 0;
       let ended = false;
       let raf = 0;
       let lastT = -1;
       let lastAdvance = performance.now();
+      // Clip-mode state
+      let currentClip: Extract<Slot, { kind: "clip" }> | null = null;
+      let clipEnded = false;
+      let clipAudioTracks: MediaStreamTrack[] = [];
 
       const finish = () => {
         if (raf) cancelAnimationFrame(raf);
         try { recorder.stop(); } catch { /* noop */ }
+      };
+
+      /** Tear down clip mode and advance to next marker / resume main video. */
+      const exitClip = () => {
+        if (currentClip) {
+          if (includeAudio) {
+            clipAudioTracks.forEach(t => { try { stream.removeTrack(t); } catch {} });
+            clipAudioTracks = [];
+            audioTracks.forEach(t => { try { stream.addTrack(t); } catch {} });
+            currentClip.video.muted = true;
+          }
+          try { currentClip.video.pause(); } catch {}
+          holdDoneSec += currentClip.durationSec;
+          currentClip = null; clipEnded = false;
+        }
+        idx++; mode = "video"; lastAdvance = performance.now();
+        if (!ended) video.play().catch(() => {});
+      };
+
+      /** Transition from video mode into hold or clip depending on the slot type. */
+      const enterHoldOrClip = () => {
+        try { video.pause(); } catch {}
+        holdStart = performance.now();
+        const slot = slots[idx];
+        if (slot.kind === "clip") {
+          mode = "clip"; currentClip = slot; clipEnded = false;
+          if (includeAudio) {
+            audioTracks.forEach(t => { try { stream.removeTrack(t); } catch {} });
+            try {
+              const cv = slot.video as HTMLVideoElement & { captureStream?(): MediaStream; mozCaptureStream?(): MediaStream };
+              const cs = cv.captureStream?.() ?? cv.mozCaptureStream?.() ?? null;
+              clipAudioTracks = cs?.getAudioTracks?.() ?? [];
+              clipAudioTracks.forEach(t => { try { stream.addTrack(t); } catch {} });
+              slot.video.muted = false;
+            } catch { /* audio best-effort */ }
+          }
+          slot.video.currentTime = 0;
+          slot.video.onended = () => { clipEnded = true; };
+          slot.video.play().catch(() => {});
+        } else {
+          mode = "hold";
+        }
       };
 
       const frame = () => {
@@ -324,32 +458,32 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
         if (mode === "video") {
           drawVideoFrame();
           const t = video.currentTime;
-          // stall watchdog — guarantees termination if playback wedges
           if (t > lastT + 0.001) { lastT = t; lastAdvance = performance.now(); }
           else if (!ended && performance.now() - lastAdvance > STALL_MS) { ended = true; }
 
           if (idx < sorted.length && (t >= sorted[idx].timestamp || ended)) {
-            try { video.pause(); } catch { /* noop */ }
-            mode = "hold";
-            holdStart = performance.now();
-          } else if (ended && idx >= sorted.length) {
-            finish();
-            return;
-          }
+            enterHoldOrClip();
+          } else if (ended && idx >= sorted.length) { finish(); return; }
           onProgress?.(Math.min(0.999, 0.15 + (Math.min(t, duration) + holdDoneSec) / totalDur * 0.85));
-        } else {
-          // hold
+
+        } else if (mode === "hold") {
+          const slot = slots[idx] as Extract<Slot, { kind: "canvas" }>;
+          ctx!.drawImage(slot.canvas, 0, 0, width, height);
           const holdSec = sorted[idx].holdSec ?? DEFAULT_HOLD_SEC;
-          ctx!.drawImage(slides[idx], 0, 0, width, height);
           const elapsed = (performance.now() - holdStart) / 1000;
           if (elapsed >= holdSec) {
-            holdDoneSec += holdSec;
-            idx++;
-            mode = "video";
-            lastAdvance = performance.now(); // don't count hold time against the stall watchdog
+            holdDoneSec += holdSec; idx++; mode = "video";
+            lastAdvance = performance.now();
             if (!ended) video.play().catch(() => {});
           }
           onProgress?.(Math.min(0.999, 0.15 + (Math.min(video.currentTime, duration) + holdDoneSec + Math.min(elapsed, holdSec)) / totalDur * 0.85));
+
+        } else if (mode === "clip" && currentClip) {
+          // Draw live clip frames; exit when clip fires onended or after 1 s grace past duration
+          drawClipFrame(currentClip.video);
+          const elapsed = (performance.now() - holdStart) / 1000;
+          if (clipEnded || elapsed >= currentClip.durationSec + 1) { exitClip(); }
+          onProgress?.(Math.min(0.999, 0.15 + (Math.min(video.currentTime, duration) + holdDoneSec + Math.min(elapsed, currentClip?.durationSec ?? 0)) / totalDur * 0.85));
         }
         raf = requestAnimationFrame(frame);
       };

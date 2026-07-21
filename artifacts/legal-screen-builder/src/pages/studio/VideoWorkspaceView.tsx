@@ -3,9 +3,9 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
@@ -166,19 +166,27 @@ function VideoTimeline({ duration, currentTime, markers, zoom, onSeek, activeMar
           const pct = (m.timestamp / duration) * 100;
           const isActive = m.id === activeMarkerId;
           const isCut = m.type === "screen_cut";
+          const isMedia = m.type === "media_insert";
+          const markerColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : ORANGE;
           return (
             <div key={m.id} onClick={e => { e.stopPropagation(); onSelectMarker(m.id); }}
               style={{ position: "absolute", left: `${pct}%`, top: 0, bottom: 0, transform: "translateX(-50%)", zIndex: 3, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
               {/* Marker line */}
-              <div style={{ width: isCut ? 2 : 3, height: "100%", background: isCut ? (isActive ? "#fff" : "#60a5fa") : (isActive ? "#fff" : ORANGE + "cc"), borderRadius: 2 }} />
-              {/* Marker icon for screen cuts */}
+              <div style={{ width: (isCut || isMedia) ? 2 : 3, height: "100%", background: isActive ? "#fff" : markerColor + (!isCut && !isMedia ? "cc" : ""), borderRadius: 2 }} />
+              {/* Screen-cut icon */}
               {isCut && (
                 <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", width: 18, height: 18, background: isActive ? "#fff" : "#60a5fa", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Monitor size={10} color={isActive ? "#000" : "#000"} />
+                  <Monitor size={10} color="#000" />
                 </div>
               )}
-              <div style={{ position: "absolute", bottom: -18, fontSize: 9, color: isCut ? (isActive ? "#fff" : "#60a5fa") : (isActive ? "#fff" : ORANGE), fontWeight: 700, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {m.label || (isCut ? "Screen" : `EX-${markers.indexOf(m) + 1}`)}
+              {/* Media-insert icon */}
+              {isMedia && (
+                <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", width: 18, height: 18, background: isActive ? "#fff" : "#a78bfa", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {m.mediaInsert?.kind === "clip" ? <Film size={10} color="#000" /> : <ImageIcon size={10} color="#000" />}
+                </div>
+              )}
+              <div style={{ position: "absolute", bottom: -18, fontSize: 9, color: isActive ? "#fff" : markerColor, fontWeight: 700, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {m.label || (isCut ? "Screen" : isMedia ? (m.mediaInsert?.kind === "clip" ? "Clip" : "Photo") : `EX-${markers.indexOf(m) + 1}`)}
               </div>
             </div>
           );
@@ -685,6 +693,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Media inserts ───────────────────────────────────────────────
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
+
   // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({
@@ -898,6 +910,29 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     startDictation(id);
   }
 
+  // ── Media insert ────────────────────────────────────────────────
+  function insertMediaMarker(file: File, kind: "photo" | "clip") {
+    const blobUrl = URL.createObjectURL(file);
+    mediaBlobUrlsRef.current.push(blobUrl); // track for cleanup on unmount
+    const id = crypto.randomUUID();
+    const mediaNum = markers.filter(m => m.type === "media_insert").length + 1;
+    const newMarker: ExhibitMarker = {
+      id,
+      timestamp: currentTime,
+      label: `${kind === "photo" ? "Photo" : "Clip"} ${mediaNum}`,
+      dictation: "", whyItMatters: "",
+      status: "ready",
+      holdSec: kind === "photo" ? 5 : undefined, // photos show for holdSec; clips play to natural end
+      createdAt: Date.now(),
+      type: "media_insert",
+      mediaInsert: { kind, blobUrl, fileName: file.name } satisfies MediaInsert,
+    };
+    if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
+    setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
+    setActiveMarkerId(id);
+    setShowMediaPicker(false);
+  }
+
   // ── Cut screen insertion ────────────────────────────────────────
   function handleCutInsert(time: number, screenData: ScreenInsert, holdSec: number) {
     const id = crypto.randomUUID();
@@ -1037,6 +1072,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
       if (idbSaveTimer.current) clearTimeout(idbSaveTimer.current);
       if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
+      mediaBlobUrlsRef.current.forEach(url => { try { URL.revokeObjectURL(url); } catch {} });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1311,16 +1347,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         />
 
         {/* ── Legend ────────────────────────────────────────────────── */}
-        {sortedMarkers.some(m => m.type === "screen_cut") && (
+        {(sortedMarkers.some(m => m.type === "screen_cut") || sortedMarkers.some(m => m.type === "media_insert")) && (
           <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
               <div style={{ width: 10, height: 3, background: ORANGE, borderRadius: 2 }} />
-              Analysis marker
+              Analysis
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
-              <div style={{ width: 10, height: 3, background: "#60a5fa", borderRadius: 2 }} />
-              Screen cut
-            </div>
+            {sortedMarkers.some(m => m.type === "screen_cut") && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
+                <div style={{ width: 10, height: 3, background: "#60a5fa", borderRadius: 2 }} />
+                Screen cut
+              </div>
+            )}
+            {sortedMarkers.some(m => m.type === "media_insert") && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
+                <div style={{ width: 10, height: 3, background: "#a78bfa", borderRadius: 2 }} />
+                Photo / Clip
+              </div>
+            )}
           </div>
         )}
 
@@ -1345,6 +1389,42 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onMouseLeave={e => { e.currentTarget.style.borderColor = videoUrl ? "#60a5fa55" : "#222"; }}>
             <Scissors size={14} /> Cut + Screen
           </button>
+
+          {/* Media insert — photo or video clip */}
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => { if (!videoUrl) return; setShowMediaPicker(v => !v); }}
+              disabled={!videoUrl}
+              title="Insert photo or clip"
+              style={{ width: 50, height: 50, borderRadius: 12, background: showMediaPicker ? "#2a1a4a" : "#111", border: `1px solid ${showMediaPicker ? "#a78bfa" : videoUrl ? "#a78bfa55" : "#222"}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed" }}>
+              <ImageIcon size={18} color={videoUrl ? "#a78bfa" : "#444"} />
+            </button>
+            {showMediaPicker && (
+              <>
+                {/* Transparent backdrop to close picker on outside click */}
+                <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setShowMediaPicker(false)} />
+                <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", zIndex: 50, minWidth: 148 }}>
+                  <label htmlFor="studio-media-photo-input"
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                    <ImageIcon size={13} color="#a78bfa" /> Photo
+                  </label>
+                  <div style={{ height: 1, background: "#222" }} />
+                  <label htmlFor="studio-media-clip-input"
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                    <Film size={13} color="#a78bfa" /> Video Clip
+                  </label>
+                </div>
+              </>
+            )}
+            <input id="studio-media-photo-input" type="file" accept="image/*" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "photo"); e.target.value = ""; }} />
+            <input id="studio-media-clip-input" type="file" accept="video/*" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "clip"); e.target.value = ""; }} />
+          </div>
 
           {/* Dictation mic */}
           <button
@@ -1375,8 +1455,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Export Exhibit Video</div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>
                 {videoUrl
-                  ? `${sortedMarkers.filter(m => !m.type || m.type === "analysis").length} exhibit${sortedMarkers.filter(m => !m.type || m.type === "analysis").length !== 1 ? "s" : ""}` +
-                    (sortedMarkers.some(m => m.type === "screen_cut") ? ` + ${sortedMarkers.filter(m => m.type === "screen_cut").length} screen cut${sortedMarkers.filter(m => m.type === "screen_cut").length !== 1 ? "s" : ""}` : "")
+                  ? [
+                      `${sortedMarkers.filter(m => !m.type || m.type === "analysis").length} exhibit${sortedMarkers.filter(m => !m.type || m.type === "analysis").length !== 1 ? "s" : ""}`,
+                      sortedMarkers.some(m => m.type === "screen_cut") && `${sortedMarkers.filter(m => m.type === "screen_cut").length} screen cut${sortedMarkers.filter(m => m.type === "screen_cut").length !== 1 ? "s" : ""}`,
+                      sortedMarkers.some(m => m.type === "media_insert") && `${sortedMarkers.filter(m => m.type === "media_insert").length} media insert${sortedMarkers.filter(m => m.type === "media_insert").length !== 1 ? "s" : ""}`,
+                    ].filter(Boolean).join(" + ")
                   : "Relink your video to export"}
               </div>
             </div>
@@ -1391,18 +1474,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {sortedMarkers.map((m, i) => {
                 const isCut = m.type === "screen_cut";
+                const isMedia = m.type === "media_insert";
+                const isAnalysis = !isCut && !isMedia;
                 const isActive = m.id === activeMarkerId;
+                const accentColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : ORANGE;
                 return (
                   <div key={m.id}
-                    style={{ background: isActive ? "#1a1a1a" : "#111", border: `1px solid ${isActive ? (isCut ? "#60a5fa44" : ORANGE + "44") : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
+                    style={{ background: isActive ? "#1a1a1a" : "#111", border: `1px solid ${isActive ? accentColor + "44" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
                     onClick={() => { setActiveMarkerId(m.id); seek(m.timestamp); }}>
 
-                    {/* Marker number / icon */}
-                    <div style={{ width: 32, height: 32, borderRadius: 8, background: "#0d0d0d", border: `1px solid ${isCut ? "#60a5fa33" : ORANGE + "33"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {isCut
-                        ? <Monitor size={14} color="#60a5fa" />
-                        : <span style={{ fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</span>
-                      }
+                    {/* Marker icon — photo shows a small thumbnail */}
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: "#0d0d0d", border: `1px solid ${accentColor}33`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                      {isCut && <Monitor size={14} color="#60a5fa" />}
+                      {isMedia && m.mediaInsert?.kind === "photo" && (
+                        m.mediaInsert.blobUrl
+                          ? <img src={m.mediaInsert.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          : <ImageIcon size={14} color="#a78bfa" />
+                      )}
+                      {isMedia && m.mediaInsert?.kind === "clip" && <Film size={14} color="#a78bfa" />}
+                      {isAnalysis && <span style={{ fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</span>}
                     </div>
 
                     {/* Info */}
@@ -1410,25 +1500,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</div>
                         {isCut && <div style={{ fontSize: 9, fontWeight: 700, color: "#60a5fa", background: "#60a5fa15", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>SCREEN</div>}
+                        {isMedia && m.mediaInsert && <div style={{ fontSize: 9, fontWeight: 700, color: "#a78bfa", background: "#a78bfa15", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{m.mediaInsert.kind.toUpperCase()}</div>}
                       </div>
                       <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
                         {formatTime(m.timestamp)}
                         {isCut && m.screenInsert && ` · "${m.screenInsert.title}"`}
-                        {!isCut && m.dictation && ` · ${m.dictation.slice(0, 40)}${m.dictation.length > 40 ? "…" : ""}`}
-                        {m.holdSec && ` · holds ${m.holdSec}s`}
+                        {isMedia && m.mediaInsert && ` · ${m.mediaInsert.fileName.length > 28 ? m.mediaInsert.fileName.slice(0, 28) + "…" : m.mediaInsert.fileName}`}
+                        {isAnalysis && m.dictation && ` · ${m.dictation.slice(0, 40)}${m.dictation.length > 40 ? "…" : ""}`}
+                        {isMedia && m.mediaInsert?.kind === "photo" && m.holdSec && ` · holds ${m.holdSec}s`}
                       </div>
                     </div>
 
                     {/* Action */}
                     <div style={{ flexShrink: 0 }}>
-                      {!isCut && m.status === "extracting" && <Loader2 size={15} color="#555" style={{ animation: "spin 1s linear infinite" }} />}
-                      {!isCut && m.status === "ready" && (
+                      {isAnalysis && m.status === "extracting" && <Loader2 size={15} color="#555" style={{ animation: "spin 1s linear infinite" }} />}
+                      {isAnalysis && m.status === "ready" && (
                         <button onClick={e => { e.stopPropagation(); setViewingDraftId(m.id); }}
                           style={{ background: `${ORANGE}22`, border: `1px solid ${ORANGE}44`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: ORANGE, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                           <Eye size={11} /> View
                         </button>
                       )}
-                      {!isCut && m.status === "error" && (
+                      {isAnalysis && m.status === "error" && (
                         <button onClick={e => {
                           e.stopPropagation();
                           setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
@@ -1438,7 +1530,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                           Retry
                         </button>
                       )}
-                      {!isCut && m.status === "draft" && m.dictation && (
+                      {isAnalysis && m.status === "draft" && m.dictation && (
                         <button onClick={e => {
                           e.stopPropagation();
                           setMarkersRaw(prev => prev.map(x => x.id === m.id ? { ...x, status: "extracting" as const } : x));
@@ -1448,13 +1540,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                           Build
                         </button>
                       )}
-                      {isCut && (
+                      {(isCut || isMedia) && (
                         <button onClick={e => {
                           e.stopPropagation();
                           setMarkers(markers.filter(x => x.id !== m.id));
                           if (activeMarkerId === m.id) setActiveMarkerId(null);
                         }}
-                          title="Remove screen cut"
+                          title="Remove"
                           style={{ background: "none", border: "1px solid #333", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#666", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                           <X size={11} />
                         </button>

@@ -168,6 +168,17 @@ export interface ExhibitDraft {
   whyItMatters: string;
 }
 
+/** A local-only photo or video clip inserted at a precise timestamp.
+ *  blobUrl is a session-only object URL — the file must be relinked after a page reload. */
+export interface MediaInsert {
+  kind: "photo" | "clip";
+  /** Object URL from URL.createObjectURL() — valid for the current session only */
+  blobUrl: string;
+  fileName: string;
+  /** Populated for clips after loadedmetadata fires */
+  durationSec?: number;
+}
+
 /** Data for a screen that is cut into the video at a specific timestamp */
 export interface ScreenInsert {
   title: string;
@@ -195,9 +206,11 @@ export interface ExhibitMarker {
    * "screen_cut" = a built screen inserted as a video cut
    * Defaults to "analysis" if omitted (backward compat).
    */
-  type?: "analysis" | "screen_cut";
+  type?: "analysis" | "screen_cut" | "media_insert";
   /** Populated when type === "screen_cut" */
   screenInsert?: ScreenInsert;
+  /** Populated when type === "media_insert" */
+  mediaInsert?: MediaInsert;
 }
 
 export interface JurisdictionVerification {

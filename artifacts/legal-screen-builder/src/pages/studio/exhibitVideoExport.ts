@@ -8,6 +8,7 @@
 
 import html2canvas from "html2canvas";
 import type { ExhibitMarker, MediaInsert } from "../../types";
+import { renderAIExhibitSlide } from "./renderAIExhibitSlide";
 
 const ORANGE = "#d9711f";
 
@@ -258,28 +259,11 @@ async function getMarkerSlot(
     return { kind: "canvas", canvas: await renderScreenCutSlide(marker.screenInsert, scale) };
   }
   if (marker.type === "exhibit_screen") {
-    // Phase 4 will render the full React component via html2canvas.
-    // For now, render a branded placeholder canvas so the export loop works.
-    const canvas = document.createElement("canvas");
-    canvas.width = exportWidth;
-    canvas.height = exportHeight;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, exportWidth, exportHeight);
-    // Orange left accent bar
-    ctx.fillStyle = "#E8611A";
-    ctx.fillRect(0, 0, Math.round(scale * 8), exportHeight);
-    // Label
-    const selectedType = (marker.exhibitScreen?.selectedType ?? "").replace(/_/g, " ").toUpperCase();
-    ctx.fillStyle = "#fff";
-    ctx.font = `900 ${Math.round(scale * 56)}px Inter, system-ui, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(marker.label, exportWidth / 2, exportHeight / 2 - Math.round(scale * 40));
-    ctx.fillStyle = "#E8611A";
-    ctx.font = `700 ${Math.round(scale * 32)}px Inter, system-ui, sans-serif`;
-    ctx.fillText(selectedType, exportWidth / 2, exportHeight / 2 + Math.round(scale * 20));
-    return { kind: "canvas", canvas };
+    const content = (marker.exhibitScreen?.content ?? {}) as Record<string, unknown>;
+    return {
+      kind: "canvas",
+      canvas: await renderAIExhibitSlide(content, scale, exportWidth, exportHeight),
+    };
   }
   // "analysis" (and undefined — backward compat)
   return { kind: "canvas", canvas: await renderExhibitSlide(marker, index, caseTitle, scale) };

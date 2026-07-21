@@ -1419,8 +1419,14 @@ router.post("/ai/guidance/:id/message", requireAuth, async (req: Request, res: R
     let creditCap = session.creditCap;
     if (extendCap) {
       const newCap = creditCap + estimateForGuidance().estimatedCredits;
-      const check = await checkBalanceForEstimate(userId, newCap);
-      if (!check.ok) { res.status(402).json({ error: "Insufficient credits to extend", code: "insufficient_credits", creditBalance: check.balance }); return; }
+      // billingWaived is captured at session-start and is authoritative for the
+      // lifetime of this session — never re-query Stripe here. Otherwise an
+      // Apex sub lapsing mid-session would fail this live check and incorrectly
+      // block/charge the extension.
+      if (!session.billingWaived) {
+        const check = await checkBalanceForEstimate(userId, newCap);
+        if (!check.ok) { res.status(402).json({ error: "Insufficient credits to extend", code: "insufficient_credits", creditBalance: check.balance }); return; }
+      }
       creditCap = newCap;
       await db.update(guidanceSessionsTable).set({ creditCap, updatedAt: new Date() }).where(eq(guidanceSessionsTable.id, sessionId));
     }

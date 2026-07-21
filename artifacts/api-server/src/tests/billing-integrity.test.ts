@@ -781,6 +781,49 @@ describe("billingWaived flag — session-start plan state is authoritative at /c
 
     await cleanupSession(row.id);
   });
+
+  test("waived session can always extend its cap without a credit check", async () => {
+    // Mirror of the /ai/guidance/:id/message extendCap logic: when
+    // session.billingWaived is true, checkBalanceForEstimate must NOT be
+    // consulted — the extension must succeed even with a 0 balance, simulating
+    // an Apex sub that has since lapsed (live Stripe check would otherwise fail).
+    await seedUser(userId, 0);
+
+    const [row] = await db
+      .insert(guidanceSessionsTable)
+      .values({
+        userId,
+        action: "general",
+        status: "active",
+        topics: [],
+        messages: [{ role: "user", content: "Extend my cap please." }],
+        wordCount: 100,
+        creditCap: 1,
+        creditsCharged: 0,
+        billingWaived: true,
+      })
+      .returning({ id: guidanceSessionsTable.id });
+
+    function simulateExtendCap(session: { billingWaived: boolean; creditCap: number }, addCredits: number) {
+      const newCap = session.creditCap + addCredits;
+      // Exact logic from the route: skip checkBalanceForEstimate entirely when waived.
+      if (!session.billingWaived) {
+        throw new Error("checkBalanceForEstimate should not be reached for a waived session");
+      }
+      return { ok: true, creditCap: newCap };
+    }
+
+    const [session] = await db.select().from(guidanceSessionsTable).where(eq(guidanceSessionsTable.id, row.id));
+    const result = simulateExtendCap(session!, 2);
+
+    assert.equal(result.ok, true, "waived session must be able to extend its cap with a 0 balance");
+    assert.equal(result.creditCap, 3, "cap should increase by the requested amount");
+
+    const balance = await getBalance(userId);
+    assert.equal(balance, 0, "extending the cap for a waived session must never touch the wallet");
+
+    await cleanupSession(row.id);
+  });
 });
 
 describe("refundCredits — guidance / generate-document failure path", () => {

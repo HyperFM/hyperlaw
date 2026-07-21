@@ -168,6 +168,28 @@ export interface ExhibitDraft {
   whyItMatters: string;
 }
 
+/** A single source-verification result returned by the exhibit generation API */
+export interface FieldVerificationResult {
+  /** Dot-separated JSON path inside the content object (e.g. "findings[0].body") */
+  field: string;
+  /** The verbatim ref string Claude produced */
+  ref: string;
+  /** Where Claude says the claim came from */
+  origin: string;
+  /** Whether the ref was found in the source material */
+  supported: boolean;
+}
+
+/** Full data payload stored in an exhibit_screen marker */
+export interface ExhibitScreenData {
+  /** One of the 10 exhibit type IDs (e.g. "contradiction", "quote_breakdown") */
+  selectedType: string;
+  /** Raw layout content object from the AI — strongly typed only inside the exhibits/ folder */
+  content: Record<string, unknown>;
+  alternativeLayouts: string[];
+  verificationResults: FieldVerificationResult[];
+}
+
 /** A local-only photo or video clip inserted at a precise timestamp.
  *  blobUrl is a session-only object URL — the file must be relinked after a page reload. */
 export interface MediaInsert {
@@ -202,15 +224,19 @@ export interface ExhibitMarker {
   holdSec?: number;
   createdAt: number;
   /**
-   * "analysis" = dictation-driven Claude extraction (original flow)
-   * "screen_cut" = a built screen inserted as a video cut
+   * "analysis"     = dictation-driven Claude extraction (original flow)
+   * "screen_cut"   = a manually built screen inserted as a video cut
+   * "media_insert" = a local photo or video clip
+   * "exhibit_screen" = AI-generated structured exhibit layout
    * Defaults to "analysis" if omitted (backward compat).
    */
-  type?: "analysis" | "screen_cut" | "media_insert";
+  type?: "analysis" | "screen_cut" | "media_insert" | "exhibit_screen";
   /** Populated when type === "screen_cut" */
   screenInsert?: ScreenInsert;
   /** Populated when type === "media_insert" */
   mediaInsert?: MediaInsert;
+  /** Populated when type === "exhibit_screen" */
+  exhibitScreen?: ExhibitScreenData;
 }
 
 export interface JurisdictionVerification {

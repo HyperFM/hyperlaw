@@ -23,3 +23,8 @@ export { Timeline } from "./Timeline";
 export { QuoteFocus } from "./QuoteFocus";
 export { EvidenceGrid } from "./EvidenceGrid";
 export { SummaryBoard } from "./SummaryBoard";
+
+// Composed exhibit UI (generator pipeline)
+export { ExhibitRenderer } from "./ExhibitRenderer";
+export { ExhibitGeneratorPanel } from "./ExhibitGeneratorPanel";
+export { ExhibitReviewPanel } from "./ExhibitReviewPanel";

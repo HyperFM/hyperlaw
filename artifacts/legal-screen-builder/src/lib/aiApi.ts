@@ -901,6 +901,23 @@ export const aiApi = {
       return aiFetch(`/admin/error-logs?${q.toString()}`);
     },
   },
+
+  /** AI Exhibit Screen Generator — generates a structured exhibit layout from dictation over video evidence.
+   *  No credit is charged; this is a studio tool, not a billable document action. */
+  generateExhibitScreen(input: {
+    caseId: string;
+    timestamp: string;
+    dictation: string;
+    existingExhibits?: string[];
+    forceType?: string;
+  }): Promise<{
+    selectedType: string;
+    content: Record<string, unknown>;
+    alternativeLayouts: string[];
+    verificationResults: Array<{ field: string; ref: string; origin: string; supported: boolean }>;
+  }> {
+    return aiFetch("/exhibit/generate", { method: "POST", body: JSON.stringify(input) });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

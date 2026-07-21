@@ -3,10 +3,11 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData } from "../../types";
 import { aiApi } from "../../lib/aiApi";
+import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
@@ -167,7 +168,8 @@ function VideoTimeline({ duration, currentTime, markers, zoom, onSeek, activeMar
           const isActive = m.id === activeMarkerId;
           const isCut = m.type === "screen_cut";
           const isMedia = m.type === "media_insert";
-          const markerColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : ORANGE;
+          const isAIScreen = m.type === "exhibit_screen";
+          const markerColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : isAIScreen ? "#8b5cf6" : ORANGE;
           return (
             <div key={m.id} onClick={e => { e.stopPropagation(); onSelectMarker(m.id); }}
               style={{ position: "absolute", left: `${pct}%`, top: 0, bottom: 0, transform: "translateX(-50%)", zIndex: 3, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
@@ -693,6 +695,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── AI Exhibit Screen ───────────────────────────────────────────
+  const [showExhibitGenerator, setShowExhibitGenerator] = useState(false);
+
   // ── Media inserts ───────────────────────────────────────────────
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
@@ -952,6 +957,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
     setActiveMarkerId(id);
     setShowCutBuilder(false);
+  }
+
+  // ── AI Exhibit Screen insertion ─────────────────────────────────
+  function insertExhibitScreenMarker(data: ExhibitScreenData) {
+    const id = crypto.randomUUID();
+    const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
+    const newMarker: ExhibitMarker = {
+      id,
+      timestamp: currentTime,
+      label: `AI Screen ${screenNum}`,
+      dictation: "", whyItMatters: "",
+      status: "ready",
+      holdSec: 8,
+      createdAt: Date.now(),
+      type: "exhibit_screen",
+      exhibitScreen: data,
+    };
+    setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
+    setActiveMarkerId(id);
+    setShowExhibitGenerator(false);
   }
 
   // ── Dictation ──────────────────────────────────────────────────
@@ -1347,7 +1372,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         />
 
         {/* ── Legend ────────────────────────────────────────────────── */}
-        {(sortedMarkers.some(m => m.type === "screen_cut") || sortedMarkers.some(m => m.type === "media_insert")) && (
+        {(sortedMarkers.some(m => m.type === "screen_cut") || sortedMarkers.some(m => m.type === "media_insert") || sortedMarkers.some(m => m.type === "exhibit_screen")) && (
           <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
               <div style={{ width: 10, height: 3, background: ORANGE, borderRadius: 2 }} />
@@ -1363,6 +1388,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
                 <div style={{ width: 10, height: 3, background: "#a78bfa", borderRadius: 2 }} />
                 Photo / Clip
+              </div>
+            )}
+            {sortedMarkers.some(m => m.type === "exhibit_screen") && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
+                <div style={{ width: 10, height: 3, background: "#8b5cf6", borderRadius: 2 }} />
+                AI Screen
               </div>
             )}
           </div>
@@ -1388,6 +1419,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onMouseEnter={e => { if (videoUrl) e.currentTarget.style.borderColor = "#60a5fa"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = videoUrl ? "#60a5fa55" : "#222"; }}>
             <Scissors size={14} /> Cut + Screen
+          </button>
+
+          {/* AI Exhibit Screen */}
+          <button
+            onClick={() => {
+              if (!videoUrl) return;
+              if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
+              setShowExhibitGenerator(true);
+            }}
+            disabled={!videoUrl}
+            style={{ flex: 1, background: "#111", border: `1px solid ${videoUrl ? "#8b5cf655" : "#222"}`, borderRadius: 12, padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 12, color: videoUrl ? "#8b5cf6" : "#444" }}
+            onMouseEnter={e => { if (videoUrl) e.currentTarget.style.borderColor = "#8b5cf6"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = videoUrl ? "#8b5cf655" : "#222"; }}>
+            <Wand2 size={14} /> AI Screen
           </button>
 
           {/* Media insert — photo or video clip */}
@@ -1459,6 +1504,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                       `${sortedMarkers.filter(m => !m.type || m.type === "analysis").length} exhibit${sortedMarkers.filter(m => !m.type || m.type === "analysis").length !== 1 ? "s" : ""}`,
                       sortedMarkers.some(m => m.type === "screen_cut") && `${sortedMarkers.filter(m => m.type === "screen_cut").length} screen cut${sortedMarkers.filter(m => m.type === "screen_cut").length !== 1 ? "s" : ""}`,
                       sortedMarkers.some(m => m.type === "media_insert") && `${sortedMarkers.filter(m => m.type === "media_insert").length} media insert${sortedMarkers.filter(m => m.type === "media_insert").length !== 1 ? "s" : ""}`,
+                      sortedMarkers.some(m => m.type === "exhibit_screen") && `${sortedMarkers.filter(m => m.type === "exhibit_screen").length} AI screen${sortedMarkers.filter(m => m.type === "exhibit_screen").length !== 1 ? "s" : ""}`,
                     ].filter(Boolean).join(" + ")
                   : "Relink your video to export"}
               </div>
@@ -1475,9 +1521,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               {sortedMarkers.map((m, i) => {
                 const isCut = m.type === "screen_cut";
                 const isMedia = m.type === "media_insert";
-                const isAnalysis = !isCut && !isMedia;
+                const isAIScreen = m.type === "exhibit_screen";
+                const isAnalysis = !isCut && !isMedia && !isAIScreen;
                 const isActive = m.id === activeMarkerId;
-                const accentColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : ORANGE;
+                const accentColor = isCut ? "#60a5fa" : isMedia ? "#a78bfa" : isAIScreen ? "#8b5cf6" : ORANGE;
                 return (
                   <div key={m.id}
                     style={{ background: isActive ? "#1a1a1a" : "#111", border: `1px solid ${isActive ? accentColor + "44" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
@@ -1492,6 +1539,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                           : <ImageIcon size={14} color="#a78bfa" />
                       )}
                       {isMedia && m.mediaInsert?.kind === "clip" && <Film size={14} color="#a78bfa" />}
+                      {isAIScreen && <Wand2 size={14} color="#8b5cf6" />}
                       {isAnalysis && <span style={{ fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</span>}
                     </div>
 
@@ -1501,6 +1549,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</div>
                         {isCut && <div style={{ fontSize: 9, fontWeight: 700, color: "#60a5fa", background: "#60a5fa15", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>SCREEN</div>}
                         {isMedia && m.mediaInsert && <div style={{ fontSize: 9, fontWeight: 700, color: "#a78bfa", background: "#a78bfa15", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{m.mediaInsert.kind.toUpperCase()}</div>}
+                        {isAIScreen && <div style={{ fontSize: 9, fontWeight: 700, color: "#8b5cf6", background: "#8b5cf615", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>AI</div>}
                       </div>
                       <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
                         {formatTime(m.timestamp)}
@@ -1508,6 +1557,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                         {isMedia && m.mediaInsert && ` · ${m.mediaInsert.fileName.length > 28 ? m.mediaInsert.fileName.slice(0, 28) + "…" : m.mediaInsert.fileName}`}
                         {isAnalysis && m.dictation && ` · ${m.dictation.slice(0, 40)}${m.dictation.length > 40 ? "…" : ""}`}
                         {isMedia && m.mediaInsert?.kind === "photo" && m.holdSec && ` · holds ${m.holdSec}s`}
+                        {isAIScreen && m.exhibitScreen && ` · ${m.exhibitScreen.selectedType.replace(/_/g, " ")}`}
+                        {isAIScreen && m.holdSec && ` · ${m.holdSec}s`}
                       </div>
                     </div>
 
@@ -1540,7 +1591,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                           Build
                         </button>
                       )}
-                      {(isCut || isMedia) && (
+                      {(isCut || isMedia || isAIScreen) && (
                         <button onClick={e => {
                           e.stopPropagation();
                           setMarkers(markers.filter(x => x.id !== m.id));
@@ -1644,6 +1695,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── AI Exhibit Screen Generator ────────────────────────────── */}
+      {showExhibitGenerator && (
+        <ExhibitGeneratorPanel
+          caseId={hlCase.id}
+          currentTime={currentTime}
+          videoRef={videoRef}
+          existingExhibits={markers
+            .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
+            .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`)}
+          onClose={() => setShowExhibitGenerator(false)}
+          onApprove={insertExhibitScreenMarker}
+        />
       )}
 
       {/* ── Export modal ───────────────────────────────────────────── */}

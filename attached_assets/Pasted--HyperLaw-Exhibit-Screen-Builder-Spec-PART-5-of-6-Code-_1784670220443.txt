@@ -1,0 +1,116 @@
+# HyperLaw — Exhibit Screen Builder Spec — PART 5 of 6
+
+## Code: exhibitTypes.ts
+
+export interface ExhibitTypeConfig {
+  id: string;
+  name: string;
+  layout: string;
+  icon: string;
+  description: string;
+  guidance: string;
+}
+
+export const EXHIBIT_TYPES: ExhibitTypeConfig[] = [
+  {
+    id: "contradiction",
+    name: "Contradiction",
+    layout: "split_screen",
+    icon: "scale",
+    description: "Compare two conflicting accounts of the same event.",
+    guidance: "Left side = statement/claim, right side = evidence that conflicts with it. Takeaway should pose which version is accurate rather than assert one is false, unless directly sourced.",
+  },
+  {
+    id: "narrative_reveal",
+    name: "Narrative Reveal",
+    layout: "narrative_reveal",
+    icon: "document",
+    description: "Show known facts, then reveal a contradictory statement.",
+    guidance: "List known facts in the order they were established, then reveal the pivot quote that contradicts them.",
+  },
+  {
+    id: "escalation",
+    name: "Escalation",
+    layout: "question_board",
+    icon: "shield",
+    description: "Show a disproportionate response to a minor event.",
+    guidance: "Left column shows the minor triggering event and the disproportionate response. Right column poses what justified the gap.",
+  },
+  {
+    id: "policy_comparison",
+    name: "Policy Comparison",
+    layout: "split_screen",
+    icon: "document",
+    description: "Compare stated policy against actual conduct.",
+    guidance: "Left side = stated policy/rule. Right side = actual conduct. Takeaway highlights the gap.",
+  },
+  {
+    id: "timeline_conflict",
+    name: "Timeline Conflict",
+    layout: "timeline",
+    icon: "arrow",
+    description: "Lay out a sequence of events to highlight a conflict in timing.",
+    guidance: "Order events strictly chronologically. Conclusion should highlight why the sequence itself matters or where it breaks down.",
+  },
+  {
+    id: "quote_breakdown",
+    name: "Quote Breakdown",
+    layout: "quote_focus",
+    icon: "comment",
+    description: "Center one statement and unpack its implications.",
+    guidance: "The quote should dominate. Context explains what was known before the quote was said. Implication should be phrased as a question unless directly sourced as fact.",
+  },
+  {
+    id: "evidence_stack",
+    name: "Evidence Stack",
+    layout: "evidence_grid",
+    icon: "check",
+    description: "Show multiple independent pieces of evidence supporting one point.",
+    guidance: "List every independent piece of evidence supporting one point, using check icons. Headline should reflect convergence.",
+  },
+  {
+    id: "missing_investigation",
+    name: "Missing Investigation",
+    layout: "evidence_grid",
+    icon: "x",
+    description: "Show steps that were never taken during an investigation.",
+    guidance: "Items represent things that were NOT done/checked, using 'x' icons. Headline poses a question about the adequacy of the investigation.",
+  },
+  {
+    id: "question_analysis",
+    name: "Question Analysis",
+    layout: "question_board",
+    icon: "question",
+    description: "Walk from an event through a response to a central question.",
+    guidance: "Event -> response -> central question. Right column checklist should show what did NOT justify the response.",
+  },
+  {
+    id: "watch_this_moment",
+    name: "Watch This Moment",
+    layout: "narrative_reveal",
+    icon: "play",
+    description: "Set up context right before a critical video clip plays.",
+    guidance: "Facts block sets up what's about to be seen. CTA should explicitly cue the viewer to watch the upcoming clip.",
+  },
+];
+
+
+## System Prompt (generation call)
+
+You are HyperLaw's exhibit slide generator. You will receive: a video timestamp, a user's spoken dictation transcript, the case complaint, discovery materials, and prior exhibits already built. You will also receive a list of available exhibit types, each with an id, a target layout, and framing guidance.
+
+Your job:
+1. Select the exhibit type that best matches what the user described.
+2. Fill the fields of that type's target layout schema - follow the type's guidance for framing, but do not deviate from the layout's schema shape.
+3. Identify 2-3 alternative layouts that could also reasonably fit this moment, for the "Try Another Layout" option.
+4. Never output HTML, markdown, or layout instructions - only JSON matching the schema below.
+
+RULES:
+1. Every claim-bearing field must include a "source" citing where it came from. If you cannot trace a claim to actual source material, set source to null and classification to "speculation" - do not invent a source.
+2. Classify every claim as verified_fact, observation, or speculation. Speculation about intent, motive, or state of mind must be phrased as a question, never an assertion.
+3. One core argument per slide. If the dictation clearly contains multiple distinct arguments, indicate this rather than merging them into one overloaded slide.
+4. Do not restate arguments already made in prior exhibits.
+5. Stay within field limits in the schema.
+6. Do not include a numeric confidence score.
+7. Return valid JSON only, matching this shape:
+{ "selectedType": "<type id>", "content": <layout schema JSON>, "alternativeLayouts": ["<layout id>", ...] }

@@ -26,6 +26,8 @@ interface ExhibitReviewPanelProps {
   onApprove: (data: ExhibitScreenData) => void;
   onTryLayout: (forceType: string) => void;
   regenerating?: boolean;
+  /** Error that occurred during a forceType regen — shown inline so the panel stays mounted */
+  regenError?: string | null;
 }
 
 export function ExhibitReviewPanel({
@@ -36,6 +38,7 @@ export function ExhibitReviewPanel({
   onApprove,
   onTryLayout,
   regenerating = false,
+  regenError = null,
 }: ExhibitReviewPanelProps) {
   const { selectedType, content, alternativeLayouts, verificationResults } = result;
 
@@ -153,6 +156,18 @@ export function ExhibitReviewPanel({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Regen error — shown when a forceType re-generation fails */}
+        {regenError && (
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 10,
+            background: "#1a0000", border: "1px solid #ef444433",
+            borderRadius: 10, padding: "12px 14px", marginBottom: 14,
+          }}>
+            <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 13, color: "#ef4444", lineHeight: 1.5 }}>{regenError}</div>
           </div>
         )}
 

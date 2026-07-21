@@ -50,6 +50,9 @@ export function ExhibitGeneratorPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<GenerateResult | null>(null);
+  // Error that occurs while regenerating with a forceType — shown inside the review panel
+  // rather than the generator panel, which is behind the review panel at that point.
+  const [regenError, setRegenError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -73,9 +76,20 @@ export function ExhibitGeneratorPanel({
 
   async function handleGenerate(forceType?: string) {
     if (!dictation.trim()) { setError("Please describe what happened in the video before generating."); return; }
-    setError(null);
+
+    const isRegen = Boolean(forceType);
+
+    // Generator phase: clear everything and start fresh.
+    // Regen phase: keep `review` mounted so ExhibitReviewPanel stays visible with
+    // regenerating=true spinners on the alt-layout buttons — only clear regenError.
+    if (isRegen) {
+      setRegenError(null);
+    } else {
+      setError(null);
+      setReview(null);
+    }
+
     setLoading(true);
-    setReview(null);
     try {
       const result = await aiApi.generateExhibitScreen({
         caseId,
@@ -84,9 +98,17 @@ export function ExhibitGeneratorPanel({
         existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
         forceType,
       });
+      // Update review in both cases — replaces old result on regen, sets it fresh on first gen
       setReview(result);
+      if (isRegen) setRegenError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Generation failed. Please try again.");
+      const msg = e instanceof Error ? e.message : "Generation failed. Please try again.";
+      if (isRegen) {
+        // Surface error inside the review panel (which stays mounted)
+        setRegenError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -106,10 +128,11 @@ export function ExhibitGeneratorPanel({
         dictation={dictation}
         caseId={caseId}
         currentTime={currentTime}
-        onBack={() => setReview(null)}
+        onBack={() => { setReview(null); setRegenError(null); }}
         onApprove={handleApprove}
         onTryLayout={forceType => handleGenerate(forceType)}
         regenerating={loading}
+        regenError={regenError}
       />
     );
   }

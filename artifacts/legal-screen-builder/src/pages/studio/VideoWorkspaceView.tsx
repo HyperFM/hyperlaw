@@ -913,6 +913,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     );
   }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Safety valve: if the video never fires loadedmetadata/canplay (e.g. unsupported
+  // codec on iOS), clear the loading overlay after 12 s so the user isn't stuck.
+  useEffect(() => {
+    if (!videoLoading) return;
+    const t = setTimeout(() => setVideoLoading(false), 12_000);
+    return () => clearTimeout(t);
+  }, [videoLoading]);
+
   // ── Analysis marker insertion ───────────────────────────────────
   function insertMarker() {
     const id = crypto.randomUUID();
@@ -1229,10 +1237,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               }}
               src={videoUrl ?? undefined}
               playsInline
-              preload="metadata"
+              preload="auto"
               style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
               onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
               onDurationChange={e => setDuration(e.currentTarget.duration)}
+              onLoadedMetadata={() => setVideoLoading(false)}
               onCanPlay={() => setVideoLoading(false)}
               onLoadedData={() => setVideoLoading(false)}
               onPlay={() => setIsPlaying(true)}
@@ -1248,6 +1257,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                   4: "Format not supported by this browser. Try MP4 (H.264).",
                 };
                 setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
+                setVideoLoading(false);
                 setIsPlaying(false);
               }}
             />
@@ -1255,6 +1265,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             {isPreviewMode && (
               <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
                 ● PREVIEW
+              </div>
+            )}
+            {/* Loading overlay — sits on top of video while browser decodes, so video always renders */}
+            {videoLoading && (
+              <div style={{
+                position: "absolute", inset: 0, borderRadius: 12,
+                background: "rgba(5,5,5,0.92)",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
+              }}>
+                <Clapperboard size={40} color={ORANGE} />
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
+                  <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>
+                </div>
+                <div style={{ width: 180, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", background: ORANGE, borderRadius: 2, animation: "hlImportScan 1.4s ease-in-out infinite" }} />
+                </div>
               </div>
             )}
           </div>
@@ -1271,40 +1298,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* ── Importing overlay — shown immediately after file pick, cleared on canplay ── */}
-        {videoLoading && (
-          <div style={{
-            width: "100%", background: "#0d0d0d", border: "1px solid #1e1e1e",
-            borderRadius: 16, padding: "32px 24px", marginBottom: 16,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 16,
-            boxSizing: "border-box",
-          }}>
-            {/* Animated clapperboard icon */}
-            <div style={{ position: "relative", width: 52, height: 52 }}>
-              <Clapperboard size={52} color={ORANGE} style={{ opacity: 0.9 }} />
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>
-                Importing video…
-              </div>
-              <div style={{ fontSize: 11, color: "#555", maxWidth: 240, lineHeight: 1.5, wordBreak: "break-all" }}>
-                {loadingFileName}
-              </div>
-            </div>
-            {/* Animated progress bar */}
-            <div style={{ width: "100%", maxWidth: 260, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
-              <div style={{
-                height: "100%", background: ORANGE, borderRadius: 2,
-                animation: "hlImportScan 1.4s ease-in-out infinite",
-              }} />
-            </div>
-            <div style={{ fontSize: 11, color: "#444" }}>
-              Video stays on your device — nothing is uploaded
-            </div>
-          </div>
-        )}
-
-        {!videoError && !videoUrl && !videoLoading && (
+        {!videoError && !videoUrl && (
           /* ── Upload drop zone — label-based for reliable mobile trigger ── */
           <label htmlFor="studio-video-input"
             style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}
@@ -1319,13 +1313,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </label>
         )}
 
-        {/* Hidden file input — accepts any video, no size limit enforced */}
+        {/* Visually-hidden file input — display:none can silently fail on iOS Safari;
+            position off-screen instead so the browser keeps it focusable/clickable */}
         <input
           id="studio-video-input"
           ref={fileInputRef}
           type="file"
           accept="video/*"
-          style={{ display: "none" }}
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0, top: 0, left: 0, pointerEvents: "none" }}
           onChange={handleFileChange}
         />
 

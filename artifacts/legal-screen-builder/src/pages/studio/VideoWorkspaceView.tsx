@@ -1222,70 +1222,62 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* ── Video area ────────────────────────────────────────────── */}
-        {videoUrl && (
-          <div style={{ marginBottom: 12, position: "relative" }}>
-            <video
-              ref={el => {
-                (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
-                // When the element first mounts, ensure src is set even if React
-                // batched the state update and the element didn't see the prop yet
-                if (el && videoUrlRef.current && el.src !== videoUrlRef.current) {
-                  el.src = videoUrlRef.current;
-                  el.load();
-                }
-              }}
-              src={videoUrl ?? undefined}
-              playsInline
-              preload="auto"
-              style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
-              onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
-              onDurationChange={e => setDuration(e.currentTarget.duration)}
-              onLoadedMetadata={() => setVideoLoading(false)}
-              onCanPlay={() => setVideoLoading(false)}
-              onLoadedData={() => setVideoLoading(false)}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
-              onError={e => {
-                const v = e.currentTarget;
-                const code = v.error?.code;
-                const msgs: Record<number, string> = {
-                  1: "Load aborted.",
-                  2: "Network error loading video.",
-                  3: "Video decoding failed — the file may be corrupted.",
-                  4: "Format not supported by this browser. Try MP4 (H.264).",
-                };
-                setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
-                setVideoLoading(false);
-                setIsPlaying(false);
-              }}
-            />
-            {/* Preview mode badge */}
-            {isPreviewMode && (
-              <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
-                ● PREVIEW
+        {/* ── Video area ─────────────────────────────────────────────
+             The <video> element is ALWAYS in the DOM so videoRef.current
+             is never null when loadVideo() fires inside the gesture handler.
+             iOS silently ignores video.load() calls made outside a gesture. */}
+        <div style={{ marginBottom: 12, position: "relative", display: videoUrl ? "block" : "none" }}>
+          <video
+            ref={videoRef as React.RefObject<HTMLVideoElement>}
+            playsInline
+            preload="metadata"
+            style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
+            onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
+            onDurationChange={e => setDuration(e.currentTarget.duration)}
+            onLoadedMetadata={() => setVideoLoading(false)}
+            onCanPlay={() => setVideoLoading(false)}
+            onLoadedData={() => setVideoLoading(false)}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
+            onError={e => {
+              const v = e.currentTarget;
+              const code = v.error?.code;
+              const msgs: Record<number, string> = {
+                1: "Load aborted.",
+                2: "Network error loading video.",
+                3: "Video decoding failed — the file may be corrupted.",
+                4: "Format not supported by this browser. Try MP4 (H.264).",
+              };
+              setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
+              setVideoLoading(false);
+              setIsPlaying(false);
+            }}
+          />
+          {/* Preview mode badge */}
+          {isPreviewMode && (
+            <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
+              ● PREVIEW
+            </div>
+          )}
+          {/* Loading overlay — on top of the already-rendering video element */}
+          {videoLoading && (
+            <div style={{
+              position: "absolute", inset: 0, borderRadius: 12,
+              background: "rgba(5,5,5,0.92)",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
+            }}>
+              <Clapperboard size={40} color={ORANGE} />
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
+                <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>
               </div>
-            )}
-            {/* Loading overlay — sits on top of video while browser decodes, so video always renders */}
-            {videoLoading && (
-              <div style={{
-                position: "absolute", inset: 0, borderRadius: 12,
-                background: "rgba(5,5,5,0.92)",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
-              }}>
-                <Clapperboard size={40} color={ORANGE} />
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
-                  <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>
-                </div>
-                <div style={{ width: 180, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", background: ORANGE, borderRadius: 2, animation: "hlImportScan 1.4s ease-in-out infinite" }} />
-                </div>
+              <div style={{ width: 180, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ height: "100%", background: ORANGE, borderRadius: 2, animation: "hlImportScan 1.4s ease-in-out infinite" }} />
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
         {/* Video error banner */}
         {videoError && (

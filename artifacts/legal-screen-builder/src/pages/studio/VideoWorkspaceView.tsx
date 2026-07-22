@@ -666,6 +666,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Import loading state (CapCut-style feedback) ────────────────
   const [videoLoading, setVideoLoading] = useState(false);
   const [loadingFileName, setLoadingFileName] = useState("");
+  // ── Drag-and-drop ───────────────────────────────────────────────
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
 
   // ── Markers ────────────────────────────────────────────────────
   const [markers, setMarkersRaw] = useState<ExhibitMarker[]>(() => hlCase.studioProject?.markers ?? []);
@@ -1299,15 +1302,50 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
               onKeyDown={e => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
-              style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 10, boxSizing: "border-box" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-              <Film size={44} color="#333" />
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#555" }}>Tap to Load Video</div>
-              <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 280, lineHeight: 1.55 }}>
-                Any length supported — 30 minutes, 1 hour, or longer.
-                <br />Videos stay on your device; nothing is uploaded to the server.
+              onDragEnter={e => {
+                e.preventDefault();
+                dragCounter.current += 1;
+                if (dragCounter.current === 1) setIsDragging(true);
+              }}
+              onDragOver={e => { e.preventDefault(); }}
+              onDragLeave={() => {
+                dragCounter.current -= 1;
+                if (dragCounter.current === 0) setIsDragging(false);
+              }}
+              onDrop={e => {
+                e.preventDefault();
+                dragCounter.current = 0;
+                setIsDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) loadVideo(file);
+              }}
+              style={{
+                width: "100%",
+                background: isDragging ? "#1a0f00" : "#0d0d0d",
+                border: `2px dashed ${isDragging ? ORANGE : "#1e1e1e"}`,
+                borderRadius: 16,
+                padding: "44px 20px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 12,
+                cursor: "pointer",
+                marginBottom: 10,
+                boxSizing: "border-box",
+                transition: "border-color 0.15s, background 0.15s",
+              }}
+              onMouseEnter={e => { if (!isDragging) e.currentTarget.style.borderColor = ORANGE + "55"; }}
+              onMouseLeave={e => { if (!isDragging) e.currentTarget.style.borderColor = "#1e1e1e"; }}>
+              <Film size={44} color={isDragging ? ORANGE : "#333"} style={{ transition: "color 0.15s" }} />
+              <div style={{ fontSize: 15, fontWeight: 700, color: isDragging ? ORANGE : "#555", transition: "color 0.15s" }}>
+                {isDragging ? "Release to Load" : "Tap to Load Video"}
               </div>
+              {!isDragging && (
+                <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 280, lineHeight: 1.55 }}>
+                  Any length supported — 30 minutes, 1 hour, or longer.
+                  <br />Videos stay on your device; nothing is uploaded to the server.
+                </div>
+              )}
             </div>
 
             {/* iCloud warning */}

@@ -662,6 +662,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [largFileWarning, setLargeFileWarning] = useState(false);
+  // ── Import loading state (CapCut-style feedback) ────────────────
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [loadingFileName, setLoadingFileName] = useState("");
 
   // ── Markers ────────────────────────────────────────────────────
   const [markers, setMarkersRaw] = useState<ExhibitMarker[]>(() => hlCase.studioProject?.markers ?? []);
@@ -701,6 +704,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Media inserts ───────────────────────────────────────────────
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
+  const [insertToast, setInsertToast] = useState<string | null>(null);
+  const insertToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
@@ -815,6 +820,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video controls ─────────────────────────────────────────────
   function loadVideo(file: File) {
     setVideoError(null);
+    // Show import loading state immediately — before any decoding happens
+    setVideoLoading(true);
+    setLoadingFileName(file.name);
+
     // Revoke previous blob URL to free memory
     if (videoUrlRef.current) {
       URL.revokeObjectURL(videoUrlRef.current);
@@ -846,6 +855,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (file) loadVideo(file);
     // Reset so same file can be picked again
     e.target.value = "";
+  }
+
+  function showInsertToast(msg: string) {
+    if (insertToastTimer.current) clearTimeout(insertToastTimer.current);
+    setInsertToast(msg);
+    insertToastTimer.current = setTimeout(() => setInsertToast(null), 2500);
   }
 
   function togglePlay() {
@@ -936,6 +951,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
     setActiveMarkerId(id);
     setShowMediaPicker(false);
+    showInsertToast(kind === "photo" ? "📷 Photo added to timeline" : "🎬 Clip added to timeline");
   }
 
   // ── Cut screen insertion ────────────────────────────────────────
@@ -1217,6 +1233,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
               onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
               onDurationChange={e => setDuration(e.currentTarget.duration)}
+              onCanPlay={() => setVideoLoading(false)}
+              onLoadedData={() => setVideoLoading(false)}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
@@ -1253,7 +1271,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {!videoError && !videoUrl && (
+        {/* ── Importing overlay — shown immediately after file pick, cleared on canplay ── */}
+        {videoLoading && (
+          <div style={{
+            width: "100%", background: "#0d0d0d", border: "1px solid #1e1e1e",
+            borderRadius: 16, padding: "32px 24px", marginBottom: 16,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 16,
+            boxSizing: "border-box",
+          }}>
+            {/* Animated clapperboard icon */}
+            <div style={{ position: "relative", width: 52, height: 52 }}>
+              <Clapperboard size={52} color={ORANGE} style={{ opacity: 0.9 }} />
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>
+                Importing video…
+              </div>
+              <div style={{ fontSize: 11, color: "#555", maxWidth: 240, lineHeight: 1.5, wordBreak: "break-all" }}>
+                {loadingFileName}
+              </div>
+            </div>
+            {/* Animated progress bar */}
+            <div style={{ width: "100%", maxWidth: 260, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", background: ORANGE, borderRadius: 2,
+                animation: "hlImportScan 1.4s ease-in-out infinite",
+              }} />
+            </div>
+            <div style={{ fontSize: 11, color: "#444" }}>
+              Video stays on your device — nothing is uploaded
+            </div>
+          </div>
+        )}
+
+        {!videoError && !videoUrl && !videoLoading && (
           /* ── Upload drop zone — label-based for reliable mobile trigger ── */
           <label htmlFor="studio-video-input"
             style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}
@@ -1726,6 +1777,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           initialIncludeAudio={exportSettings.includeAudio}
           onSettingsChange={s => { setExportSettings(s); triggerIndexedDBSave(); }}
         />
+      )}
+
+      {/* ── Media insert toast — "Clip added to timeline" etc. ── */}
+      {insertToast && (
+        <div style={{
+          position: "fixed", bottom: 96, left: "50%", transform: "translateX(-50%)",
+          background: "#111", border: "1px solid #2a2a2a", borderRadius: 24,
+          padding: "10px 20px", fontSize: 13, fontWeight: 700, color: "#ddd",
+          zIndex: 600, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
+          pointerEvents: "none",
+          animation: "hlConfirmFlash 0.25s ease-out",
+        }}>
+          {insertToast}
+        </div>
       )}
     </div>
   );

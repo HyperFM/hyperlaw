@@ -1292,15 +1292,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ background: "#1a0000", border: "1px solid #5a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#ef4444" }}>
             <AlertCircle size={13} color="#ef4444" />
             <div style={{ flex: 1 }}>{videoError} — try a different file or format.</div>
-            <label htmlFor="studio-video-input" style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer", flexShrink: 0 }}>
+            <button onClick={() => fileInputRef.current?.click()} style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer", flexShrink: 0 }}>
               Try another
-            </label>
+            </button>
           </div>
         )}
 
         {!videoError && !videoUrl && (
-          /* ── Upload drop zone — label-based for reliable mobile trigger ── */
-          <label htmlFor="studio-video-input"
+          /* ── Upload drop zone — uses direct .click() for reliable iOS Safari triggering ── */
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
             style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}
             onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
             onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
@@ -1310,17 +1314,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               Any length supported — 30 minutes, 1 hour, or longer.
               <br />Videos stay on your device; nothing is uploaded to the server.
             </div>
-          </label>
+          </div>
         )}
 
-        {/* Visually-hidden file input — display:none can silently fail on iOS Safari;
-            position off-screen instead so the browser keeps it focusable/clickable */}
+        {/* File input — kept off-screen (not display:none) so iOS Safari can activate it.
+            Never add pointerEvents:none here — that breaks the iOS file-picker pipeline. */}
         <input
-          id="studio-video-input"
           ref={fileInputRef}
           type="file"
           accept="video/*"
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0, top: 0, left: 0, pointerEvents: "none" }}
+          style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0 }}
           onChange={handleFileChange}
         />
 
@@ -1342,10 +1345,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <div style={{ flex: 1 }}>
               Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue editing.
             </div>
-            <label htmlFor="studio-video-input"
+            <button onClick={() => fileInputRef.current?.click()}
               style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer" }}>
               Relink
-            </label>
+            </button>
           </div>
         )}
 
@@ -1399,10 +1402,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
           {/* Change video */}
           {videoUrl && (
-            <label htmlFor="studio-video-input" title="Change video"
+            <button onClick={() => fileInputRef.current?.click()} title="Change video"
               style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: "#555", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
               <Upload size={11} /> Change
-            </label>
+            </button>
           )}
         </div>
 

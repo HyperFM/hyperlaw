@@ -654,6 +654,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
   const [videoFileName, setVideoFileName] = useState(hlCase.studioProject?.videoFileName ?? "");
@@ -1291,30 +1292,52 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         )}
 
         {!videoError && !videoUrl && (
-          /* ── Upload drop zone — uses direct .click() for reliable iOS Safari triggering ── */
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
-            style={{ width: "100%", background: "#0d0d0d", border: "2px dashed #1e1e1e", borderRadius: 16, padding: "44px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16, boxSizing: "border-box" }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-            <Film size={44} color="#333" />
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#555" }}>Tap to Load Video</div>
-            <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 280, lineHeight: 1.55 }}>
-              Any length supported — 30 minutes, 1 hour, or longer.
-              <br />Videos stay on your device; nothing is uploaded to the server.
+          <div style={{ marginBottom: 16 }}>
+            {/* ── Two load options ── */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              {/* Record directly from camera — always H.264, no transcoding, works instantly */}
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 12, padding: "18px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <StopCircle size={26} color="#000" />
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#000" }}>Record Video</div>
+                <div style={{ fontSize: 10, color: "rgba(0,0,0,0.6)", textAlign: "center", lineHeight: 1.4 }}>Opens camera<br />Works instantly</div>
+              </button>
+
+              {/* Choose from library — may be slow if video is in iCloud */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{ flex: 1, background: "#111", border: "1px solid #2a2a2a", borderRadius: 12, padding: "18px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <Film size={26} color="#555" />
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#aaa" }}>Choose Video</div>
+                <div style={{ fontSize: 10, color: "#444", textAlign: "center", lineHeight: 1.4 }}>From photo library<br />On-device only</div>
+              </button>
+            </div>
+
+            {/* iCloud warning */}
+            <div style={{ background: "#0d0900", border: "1px solid #2a1a00", borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11, color: "#7a5a00", lineHeight: 1.5 }}>
+              <AlertCircle size={13} color="#7a5a00" style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <strong style={{ color: "#aa8800" }}>If "Choose Video" gets stuck loading:</strong> the video is stored in iCloud and not on your device yet. Open the Photos app, tap the video, and wait for it to fully download — then try again. Or use <strong style={{ color: "#aa8800" }}>Record Video</strong> above to avoid this entirely.
+              </div>
             </div>
           </div>
         )}
 
-        {/* File input — kept off-screen (not display:none) so iOS Safari can activate it.
-            Never add pointerEvents:none here — that breaks the iOS file-picker pipeline. */}
+        {/* Library file input */}
         <input
           ref={fileInputRef}
           type="file"
           accept="video/*"
+          style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0 }}
+          onChange={handleFileChange}
+        />
+        {/* Camera input — capture="environment" opens rear camera directly, gives instant H.264 */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="video/*"
+          capture="environment"
           style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0 }}
           onChange={handleFileChange}
         />

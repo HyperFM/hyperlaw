@@ -16,33 +16,9 @@ export async function isAdminUser(userId: string): Promise<boolean> {
   return ADMIN_EMAILS.has(info?.email ?? "");
 }
 
-/** True when the user should not be charged credits (admin account or Apex plan). */
-export async function isBillingWaived(userId: string): Promise<boolean> {
-  const userInfo = await getClerkUserEmail(userId).catch(() => null);
-  if (ADMIN_EMAILS.has(userInfo?.email ?? "")) return true;
-
-  try {
-    const customerId = await storage.getStripeCustomerId(userId);
-    if (customerId) {
-      const { getUncachableStripeClient } = await import("../stripeClient.js");
-      const stripe = await getUncachableStripeClient();
-      const subs = await stripe.subscriptions.list({
-        customer: customerId,
-        status: "active",
-        limit: 5,
-        expand: ["data.items.data.price.product"],
-      });
-      for (const sub of subs.data) {
-        for (const item of sub.items.data) {
-          const product = item.price.product as { name?: string };
-          if ((product.name ?? "").toLowerCase().includes("apex")) return true;
-        }
-      }
-    }
-  } catch {
-    /* non-fatal — default to charging */
-  }
-  return false;
+/** True when the user should not be charged credits. Billing is currently disabled — always waived. */
+export async function isBillingWaived(_userId: string): Promise<boolean> {
+  return true;
 }
 
 export interface ChargeResult {

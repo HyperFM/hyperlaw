@@ -722,14 +722,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentTimeRef = useRef(0);
   // snapshotRef holds latest values so the debounced IDB write always sees fresh data
-  const snapshotRef = useRef<{ markers: ExhibitMarker[]; videoFileName: string; exportSettings: ExportSettings }>({
+  const snapshotRef = useRef<{ markers: ExhibitMarker[]; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
     markers: hlCase.studioProject?.markers ?? [],
     videoFileName: hlCase.studioProject?.videoFileName ?? "",
+    videoDurationSec: hlCase.studioProject?.videoDurationSec ?? 0,
     exportSettings: { resKey: "1080", fps: 30, format: "mp4", includeAudio: true },
   });
   // Keep snapshotRef current on every render (synchronous, safe)
   snapshotRef.current.markers = markers;
   snapshotRef.current.videoFileName = videoFileName;
+  snapshotRef.current.videoDurationSec = duration;
   snapshotRef.current.exportSettings = exportSettings;
 
   // ── Helpers ────────────────────────────────────────────────────
@@ -764,7 +766,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       const project = getOrCreateProject();
-      const next: StudioProject = { ...project, videoFileName, videoDurationSec: duration, markers: updatedMarkers, updatedAt: Date.now() };
+      // Read videoFileName and duration from snapshotRef so we always get the
+      // latest values — calling code may have just called setState and the
+      // closure would still hold the pre-update values.
+      const next: StudioProject = {
+        ...project,
+        videoFileName: snapshotRef.current.videoFileName,
+        videoDurationSec: snapshotRef.current.videoDurationSec,
+        markers: updatedMarkers,
+        updatedAt: Date.now(),
+      };
       onUpdateCase({ ...hlCase, studioProject: next });
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
@@ -852,6 +863,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     const gb2 = 2 * 1024 * 1024 * 1024;
     setLargeFileWarning(file.size > gb2);
+
+    // Persist the filename immediately — snapshotRef will be updated on the
+    // next render so the 800 ms debounce always captures the new value.
+    snapshotRef.current.videoFileName = file.name;
+    triggerAutosave(markers);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1237,7 +1253,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             preload="metadata"
             style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
             onTimeUpdate={e => { setCurrentTime(e.currentTarget.currentTime); currentTimeRef.current = e.currentTarget.currentTime; }}
-            onDurationChange={e => setDuration(e.currentTarget.duration)}
+            onDurationChange={e => {
+              const d = e.currentTarget.duration;
+              setDuration(d);
+              snapshotRef.current.videoDurationSec = d;
+              triggerAutosave(markers);
+            }}
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}
             onLoadedData={() => setVideoLoading(false)}

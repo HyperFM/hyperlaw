@@ -1263,7 +1263,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let i = 0;
     function capture() {
       if (cancelled || !ctx) return;
-      ctx.drawImage(vid, 0, 0, 48, 72);
+      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
       results.push(canvas.toDataURL("image/jpeg", 0.82));
       i++;
       if (i < NUM) vid.currentTime = (i / (NUM - 1)) * duration;

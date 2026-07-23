@@ -1,26 +1,28 @@
 ---
-name: HyperLaw Screen Builder revival + Exhibit video export
-description: Why the manual Screen Builder needs types in types.ts + un-excluded engine/renderer, and the hard constraints of the canvas+MediaRecorder video export.
+name: HyperLaw Screen Builder + video export
+description: Builder types, VideoWorkspaceView architecture, export pipeline, and moment-based editing flow.
 ---
 
-## Manual Screen Builder revives previously-dead code
-The "Manual Screen Builder" (reached from the Exhibit Studio landing) is built on `src/engine.ts` (question-trees `TREES`, `buildScreen`, `detectSuggestion`, `generateBlocks`) and `src/BlockCanvas.tsx` (renderer). Those two files had been **excluded from `tsconfig.json`** only because the types they import were deleted in an earlier cleanup.
+## Builder types
+- All builder types must stay in `types.ts`; `engine/BlockCanvas` must not be excluded from the TS build.
 
-**Rule:** the builder types (`ScreenType`, `BlockType`, `Block`, `DataMap`, `QChoice`, `QNode`, `Screen`) live in `src/types.ts`, and `engine.ts` + `BlockCanvas.tsx` must stay OUT of the tsconfig `exclude` list. `laws.ts` is intentionally still excluded (out of scope).
-**Why:** if someone re-deletes those types or re-excludes the files, the build silently drops these modules and the Screen Builder breaks with no type error pointing at the cause.
-**How to apply:** before touching the builder, confirm the types still exist in `types.ts` and the two files are not re-excluded. Every tree in `TREES` uses `"start"` as its entry node key — the wizard relies on that.
+## Export pipeline
+- Export is canvas+MediaRecorder (play before record, audio best-effort, stall watchdog).
+- All presets are 16:9.
 
-## Real Exhibit video export = canvas + MediaRecorder (no ffmpeg)
-Export composites the source video with full-screen exhibit "hold" slides (default 10s each, per-marker `holdSec` on `ExhibitMarker`) recorded in **real time** via `canvas.captureStream()` + `MediaRecorder`. Non-obvious constraints, all learned the hard way:
+## Moment-based editing flow (Chunk → Label → Organize → Exhibit)
+Replaced the old loop/scissors/split-point system. Key decisions:
+- **No loop region, no splitPoints state** — both removed entirely.
+- **`chunks: VideoChunk[]`** is the primary state (start/end/label/tag per chunk).
+- **`markMoment()`** — bookmarks from `chunks[last].end ?? 0` to current playhead. The "lastMarkTime" is purely derived, not stored.
+- **`splitChunk(id, at)`** — splits one chunk at playhead; replaces it with two in-place.
+- **`removeChunk(id)`** — deletes chunk + creates a `video_cut` marker for export continuity.
+- **`currentStep` (1–4)** + **`organizedSlots: (string|null)[]`** saved into `StudioProject` and `snapshotRef`.
+- **`triggerAutosave`** now accepts optional `updatedChunks`, `updatedSlots`, `updatedStep` so callers can pass fresh values before React re-render.
+- **`SlotCell`** component handles drag-drop for the Step 3 organize track; slots auto-expand when the last slot is filled.
+- **Step 4** contains the old Exhibit/Media/Mic buttons unchanged.
+- **`VideoTimeline`** no longer accepts `loopRegion`, `isLoopMode`, `splitPoints` props; uses `chunks`, `onSplitChunk`, `onRemoveChunk`, `step` instead.
 
-- **Start `video.play()` BEFORE creating the recorder, and capture audio only AFTER playback is live.** Capturing `video.captureStream().getAudioTracks()` before playback yields silent exports on some browsers.
-- **Unmuted autoplay usually fails here** because the slide pre-render step (html2canvas) runs after the button click and consumes the user-activation window. Code falls back to muted playback (silent video) rather than failing. **Audio is best-effort**, by design.
-- **A stall watchdog on `video.currentTime` is mandatory.** Without it, a wedged/blocked video means `currentTime` never advances and `ended` never fires, so `MediaRecorder` never stops and the export promise hangs forever. Watchdog flips `ended=true` after ~8s of no progress so remaining holds flush and recording stops.
-- **Clean up streams:** stop all MediaStream tracks (canvas + captured audio) and revoke superseded blob object URLs (modal does this via a `useEffect` cleanup keyed on the result URL) or repeated exports leak.
-- All resolution presets are **16:9** so the 1920×1080 exhibit slides fill the frame with no letterboxing of the slides themselves.
+**Why:** User spec (Pasted-HyperLaw-Exhibit-Studio-Update doc) called for a 4-step flow replacing free-form scissors editing with guided bookmarking.
 
-## Source video is not persisted
-Only `videoFileName` is stored, never the video bytes. The user must **relink the video in-browser each session**, so export only works when a video is currently loaded (modal shows a relink hint when the object URL is null). Same-origin object URL → canvas untainted → MediaRecorder works.
-
-## Pre-existing tsc noise (don't chase)
-`tsc --noEmit` reports 6 errors unrelated to this work: `SpeechRecognition` DOM typings in `VideoWorkspaceView.tsx` (dictation) and a lucide `flexShrink` prop in `ExhibitStudioView.tsx`. They are tsc-only (esbuild/Vite ignore them) and predate the builder/export work.
+**How to apply:** Any future addition to the studio panel should respect `currentStep` and only show controls relevant to that step. Export should consume `organizedSlots` order for the final exhibit sequence.

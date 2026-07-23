@@ -3,9 +3,9 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Repeat, Trash2,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
@@ -106,31 +106,26 @@ function JurisdictionVerifyButton({ onVerify, disabled }: { onVerify: () => void
 function VideoTimeline({
   duration, currentTime, markers, onSeek,
   activeMarkerId, onSelectMarker,
-  loopRegion, isLoopMode, onLoopRegionChange,
-  splitPoints, onRemoveSplitPoint, onDeleteSegment,
-  thumbnails,
+  chunks, onSplitChunk, onRemoveChunk,
+  thumbnails, step,
 }: {
   duration: number; currentTime: number;
   markers: ExhibitMarker[];
   onSeek: (t: number) => void;
   activeMarkerId: string | null;
   onSelectMarker: (id: string) => void;
-  loopRegion: { start: number; end: number } | null;
-  isLoopMode: boolean;
-  onLoopRegionChange: (r: { start: number; end: number } | null) => void;
-  splitPoints: number[];
-  onRemoveSplitPoint: (pt: number) => void;
-  onDeleteSegment: (start: number, end: number) => void;
+  chunks: VideoChunk[];
+  onSplitChunk: (id: string, at: number) => void;
+  onRemoveChunk: (id: string) => void;
   thumbnails: string[];
+  step: number;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const [selectedSegIdx, setSelectedSegIdx] = useState<number | null>(null);
-  const [trashHovered, setTrashHovered] = useState(false);
-  const [draggingSegIdx, setDraggingSegIdx] = useState<number | null>(null);
-  const dragState = useRef<{
-    active: boolean; mode: "seek" | "loop";
-    startPct: number; startX: number; moved: boolean;
-  }>({ active: false, mode: "seek", startPct: 0, startX: 0, moved: false });
+  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  const [draggingChunkId, setDraggingChunkId] = useState<string | null>(null);
+  const dragState = useRef<{ active: boolean; startX: number; moved: boolean }>(
+    { active: false, startX: 0, moved: false }
+  );
 
   function pctFromX(clientX: number) {
     const el = trackRef.current;
@@ -138,26 +133,15 @@ function VideoTimeline({
     const rect = el.getBoundingClientRect();
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   }
-
   function startDrag(clientX: number) {
-    const pct = pctFromX(clientX);
-    const t = pct * duration;
-    dragState.current = { active: true, startPct: pct, startX: clientX, moved: false, mode: "seek" };
-    if (isLoopMode) { dragState.current.mode = "loop"; onLoopRegionChange({ start: t, end: t }); }
-    else { onSeek(t); }
+    dragState.current = { active: true, startX: clientX, moved: false };
+    onSeek(pctFromX(clientX) * duration);
   }
-
   function moveDrag(clientX: number) {
     if (!dragState.current.active) return;
     if (Math.abs(clientX - dragState.current.startX) > 6) dragState.current.moved = true;
-    const t = pctFromX(clientX) * duration;
-    const startT = dragState.current.startPct * duration;
-    if (dragState.current.mode === "loop") {
-      const s = Math.min(startT, t), e = Math.max(startT, t);
-      onLoopRegionChange(e - s > 0.3 ? { start: s, end: e } : null);
-    } else { onSeek(t); }
+    onSeek(pctFromX(clientX) * duration);
   }
-
   function endDrag() { dragState.current.active = false; }
 
   useEffect(() => {
@@ -166,31 +150,19 @@ function VideoTimeline({
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, [duration, isLoopMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [duration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const lsPct = loopRegion && duration ? (loopRegion.start / duration) * 100 : 0;
-  const lePct = loopRegion && duration ? (loopRegion.end / duration) * 100 : 0;
 
-  // Boundaries: user split points + boundaries of any committed video_cut markers (legacy)
-  const cutBounds = markers
+  // Visual segments: chunks + any legacy video_cut gaps
+  const cutGaps = markers
     .filter(m => m.type === "video_cut" && m.cutEnd != null)
-    .flatMap(m => [m.timestamp, m.cutEnd!]);
-  const rawBounds = [0, ...splitPoints, ...cutBounds, duration];
-  const allBounds = [...new Set(rawBounds.map(v => Math.round(v * 1000) / 1000))]
-    .filter(v => v >= 0 && v <= duration)
-    .sort((a, b) => a - b);
+    .map(m => ({ id: m.id, start: m.timestamp, end: m.cutEnd!, isDeleted: true as const, label: "", tag: undefined as string | undefined }));
+  const chunkSegs = chunks.map(c => ({
+    id: c.id, start: c.start, end: c.end, isDeleted: false as const, label: c.label, tag: c.tag,
+  }));
+  const allSegs = [...chunkSegs, ...cutGaps].sort((a, b) => a.start - b.start);
 
-  const segments = allBounds.slice(0, -1).map((s, i) => {
-    const e = allBounds[i + 1];
-    const isDeleted = markers.some(m =>
-      m.type === "video_cut" && m.cutEnd != null &&
-      Math.abs(m.timestamp - s) < 0.12 && Math.abs(m.cutEnd - e) < 0.12
-    );
-    return { start: s, end: e, idx: i, isDeleted };
-  });
-
-  // Per-segment thumbnail slicer
   const NUM = thumbnails.length;
   function segThumbs(start: number, end: number): string[] {
     if (!NUM || !duration) return [];
@@ -200,77 +172,90 @@ function VideoTimeline({
       return t >= start - dt * 0.55 && t <= end + dt * 0.55;
     });
     if (inRange.length > 0) return inRange;
-    // fallback: nearest frame
     let best = 0, bestD = Infinity;
     thumbnails.forEach((_, i) => { const d = Math.abs(i * dt - (start + end) / 2); if (d < bestD) { bestD = d; best = i; } });
     return [thumbnails[best]];
   }
 
-  const hasTrash = splitPoints.length > 0;
+  const TAG_COLORS: Record<string, string> = {
+    consistency: "#22c55e", contradiction: "#ef4444",
+    escalation: "#f59e0b", no_cause: "#8b5cf6",
+  };
 
   return (
     <div style={{ padding: "0 0 26px", position: "relative", marginBottom: 4 }}>
-      {isLoopMode && (
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3, marginBottom: 5, color: "#3b82f6" }}>
-          ⟳  LOOP — drag to set region · tap to clear
-        </div>
-      )}
-
-      <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "stretch" }}>
         {/* ── Track ── */}
         <div ref={trackRef}
           style={{ flex: 1, height: 72, borderRadius: 10, position: "relative",
-            cursor: "pointer", border: `1.5px solid ${isLoopMode ? "#3b82f6" : "#1e1e1e"}`,
+            cursor: "pointer", border: "1.5px solid #1e1e1e",
             overflow: "hidden", boxSizing: "border-box" }}
           onMouseDown={e => { if ((e.target as HTMLElement).closest("button")) return; startDrag(e.clientX); }}
           onTouchStart={e => {
             if ((e.target as HTMLElement).closest("button")) return;
             e.preventDefault();
             const tc = e.touches[0];
-            dragState.current = { active: true, startPct: pctFromX(tc.clientX), startX: tc.clientX, moved: false, mode: isLoopMode ? "loop" : "seek" };
-            if (isLoopMode) onLoopRegionChange({ start: pctFromX(tc.clientX) * duration, end: pctFromX(tc.clientX) * duration });
-            else onSeek(pctFromX(tc.clientX) * duration);
+            dragState.current = { active: true, startX: tc.clientX, moved: false };
+            onSeek(pctFromX(tc.clientX) * duration);
           }}
           onTouchMove={e => { e.preventDefault(); moveDrag(e.touches[0].clientX); }}
           onTouchEnd={() => endDrag()}>
 
-          {/* ── Segments (thumbnail + overlay) ── */}
-          {duration > 0 && segments.map(seg => {
+          {/* Raw footage placeholder when no chunks yet */}
+          {allSegs.length === 0 && duration > 0 && (
+            <div style={{ position: "absolute", inset: 0 }}>
+              {thumbnails.length > 0 ? (
+                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
+                  {thumbnails.map((src, i) => (
+                    <img key={i} src={src} alt="" draggable={false}
+                      style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
+                  ))}
+                </div>
+              ) : (
+                <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(90deg,#111 0,#111 1px,#161616 1px,#161616 40px)" }} />
+              )}
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 10, color: "#3a3a3a", fontWeight: 700, letterSpacing: 0.6 }}>DON'T EDIT YET — JUST WATCH AND MARK</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Segments ── */}
+          {duration > 0 && allSegs.map(seg => {
             const leftPct = (seg.start / duration) * 100;
             const widthPct = ((seg.end - seg.start) / duration) * 100;
-            const isSelected = selectedSegIdx === seg.idx && !seg.isDeleted;
+            const isSelected = selectedChunkId === seg.id && !seg.isDeleted;
             const thumbs = segThumbs(seg.start, seg.end);
             const playedFrac = !seg.isDeleted && currentTime > seg.start
               ? Math.min(1, (Math.min(currentTime, seg.end) - seg.start) / (seg.end - seg.start))
               : 0;
+            const tagColor = seg.tag ? TAG_COLORS[seg.tag] : null;
             return (
-              <div key={seg.idx}
-                draggable={!seg.isDeleted}
+              <div key={seg.id}
+                draggable={!seg.isDeleted && step === 3}
                 onDragStart={e => {
-                  e.stopPropagation();
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", JSON.stringify({ start: seg.start, end: seg.end }));
-                  setDraggingSegIdx(seg.idx);
+                  e.stopPropagation(); e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", JSON.stringify({ chunkId: seg.id }));
+                  setDraggingChunkId(seg.id);
                 }}
-                onDragEnd={() => setDraggingSegIdx(null)}
+                onDragEnd={() => setDraggingChunkId(null)}
                 onClick={e => {
                   if (dragState.current.moved || (e.target as HTMLElement).closest("button")) return;
                   e.stopPropagation();
-                  if (!seg.isDeleted) setSelectedSegIdx(v => v === seg.idx ? null : seg.idx);
+                  if (!seg.isDeleted) setSelectedChunkId(v => v === seg.id ? null : seg.id);
                 }}
                 style={{ position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`,
                   top: 0, bottom: 0, boxSizing: "border-box",
-                  cursor: seg.isDeleted ? "default" : "grab",
-                  opacity: draggingSegIdx === seg.idx ? 0.35 : 1,
+                  cursor: seg.isDeleted ? "default" : step === 3 ? "grab" : "pointer",
+                  opacity: draggingChunkId === seg.id ? 0.35 : 1,
                   transition: "opacity 0.12s" }}>
 
                 {seg.isDeleted ? (
-                  /* Deleted: dark empty gap */
                   <div style={{ position: "absolute", inset: 0, background: "#090909",
                     borderLeft: "1px solid #1a1a1a", borderRight: "1px solid #1a1a1a" }} />
                 ) : (
                   <>
-                    {/* Thumbnail strip for this segment's time range */}
+                    {/* Thumbnail strip */}
                     <div style={{ position: "absolute", inset: 0, display: "flex", overflow: "hidden" }}>
                       {thumbs.map((src, ti) => (
                         <img key={ti} src={src} alt="" draggable={false}
@@ -285,60 +270,43 @@ function VideoTimeline({
                       <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
                         background: `linear-gradient(to right, rgba(0,0,0,0.48) ${playedFrac * 100}%, transparent ${playedFrac * 100}%)` }} />
                     )}
-                    {/* Selected overlay + delete button */}
+                    {/* Tag color bar */}
+                    {tagColor && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: tagColor, zIndex: 3 }} />}
+                    {/* Label overlay (step 2+) */}
+                    {step >= 2 && seg.label && (
+                      <div style={{ position: "absolute", bottom: tagColor ? 5 : 2, left: 3, right: 3, zIndex: 4,
+                        fontSize: 8, fontWeight: 800, color: "#fff", textShadow: "0 1px 3px #000",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {seg.label}
+                      </div>
+                    )}
+                    {/* Right divider */}
+                    <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 1, background: "rgba(255,255,255,0.18)", zIndex: 2 }} />
+                    {/* Selected overlay — Split + Remove buttons */}
                     {isSelected && (
-                      <div style={{ position: "absolute", inset: 0, border: "2px solid rgba(255,255,255,0.8)",
-                        boxSizing: "border-box", background: "rgba(255,255,255,0.06)", zIndex: 6 }}>
-                        <button
-                          onMouseDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); onDeleteSegment(seg.start, seg.end); setSelectedSegIdx(null); }}
-                          style={{ position: "absolute", top: "50%", left: "50%",
-                            transform: "translate(-50%,-50%)",
-                            background: "rgba(10,10,10,0.92)", border: "1px solid rgba(255,255,255,0.2)",
-                            borderRadius: 8, padding: "5px 10px",
-                            display: "flex", alignItems: "center", gap: 5,
-                            cursor: "pointer", color: "#eee", fontSize: 10, fontWeight: 800,
-                            whiteSpace: "nowrap" }}>
-                          <Trash2 size={11} /> Delete clip
-                        </button>
+                      <div style={{ position: "absolute", inset: 0, border: "2px solid rgba(255,255,255,0.85)",
+                        boxSizing: "border-box", background: "rgba(255,255,255,0.07)", zIndex: 6 }}>
+                        <div style={{ position: "absolute", top: "50%", left: "50%",
+                          transform: "translate(-50%,-50%)", display: "flex", gap: 4 }}>
+                          <button onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); onSplitChunk(seg.id, currentTime); setSelectedChunkId(null); }}
+                            style={{ background: "rgba(10,10,10,0.92)", border: "1px solid rgba(255,255,255,0.2)",
+                              borderRadius: 7, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3,
+                              cursor: "pointer", color: "#eee", fontSize: 9, fontWeight: 800, whiteSpace: "nowrap" }}>
+                            <Scissors size={9} /> Split
+                          </button>
+                          <button onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); onRemoveChunk(seg.id); setSelectedChunkId(null); }}
+                            style={{ background: "rgba(10,10,10,0.92)", border: "1px solid rgba(239,68,68,0.35)",
+                              borderRadius: 7, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3,
+                              cursor: "pointer", color: "#ef4444", fontSize: 9, fontWeight: 800, whiteSpace: "nowrap" }}>
+                            <Trash2 size={9} /> Remove
+                          </button>
+                        </div>
                       </div>
                     )}
                   </>
                 )}
-              </div>
-            );
-          })}
-
-          {/* Loop region */}
-          {loopRegion && duration > 0 && lePct > lsPct && (
-            <div
-              onClick={e => { e.stopPropagation(); if (!dragState.current.moved) onLoopRegionChange(null); }}
-              style={{ position: "absolute", left: `${lsPct}%`, width: `${lePct - lsPct}%`,
-                top: 0, bottom: 0, background: "rgba(59,130,246,0.22)", zIndex: 4,
-                cursor: "pointer", boxSizing: "border-box" }}>
-              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: "#3b82f6" }} />
-              <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 3, background: "#3b82f6" }} />
-              <div style={{ position: "absolute", top: "50%", left: "50%",
-                transform: "translate(-50%,-50%)", fontSize: 9, color: "#60a5fa",
-                fontWeight: 800, whiteSpace: "nowrap", pointerEvents: "none",
-                textShadow: "0 1px 4px #000" }}>⟳ LOOP</div>
-            </div>
-          )}
-
-          {/* Split lines — thin white rules with × remove handle */}
-          {duration > 0 && splitPoints.map((pt, i) => {
-            const pct = (pt / duration) * 100;
-            return (
-              <div key={i} style={{ position: "absolute", left: `${pct}%`, top: 0, bottom: 0,
-                width: 2, background: "rgba(255,255,255,0.55)", transform: "translateX(-50%)", zIndex: 7 }}>
-                <button
-                  onMouseDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); onRemoveSplitPoint(pt); }}
-                  style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)",
-                    width: 16, height: 16, background: "#1c1c1c", border: "1px solid rgba(255,255,255,0.35)",
-                    borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", color: "#bbb", fontSize: 10, fontWeight: 900, lineHeight: 1,
-                    zIndex: 8, padding: 0 }}>×</button>
               </div>
             );
           })}
@@ -348,12 +316,11 @@ function VideoTimeline({
             width: 2, background: ORANGE, transform: "translateX(-50%)", zIndex: 9,
             pointerEvents: "none" }}>
             <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-              width: 0, height: 0,
-              borderLeft: "6px solid transparent", borderRight: "6px solid transparent",
+              width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent",
               borderTop: `11px solid ${ORANGE}` }} />
           </div>
 
-          {/* Marker pins */}
+          {/* Exhibit / media / screen marker pins */}
           {duration > 0 && markers.filter(m => m.type !== "video_cut").map(m => {
             const pct = (m.timestamp / duration) * 100;
             const isActive = m.id === activeMarkerId;
@@ -362,14 +329,11 @@ function VideoTimeline({
             const isAIScreen = m.type === "exhibit_screen";
             const color = isCutM ? "#60a5fa" : isMedia ? "#a78bfa" : isAIScreen ? "#8b5cf6" : ORANGE;
             return (
-              <div key={m.id}
-                onClick={e => { e.stopPropagation(); onSelectMarker(m.id); }}
+              <div key={m.id} onClick={e => { e.stopPropagation(); onSelectMarker(m.id); }}
                 style={{ position: "absolute", left: `${pct}%`, top: 0, bottom: 0,
                   transform: "translateX(-50%)", zIndex: 10,
                   display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
-                <div style={{ width: isActive ? 2 : 1.5, flex: 1,
-                  background: isActive ? "#fff" : color + "cc",
-                  boxShadow: `0 0 4px ${color}66` }} />
+                <div style={{ width: isActive ? 2 : 1.5, flex: 1, background: isActive ? "#fff" : color + "cc", boxShadow: `0 0 4px ${color}66` }} />
                 <div style={{ width: 18, height: 18, background: color, borderRadius: 4, flexShrink: 0,
                   display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1,
                   border: isActive ? "1.5px solid #fff" : "none" }}>
@@ -382,30 +346,10 @@ function VideoTimeline({
             );
           })}
         </div>
-
-        {/* ── Trash drop target — shown when there are split lines ── */}
-        {hasTrash && (
-          <div
-            onDragOver={e => { e.preventDefault(); setTrashHovered(true); }}
-            onDragLeave={() => setTrashHovered(false)}
-            onDrop={e => {
-              e.preventDefault(); setTrashHovered(false);
-              try { const { start, end } = JSON.parse(e.dataTransfer.getData("text/plain")); onDeleteSegment(start, end); } catch {}
-              setDraggingSegIdx(null);
-            }}
-            style={{ width: 44, height: 72, flexShrink: 0, borderRadius: 10,
-              background: trashHovered ? "#1a0000" : "#0c0c0c",
-              border: `1.5px dashed ${trashHovered ? "#ef4444" : "#1e1e1e"}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "all 0.15s", cursor: "default" }}>
-            <Trash2 size={16} color={trashHovered ? "#ef4444" : "#2a2a2a"} />
-          </div>
-        )}
       </div>
 
-      {/* Below-track: time ticks + marker labels */}
-      <div style={{ position: "relative", height: 20, marginTop: 3,
-        paddingRight: hasTrash ? 52 : 0 }}>
+      {/* Time ticks */}
+      <div style={{ position: "relative", height: 20, marginTop: 3 }}>
         {duration > 0 && [0, 0.25, 0.5, 0.75, 1].map(t => (
           <div key={t} style={{ position: "absolute", left: `${t * 100}%`, top: 0,
             fontSize: 8, color: "#3a3a3a", fontWeight: 700,
@@ -432,6 +376,48 @@ function VideoTimeline({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Slot Cell (Step 3 Organize track) ─────────────────────────────────────────
+function SlotCell({ index, chunk, onDrop, onClear }: {
+  index: number;
+  chunk: VideoChunk | null;
+  onDrop: (chunkId: string) => void;
+  onClear: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setHovered(true); }}
+      onDragLeave={() => setHovered(false)}
+      onDrop={e => {
+        e.preventDefault(); setHovered(false);
+        try { const { chunkId } = JSON.parse(e.dataTransfer.getData("text/plain")); onDrop(chunkId); } catch {}
+      }}
+      style={{ width: 84, height: 64, flexShrink: 0, borderRadius: 12, position: "relative",
+        background: chunk ? "#111" : hovered ? "#0a1400" : "#0a0a0a",
+        border: `1.5px ${chunk ? "solid #1e1e1e" : "dashed"} ${hovered ? "#22c55e" : chunk ? "#1e1e1e" : "#222"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        transition: "all 0.12s", cursor: "default", overflow: "hidden" }}>
+      {chunk ? (
+        <>
+          <div style={{ padding: "6px 8px", fontSize: 9, fontWeight: 800, color: "#bbb",
+            textAlign: "center", lineHeight: 1.35,
+            overflow: "hidden", display: "-webkit-box",
+            WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
+            {chunk.label || `Moment`}
+          </div>
+          <button onClick={e => { e.stopPropagation(); onClear(); }}
+            style={{ position: "absolute", top: 3, right: 3, background: "none", border: "none",
+              cursor: "pointer", padding: 2, lineHeight: 0 }}>
+            <X size={10} color="#444" />
+          </button>
+        </>
+      ) : (
+        <div style={{ fontSize: 11, color: "#252525", fontWeight: 800 }}>{index + 1}</div>
+      )}
     </div>
   );
 }
@@ -924,11 +910,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   // ── Cut screen builder ─────────────────────────────────────────
   const [showCutBuilder, setShowCutBuilder] = useState(false);
-  // ── Loop region ────────────────────────────────────────────────
-  const [loopRegion, setLoopRegion] = useState<{ start: number; end: number } | null>(null);
-  const [isLoopMode, setIsLoopMode] = useState(false);
-  // ── Cut / scissors tool ────────────────────────────────────────
-  const [splitPoints, setSplitPoints] = useState<number[]>([]);
+  // ── Chunk / step state ─────────────────────────────────────────
+  const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
+  const [currentStep, setCurrentStep] = useState(hlCase.studioProject?.workflowStep ?? 1);
+  const [organizedSlots, setOrganizedSlots] = useState<(string | null)[]>(() => {
+    const saved = hlCase.studioProject?.organizedSlots;
+    return saved && saved.length >= 10 ? saved : Array(10).fill(null);
+  });
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
 
@@ -966,14 +954,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentTimeRef = useRef(0);
   // snapshotRef holds latest values so the debounced IDB write always sees fresh data
-  const snapshotRef = useRef<{ markers: ExhibitMarker[]; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
+  const snapshotRef = useRef<{ markers: ExhibitMarker[]; chunks: VideoChunk[]; organizedSlots: (string | null)[]; workflowStep: number; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
     markers: hlCase.studioProject?.markers ?? [],
+    chunks: hlCase.studioProject?.chunks ?? [],
+    organizedSlots: hlCase.studioProject?.organizedSlots ?? Array(10).fill(null),
+    workflowStep: hlCase.studioProject?.workflowStep ?? 1,
     videoFileName: hlCase.studioProject?.videoFileName ?? "",
     videoDurationSec: hlCase.studioProject?.videoDurationSec ?? 0,
     exportSettings: { resKey: "1080", fps: 30, format: "mp4", includeAudio: true },
   });
   // Keep snapshotRef current on every render (synchronous, safe)
   snapshotRef.current.markers = markers;
+  snapshotRef.current.chunks = chunks;
+  snapshotRef.current.organizedSlots = organizedSlots;
+  snapshotRef.current.workflowStep = currentStep;
   snapshotRef.current.videoFileName = videoFileName;
   snapshotRef.current.videoDurationSec = duration;
   snapshotRef.current.exportSettings = exportSettings;
@@ -1005,20 +999,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setMarkers(markers.map(m => (m.id === markerId ? { ...m, holdSec: sec } : m)), false);
   }
 
-  function triggerAutosave(updatedMarkers: ExhibitMarker[]) {
+  function triggerAutosave(
+    updatedMarkers: ExhibitMarker[],
+    updatedChunks?: VideoChunk[],
+    updatedSlots?: (string | null)[],
+    updatedStep?: number,
+  ) {
     setAutosaveStatus("saving");
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       const project = getOrCreateProject();
-      // Read videoFileName and duration from snapshotRef so we always get the
-      // latest values — calling code may have just called setState and the
-      // closure would still hold the pre-update values.
+      // Read from snapshotRef so we always get the latest values — calling code
+      // may have just called setState and closures still hold stale values.
       const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days from now
       const next: StudioProject = {
         ...project,
         videoFileName: snapshotRef.current.videoFileName,
         videoDurationSec: snapshotRef.current.videoDurationSec,
         markers: updatedMarkers,
+        chunks: updatedChunks ?? snapshotRef.current.chunks,
+        organizedSlots: updatedSlots ?? snapshotRef.current.organizedSlots,
+        workflowStep: updatedStep ?? snapshotRef.current.workflowStep,
         updatedAt: Date.now(),
         expiresAt,
       };
@@ -1143,38 +1144,48 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (v) { v.currentTime = t; setCurrentTime(t); }
   }
 
-  // ── Place a split line at the current playhead position ──────────
-  function splitHere() {
+  // ── Mark Moment — bookmarks from lastMark to playhead as a chunk ──
+  function markMoment() {
     if (!videoUrl || !duration) return;
     const t = currentTimeRef.current;
-    if (t <= 0.1 || t >= duration - 0.1) return;
-    if (splitPoints.some(p => Math.abs(p - t) < 0.3)) return;
-    setSplitPoints(prev => [...prev, t].sort((a, b) => a - b));
-  }
-
-  function removeSplitPoint(pt: number) {
-    setSplitPoints(prev => prev.filter(p => Math.abs(p - pt) > 0.05));
-  }
-
-  // ── Delete a segment → creates a video_cut marker ─────────────────
-  function deleteSegment(start: number, end: number) {
+    const lastMark = chunks.length > 0 ? chunks[chunks.length - 1].end : 0;
+    if (t <= lastMark + 0.5) return; // too close to previous mark
     const id = crypto.randomUUID();
-    const cutNum = markers.filter(m => m.type === "video_cut").length + 1;
-    const newMarker: ExhibitMarker = {
-      id, timestamp: start, cutEnd: end,
-      label: `Cut ${cutNum}`, dictation: "", whyItMatters: "",
+    const newChunk: VideoChunk = { id, start: lastMark, end: t, label: "" };
+    const updated = [...chunks, newChunk];
+    setChunks(updated);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
+  }
+
+  // ── Split a chunk at the current playhead position ─────────────
+  function splitChunk(id: string, at: number) {
+    const chunk = chunks.find(c => c.id === id);
+    if (!chunk || at <= chunk.start + 0.3 || at >= chunk.end - 0.3) return;
+    const a: VideoChunk = { ...chunk, end: at };
+    const b: VideoChunk = { id: crypto.randomUUID(), start: at, end: chunk.end, label: "", tag: chunk.tag };
+    const idx = chunks.findIndex(c => c.id === id);
+    const updated = [...chunks.slice(0, idx), a, b, ...chunks.slice(idx + 1)];
+    setChunks(updated);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
+  }
+
+  // ── Remove a chunk → creates a video_cut marker for export ────────
+  function removeChunk(id: string) {
+    const chunk = chunks.find(c => c.id === id);
+    if (!chunk) return;
+    const cutMarker: ExhibitMarker = {
+      id: crypto.randomUUID(), timestamp: chunk.start, cutEnd: chunk.end,
+      label: "Cut", dictation: "", whyItMatters: "",
       status: "ready", createdAt: Date.now(), type: "video_cut",
     };
-    setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
-    // Remove split points that were bounding this segment
-    setSplitPoints(prev => prev.filter(p => Math.abs(p - start) > 0.1 && Math.abs(p - end) > 0.1));
+    const newMarkers = [...markers, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
+    const newChunks = chunks.filter(c => c.id !== id);
+    const newSlots = organizedSlots.map(s => s === id ? null : s);
+    setMarkersRaw(newMarkers);
+    setChunks(newChunks);
+    setOrganizedSlots(newSlots);
+    triggerAutosave(newMarkers, newChunks, newSlots, currentStep);
   }
-
-  // ── Loop enforcement ────────────────────────────────────────────
-  useEffect(() => {
-    if (!loopRegion || !isPlaying) return;
-    if (currentTime >= loopRegion.end - 0.15) seek(loopRegion.start);
-  }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Skip video_cut regions during playback ──────────────────────
   useEffect(() => {
@@ -1847,146 +1858,273 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onSeek={seek}
           activeMarkerId={activeMarkerId}
           onSelectMarker={id => { setActiveMarkerId(id); }}
-          loopRegion={loopRegion}
-          isLoopMode={isLoopMode}
-          onLoopRegionChange={setLoopRegion}
-          splitPoints={splitPoints}
-          onRemoveSplitPoint={removeSplitPoint}
-          onDeleteSegment={deleteSegment}
+          chunks={chunks}
+          onSplitChunk={splitChunk}
+          onRemoveChunk={removeChunk}
           thumbnails={thumbnails}
+          step={currentStep}
         />
 
-        {/* ── Legend ────────────────────────────────────────────────── */}
-        {sortedMarkers.some(m => m.type === "screen_cut" || m.type === "media_insert" || m.type === "exhibit_screen") && (
-          <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
-            {sortedMarkers.some(m => !m.type || m.type === "analysis") && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
-                <div style={{ width: 10, height: 3, background: ORANGE, borderRadius: 2 }} /> Exhibit
-              </div>
-            )}
-            {sortedMarkers.some(m => m.type === "screen_cut") && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
-                <div style={{ width: 10, height: 3, background: "#60a5fa", borderRadius: 2 }} /> Screen
-              </div>
-            )}
-            {sortedMarkers.some(m => m.type === "media_insert") && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
-                <div style={{ width: 10, height: 3, background: "#a78bfa", borderRadius: 2 }} /> Media
-              </div>
-            )}
-            {sortedMarkers.some(m => m.type === "exhibit_screen") && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#555" }}>
-                <div style={{ width: 10, height: 3, background: "#8b5cf6", borderRadius: 2 }} /> AI Screen
+        {/* ── Step Navigation ───────────────────────────────────────── */}
+        {videoUrl && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+            {(["Chunk", "Label", "Organize", "Exhibit"] as const).map((label, i) => {
+              const s = i + 1;
+              const isActive = currentStep === s;
+              return (
+                <button key={s} onClick={() => {
+                  setCurrentStep(s);
+                  triggerAutosave(markers, chunks, organizedSlots, s);
+                }}
+                  style={{ flex: 1, background: isActive ? "#1a1200" : "#0d0d0d",
+                    border: `1px solid ${isActive ? ORANGE + "66" : "#1e1e1e"}`,
+                    borderRadius: 10, padding: "8px 4px",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                    cursor: "pointer", transition: "all 0.1s" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%",
+                    background: isActive ? ORANGE : "#181818",
+                    border: `1.5px solid ${isActive ? ORANGE : "#2a2a2a"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 9, fontWeight: 900, color: isActive ? "#000" : "#444" }}>
+                    {s}
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: isActive ? ORANGE : "#3a3a3a", letterSpacing: 0.3 }}>
+                    {label.toUpperCase()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Step 1: Chunk ─────────────────────────────────────────── */}
+        {currentStep === 1 && videoUrl && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: "#555", marginBottom: 12, lineHeight: 1.6 }}>
+              {chunks.length === 0
+                ? "Don't edit yet. Just watch and mark."
+                : `${chunks.length} moment${chunks.length !== 1 ? "s" : ""} marked.${chunks.length < 3 ? " Keep watching." : " Ready to label when you're done."}`}
+            </div>
+            <button
+              onClick={markMoment}
+              disabled={!duration}
+              style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 14,
+                padding: "18px 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                gap: 10, cursor: "pointer", fontWeight: 900, fontSize: 16, color: "#000" }}>
+              <Bookmark size={18} color="#000" strokeWidth={2.5} />
+              Mark Moment
+            </button>
+            {chunks.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {chunks.map(c => (
+                  <div key={c.id} style={{ background: "#111", border: "1px solid #1e1e1e",
+                    borderRadius: 8, padding: "4px 9px", fontSize: 11, color: "#555", fontWeight: 700 }}>
+                    {formatTime(c.start)}–{formatTime(c.end)}
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
 
-        {/* ── Action buttons ────────────────────────────────────────── */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-
-          {/* Exhibit — primary, opens AI generator with video preview */}
-          <button
-            onClick={() => {
-              if (!videoUrl) return;
-              if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
-              setShowExhibitGenerator(true);
-            }}
-            disabled={!videoUrl}
-            style={{ flex: 1, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12, padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13, color: videoUrl ? "#000" : "#444", minWidth: 100 }}>
-            <Wand2 size={15} /> Exhibit
-          </button>
-
-          {/* Loop toggle */}
-          <button
-            onClick={() => {
-              if (!videoUrl) return;
-              if (isLoopMode) {
-                setIsLoopMode(false);
-              } else {
-                setSplitPoints([]);
-                setIsLoopMode(true);
-              }
-            }}
-            disabled={!videoUrl}
-            title={loopRegion ? `Loop ${formatTime(loopRegion.start)}–${formatTime(loopRegion.end)} · tap to toggle mode` : "Loop region"}
-            style={{ width: 50, height: 50, borderRadius: 12, background: (isLoopMode || loopRegion) ? "#0a1a32" : "#111", border: `1px solid ${isLoopMode ? "#3b82f6" : loopRegion ? "#3b82f655" : videoUrl ? "#3b82f633" : "#222"}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", position: "relative", flexShrink: 0 }}>
-            <Repeat size={18} color={(isLoopMode || loopRegion) ? "#3b82f6" : videoUrl ? "#3b82f6aa" : "#444"} />
-            {loopRegion && <div style={{ position: "absolute", top: 5, right: 5, width: 7, height: 7, background: "#3b82f6", borderRadius: "50%", border: "1px solid #000" }} />}
-          </button>
-
-          {/* Scissors — one click cuts at playhead */}
-          <button
-            onClick={() => { if (!videoUrl) return; setIsLoopMode(false); splitHere(); }}
-            disabled={!videoUrl}
-            title="Cut at playhead position"
-            style={{ width: 50, height: 50, borderRadius: 12,
-              background: splitPoints.length > 0 ? "#100505" : "#111",
-              border: `1px solid ${videoUrl ? "#ef444433" : "#222"}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0, position: "relative" }}>
-            <Scissors size={18} color={videoUrl ? "#ef4444aa" : "#444"} />
-            {splitPoints.length > 0 && (
-              <div style={{ position: "absolute", top: 5, right: 5, width: 14, height: 14,
-                background: "#ef4444", borderRadius: "50%", display: "flex",
-                alignItems: "center", justifyContent: "center",
-                fontSize: 8, fontWeight: 900, color: "#fff", border: "1px solid #000" }}>
-                {splitPoints.length}
+        {/* ── Step 2: Label ─────────────────────────────────────────── */}
+        {currentStep === 2 && videoUrl && (
+          <div style={{ marginBottom: 20 }}>
+            {chunks.length === 0 ? (
+              <div style={{ background: "#0d0d0d", border: "1px dashed #222", borderRadius: 12,
+                padding: "20px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>No moments yet.</div>
+                <button onClick={() => setCurrentStep(1)}
+                  style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "10px 20px",
+                    fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                  Go mark moments first
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {chunks.map((c, i) => (
+                  <div key={c.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e",
+                    borderRadius: 12, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 10, color: "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
+                      MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                    </div>
+                    <input
+                      type="text"
+                      value={c.label}
+                      placeholder="What happened here?"
+                      onChange={e => {
+                        const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
+                        setChunks(updated);
+                        triggerAutosave(markers, updated, organizedSlots, currentStep);
+                      }}
+                      style={{ width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#ddd",
+                        fontWeight: 600, outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                    />
+                    <div style={{ display: "flex", gap: 5 }}>
+                      {(["consistency", "contradiction", "escalation", "no_cause"] as const).map(tag => {
+                        const tagColors: Record<string, string> = {
+                          consistency: "#22c55e", contradiction: "#ef4444",
+                          escalation: "#f59e0b", no_cause: "#8b5cf6",
+                        };
+                        const tagLabels: Record<string, string> = {
+                          consistency: "Consistent", contradiction: "Contradiction",
+                          escalation: "Escalation", no_cause: "No Cause Given",
+                        };
+                        const active = c.tag === tag;
+                        return (
+                          <button key={tag} onClick={() => {
+                            const updated = chunks.map(x => x.id === c.id ? { ...x, tag: active ? undefined : tag } : x);
+                            setChunks(updated);
+                            triggerAutosave(markers, updated, organizedSlots, currentStep);
+                          }}
+                            style={{ flex: 1, background: active ? tagColors[tag] + "22" : "#111",
+                              border: `1px solid ${active ? tagColors[tag] + "77" : "#1e1e1e"}`,
+                              borderRadius: 7, padding: "5px 3px", fontSize: 9, fontWeight: 800,
+                              color: active ? tagColors[tag] : "#3a3a3a", cursor: "pointer",
+                              textAlign: "center", lineHeight: 1.3 }}>
+                            {tagLabels[tag]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
-          </button>
+          </div>
+        )}
 
-          {/* Media insert — photo or video clip */}
-          <div style={{ position: "relative" }}>
-            <button
-              onClick={() => { if (!videoUrl) return; setShowMediaPicker(v => !v); }}
-              disabled={!videoUrl}
-              title="Insert photo or clip"
-              style={{ width: 50, height: 50, borderRadius: 12, background: showMediaPicker ? "#2a1a4a" : "#111", border: `1px solid ${showMediaPicker ? "#a78bfa" : videoUrl ? "#a78bfa55" : "#222"}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed" }}>
-              <ImageIcon size={18} color={videoUrl ? "#a78bfa" : "#444"} />
-            </button>
-            {showMediaPicker && (
+        {/* ── Step 3: Organize ──────────────────────────────────────── */}
+        {currentStep === 3 && videoUrl && (
+          <div style={{ marginBottom: 20 }}>
+            {chunks.length === 0 ? (
+              <div style={{ background: "#0d0d0d", border: "1px dashed #222", borderRadius: 12,
+                padding: "20px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>Mark and label moments first.</div>
+                <button onClick={() => setCurrentStep(1)}
+                  style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "10px 20px",
+                    fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                  Start at Step 1
+                </button>
+              </div>
+            ) : (
               <>
-                <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setShowMediaPicker(false)} />
-                <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", zIndex: 50, minWidth: 148 }}>
-                  <label htmlFor="studio-media-photo-input"
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                    <ImageIcon size={13} color="#a78bfa" /> Photo
-                  </label>
-                  <div style={{ height: 1, background: "#222" }} />
-                  <label htmlFor="studio-media-clip-input"
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                    <Film size={13} color="#a78bfa" /> Video Clip
-                  </label>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 10, lineHeight: 1.6 }}>
+                  Drag moments from the track above into story order.{" "}
+                  {chunks.some(c => c.tag === "consistency") && (
+                    <span style={{ color: "#3a6a3a" }}>💡 You have a consistent moment — consider opening with it.</span>
+                  )}
+                </div>
+                <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+                  <div style={{ display: "flex", gap: 6, minWidth: "max-content" }}>
+                    {organizedSlots.map((chunkId, i) => {
+                      const chunk = chunkId ? chunks.find(c => c.id === chunkId) ?? null : null;
+                      return (
+                        <SlotCell key={i} index={i} chunk={chunk}
+                          onDrop={id => {
+                            const newSlots = [...organizedSlots];
+                            const prev = newSlots.indexOf(id);
+                            if (prev !== -1) newSlots[prev] = null;
+                            newSlots[i] = id;
+                            // Auto-expand if last slot is filled
+                            const lastFilled = newSlots.reduce((acc, s, idx) => s ? idx : acc, -1);
+                            if (lastFilled >= newSlots.length - 1) { newSlots.push(null); newSlots.push(null); }
+                            setOrganizedSlots(newSlots);
+                            triggerAutosave(markers, chunks, newSlots, currentStep);
+                          }}
+                          onClear={() => {
+                            const newSlots = organizedSlots.map((s, idx) => idx === i ? null : s);
+                            setOrganizedSlots(newSlots);
+                            triggerAutosave(markers, chunks, newSlots, currentStep);
+                          }} />
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}
-            <input id="studio-media-photo-input" type="file" accept="image/*" style={{ display: "none" }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "photo"); e.target.value = ""; }} />
-            <input id="studio-media-clip-input" type="file" accept="video/*" style={{ display: "none" }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "clip"); e.target.value = ""; }} />
           </div>
+        )}
 
-          {/* Mic — edits selected analysis marker, or opens Exhibit panel */}
-          <button
-            onClick={() => {
-              if (activeMarkerId) {
-                const m = markers.find(x => x.id === activeMarkerId);
-                if (m && m.type !== "screen_cut" && m.type !== "video_cut" && !isDictating) startDictation(activeMarkerId);
-              } else if (videoUrl) {
+        {/* ── Step 4: Exhibit, Media, Mic ───────────────────────────── */}
+        {currentStep === 4 && (
+          <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+            <button
+              onClick={() => {
+                if (!videoUrl) return;
                 if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
                 setShowExhibitGenerator(true);
-              }
-            }}
-            disabled={!videoUrl}
-            style={{ width: 50, height: 50, borderRadius: 12, background: isDictating ? "#1a0000" : "#111", border: `1px solid ${isDictating ? "#ef4444" : "#2a2a2a"}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
-            {isDictating ? <MicOff size={18} color="#ef4444" /> : <Mic size={18} color="#888" />}
-          </button>
-        </div>
+              }}
+              disabled={!videoUrl}
+              style={{ flex: 1, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12,
+                padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13,
+                color: videoUrl ? "#000" : "#444", minWidth: 100 }}>
+              <Wand2 size={15} /> Exhibit
+            </button>
+
+            {/* Media insert */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => { if (!videoUrl) return; setShowMediaPicker(v => !v); }}
+                disabled={!videoUrl}
+                title="Insert photo or clip"
+                style={{ width: 50, height: 50, borderRadius: 12, background: showMediaPicker ? "#2a1a4a" : "#111",
+                  border: `1px solid ${showMediaPicker ? "#a78bfa" : videoUrl ? "#a78bfa55" : "#222"}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: videoUrl ? "pointer" : "not-allowed" }}>
+                <ImageIcon size={18} color={videoUrl ? "#a78bfa" : "#444"} />
+              </button>
+              {showMediaPicker && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setShowMediaPicker(false)} />
+                  <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#1a1a1a",
+                    border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", zIndex: 50, minWidth: 148 }}>
+                    <label htmlFor="studio-media-photo-input"
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+                        cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                      <ImageIcon size={13} color="#a78bfa" /> Photo
+                    </label>
+                    <div style={{ height: 1, background: "#222" }} />
+                    <label htmlFor="studio-media-clip-input"
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+                        cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                      <Film size={13} color="#a78bfa" /> Video Clip
+                    </label>
+                  </div>
+                </>
+              )}
+              <input id="studio-media-photo-input" type="file" accept="image/*" style={{ display: "none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "photo"); e.target.value = ""; }} />
+              <input id="studio-media-clip-input" type="file" accept="video/*" style={{ display: "none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "clip"); e.target.value = ""; }} />
+            </div>
+
+            {/* Mic */}
+            <button
+              onClick={() => {
+                if (activeMarkerId) {
+                  const m = markers.find(x => x.id === activeMarkerId);
+                  if (m && m.type !== "screen_cut" && m.type !== "video_cut" && !isDictating) startDictation(activeMarkerId);
+                } else if (videoUrl) {
+                  if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
+                  setShowExhibitGenerator(true);
+                }
+              }}
+              disabled={!videoUrl}
+              style={{ width: 50, height: 50, borderRadius: 12, background: isDictating ? "#1a0000" : "#111",
+                border: `1px solid ${isDictating ? "#ef4444" : "#2a2a2a"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
+              {isDictating ? <MicOff size={18} color="#ef4444" /> : <Mic size={18} color="#888" />}
+            </button>
+          </div>
+        )}
 
       </div>
 

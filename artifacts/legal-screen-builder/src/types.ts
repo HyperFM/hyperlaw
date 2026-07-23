@@ -248,6 +248,19 @@ export interface JurisdictionVerification {
   verifiedAt: number;
 }
 
+/** A captured moment from the Chunk step (Step 1) */
+export interface VideoChunk {
+  id: string;
+  /** Start time in seconds */
+  start: number;
+  /** End time in seconds */
+  end: number;
+  /** Short plain-language label set in Step 2 */
+  label: string;
+  /** Optional tag set in Step 2 */
+  tag?: "consistency" | "contradiction" | "escalation" | "no_cause";
+}
+
 export interface StudioProject {
   id: string;
   caseId: string;
@@ -255,6 +268,12 @@ export interface StudioProject {
   videoFileName: string;
   videoDurationSec?: number;
   markers: ExhibitMarker[];
+  /** Captured moment chunks from the Chunk step */
+  chunks?: VideoChunk[];
+  /** Which step the user is on (1 Chunk, 2 Label, 3 Organize, 4 Exhibit) */
+  workflowStep?: number;
+  /** Ordered slot array for the Organize step — each entry is a chunk id or null */
+  organizedSlots?: (string | null)[];
   jurisdictionVerification?: JurisdictionVerification;
   createdAt: number;
   updatedAt: number;

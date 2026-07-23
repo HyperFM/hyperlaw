@@ -1246,71 +1246,55 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     return () => clearTimeout(t);
   }, [videoLoading]);
 
-  // ── Extract video thumbnails for the timeline strip ────────────────────────
-  useEffect(() => {
-    if (!videoUrl || !duration || duration < 0.5) { setThumbnails([]); return; }
-    let cancelled = false;
-    const vid = document.createElement("video");
-    vid.src = videoUrl;
-    vid.muted = true;
-    vid.playsInline = true;
-    vid.preload = "auto";
-    // crossOrigin must be set before src for object URLs to not taint canvas
-    vid.crossOrigin = "anonymous";
+  // ── Extract video thumbnails using the main video element ─────────────────
+  // We use videoRef (the visible player) because it's guaranteed to be loaded
+  // and playable — no blob-URL CORS issues, no separate element loading race.
+  const capturingRef = useRef(false);
+  function captureThumbnails() {
+    const vid = videoRef.current;
+    if (!vid || capturingRef.current) return;
+    const dur = vid.duration;
+    if (!dur || dur < 0.5) return;
 
+    capturingRef.current = true;
+    const NUM = 16;
     const canvas = document.createElement("canvas");
     canvas.width = 160;
     canvas.height = 90;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const NUM = 16;
+    const ctx = canvas.getContext("2d")!;
     const results: string[] = [];
-    let i = 0;
-    let seeking = false;
+    let frameIdx = 0;
+    const savedTime = vid.currentTime;
 
-    function seekTo(t: number) {
-      seeking = true;
-      vid.currentTime = t;
-    }
+    // Pause if playing so seeks don't fight with playback
+    const wasPlaying = !vid.paused;
+    if (wasPlaying) vid.pause();
 
-    function capture() {
-      if (cancelled || !ctx || !seeking) return;
-      seeking = false;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      try {
-        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+    function onSeeked() {
+      // rAF ensures the frame is actually painted before we sample it
+      requestAnimationFrame(() => {
+        ctx.clearRect(0, 0, 160, 90);
+        ctx.drawImage(vid!, 0, 0, 160, 90);
         results.push(canvas.toDataURL("image/jpeg", 0.85));
-      } catch {
-        // canvas tainted or frame unavailable — push a placeholder so indices stay aligned
-        results.push("");
-      }
-      i++;
-      if (i < NUM) {
-        // Spread evenly: frame 0 → 0s, frame N-1 → duration
-        seekTo((i / (NUM - 1)) * duration);
-      } else {
-        vid.src = "";
-        setThumbnails(results.filter(Boolean));
-      }
+        frameIdx++;
+        if (frameIdx < NUM) {
+          // Use strictly positive times — seeking to exactly 0 doesn't fire seeked
+          const nextT = Math.max(0.001, (frameIdx / (NUM - 1)) * dur);
+          vid!.currentTime = nextT;
+        } else {
+          vid!.removeEventListener("seeked", onSeeked);
+          capturingRef.current = false;
+          setThumbnails([...results]);
+          // Restore playhead; resume if video was playing
+          vid!.currentTime = savedTime;
+          if (wasPlaying) vid!.play().catch(() => {});
+        }
+      });
     }
 
-    vid.addEventListener("seeked", capture);
-
-    // Use loadedmetadata (fires earlier than loadeddata) then kick off with a
-    // non-zero seek so the "already at 0" browser quirk can't swallow the event.
-    vid.addEventListener("loadedmetadata", () => {
-      if (!cancelled) seekTo(0.001);
-    });
-
-    vid.load();
-
-    return () => {
-      cancelled = true;
-      vid.removeEventListener("seeked", capture);
-      vid.src = "";
-    };
-  }, [videoUrl, duration]); // eslint-disable-line react-hooks/exhaustive-deps
+    vid.addEventListener("seeked", onSeeked);
+    vid.currentTime = 0.001;
+  }
 
   // ── Expiry check on mount — clean up server data for expired projects ──────
   useEffect(() => {
@@ -1667,7 +1651,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             }}
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}
-            onLoadedData={() => setVideoLoading(false)}
+            onLoadedData={() => { setVideoLoading(false); captureThumbnails(); }}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
             onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}

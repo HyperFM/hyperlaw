@@ -1254,25 +1254,62 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     vid.src = videoUrl;
     vid.muted = true;
     vid.playsInline = true;
+    vid.preload = "auto";
+    // crossOrigin must be set before src for object URLs to not taint canvas
+    vid.crossOrigin = "anonymous";
+
     const canvas = document.createElement("canvas");
-    canvas.width = 160; canvas.height = 90;
+    canvas.width = 160;
+    canvas.height = 90;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
     const NUM = 16;
     const results: string[] = [];
     let i = 0;
-    function capture() {
-      if (cancelled || !ctx) return;
-      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-      results.push(canvas.toDataURL("image/jpeg", 0.82));
-      i++;
-      if (i < NUM) vid.currentTime = (i / (NUM - 1)) * duration;
-      else { vid.src = ""; setThumbnails([...results]); }
+    let seeking = false;
+
+    function seekTo(t: number) {
+      seeking = true;
+      vid.currentTime = t;
     }
+
+    function capture() {
+      if (cancelled || !ctx || !seeking) return;
+      seeking = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      try {
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        results.push(canvas.toDataURL("image/jpeg", 0.85));
+      } catch {
+        // canvas tainted or frame unavailable — push a placeholder so indices stay aligned
+        results.push("");
+      }
+      i++;
+      if (i < NUM) {
+        // Spread evenly: frame 0 → 0s, frame N-1 → duration
+        seekTo((i / (NUM - 1)) * duration);
+      } else {
+        vid.src = "";
+        setThumbnails(results.filter(Boolean));
+      }
+    }
+
     vid.addEventListener("seeked", capture);
-    vid.addEventListener("loadeddata", () => { if (!cancelled) vid.currentTime = 0; });
+
+    // Use loadedmetadata (fires earlier than loadeddata) then kick off with a
+    // non-zero seek so the "already at 0" browser quirk can't swallow the event.
+    vid.addEventListener("loadedmetadata", () => {
+      if (!cancelled) seekTo(0.001);
+    });
+
     vid.load();
-    return () => { cancelled = true; vid.removeEventListener("seeked", capture); vid.src = ""; };
+
+    return () => {
+      cancelled = true;
+      vid.removeEventListener("seeked", capture);
+      vid.src = "";
+    };
   }, [videoUrl, duration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Expiry check on mount — clean up server data for expired projects ──────

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData } from "../../types";
 import { aiApi } from "../../lib/aiApi";
+import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
@@ -729,7 +730,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const dragCounter = useRef(0);
 
   // ── Markers ────────────────────────────────────────────────────
-  const [markers, setMarkersRaw] = useState<ExhibitMarker[]>(() => hlCase.studioProject?.markers ?? []);
+  const [markers, setMarkersRaw] = useState<ExhibitMarker[]>(() => {
+    const sp = hlCase.studioProject;
+    if (!sp) return [];
+    // Treat the project as gone if its TTL has already passed on this device
+    if (sp.expiresAt && sp.expiresAt < Date.now()) return [];
+    return sp.markers ?? [];
+  });
   const [undoStack, setUndoStack] = useState<ExhibitMarker[][]>([]);
   const [redoStack, setRedoStack] = useState<ExhibitMarker[][]>([]);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
@@ -833,14 +840,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       // Read videoFileName and duration from snapshotRef so we always get the
       // latest values — calling code may have just called setState and the
       // closure would still hold the pre-update values.
+      const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days from now
       const next: StudioProject = {
         ...project,
         videoFileName: snapshotRef.current.videoFileName,
         videoDurationSec: snapshotRef.current.videoDurationSec,
         markers: updatedMarkers,
         updatedAt: Date.now(),
+        expiresAt,
       };
       onUpdateCase({ ...hlCase, studioProject: next });
+      // Also update the dedicated DB column so the server can enforce cleanup
+      api.studioProject.keepAlive(hlCase.id).catch(() => {/* non-fatal */});
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
     }, 800);
@@ -1043,6 +1054,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const t = setTimeout(() => setVideoLoading(false), 12_000);
     return () => clearTimeout(t);
   }, [videoLoading]);
+
+  // ── Expiry check on mount — clean up server data for expired projects ──────
+  useEffect(() => {
+    const sp = hlCase.studioProject;
+    if (sp?.expiresAt && sp.expiresAt < Date.now()) {
+      // Markers already cleared in initial state; remove the expired data from server too
+      onUpdateCase({ ...hlCase, studioProject: undefined });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Analysis marker insertion ───────────────────────────────────
   function insertMarker() {
@@ -1282,6 +1302,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           style={{ background: "none", border: "none", cursor: redoStack.length ? "pointer" : "not-allowed", padding: 4, opacity: redoStack.length ? 1 : 0.3 }}>
           <Redo2 size={15} color="#666" />
         </button>
+        {/* Export — always visible when there are markers */}
+        <button
+          onClick={() => { if (markers.length > 0) setShowExport(true); }}
+          disabled={markers.length === 0}
+          title="Export video"
+          style={{ background: "none", border: "none", cursor: markers.length > 0 ? "pointer" : "not-allowed", padding: 4, opacity: markers.length > 0 ? 1 : 0.3, display: "flex", alignItems: "center" }}>
+          <Download size={16} color={markers.length > 0 ? ORANGE : "#444"} />
+        </button>
       </div>
 
       {/* ── Jurisdiction strip ───────────────────────────────────── */}
@@ -1312,10 +1340,28 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       </div>
 
       {/* ── Evidence preservation reminder ───────────────────────── */}
-      <div style={{ flexShrink: 0, background: "#0a0800", borderBottom: "1px solid #1a1500", padding: "6px 16px", fontSize: 11, color: "#6b5a00", display: "flex", alignItems: "center", gap: 6 }}>
-        <AlertCircle size={11} color="#6b5a00" />
-        Always preserve and retain the complete, unedited original recording for evidentiary purposes.
+      <div style={{ flexShrink: 0, background: "#0a0800", borderBottom: "1px solid #1a1500", padding: "7px 16px", fontSize: 11, color: "#6b5a00", display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.5 }}>
+        <AlertCircle size={11} color="#6b5a00" style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Keep the original video file saved on your device.{" "}
+          <span style={{ color: "#7a6500" }}>Switching between phone and laptop is fine</span> — just make sure the same video is on both and use <strong style={{ color: "#8a7300" }}>Relink</strong> to reconnect it. Your edits and exhibit screens are always saved here; the video never leaves your device.
+        </span>
       </div>
+
+      {/* ── 7-day retention notice ───────────────────────────────────── */}
+      {markers.length > 0 && (
+        <div style={{ flexShrink: 0, background: "#060c1a", borderBottom: "1px solid #0c1830", padding: "6px 16px", fontSize: 11, color: "#2d4870", display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+            <Info size={11} color="#2d4870" style={{ flexShrink: 0 }} />
+            <span>Edits auto-delete after 7 days without activity. Export to save permanently.</span>
+          </div>
+          {hlCase.studioProject?.expiresAt && hlCase.studioProject.expiresAt > Date.now() && (
+            <span style={{ color: "#3a5c8a", fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>
+              Until {new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Scrollable content ─────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
@@ -1505,13 +1551,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
         {/* ── Relink banner ─────────────────────────────────────────── */}
         {!videoUrl && videoFileName && (
-          <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cc6600" }}>
-            <AlertCircle size={13} color="#cc6600" />
-            <div style={{ flex: 1 }}>
-              Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue editing.
+          <div style={{ background: markers.length > 0 ? "#081020" : "#1a0e00", border: `1px solid ${markers.length > 0 ? "#1a3060" : "#4a2800"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: markers.length > 0 ? "#4a80c0" : "#cc6600" }}>
+            <AlertCircle size={14} color={markers.length > 0 ? "#4a80c0" : "#cc6600"} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, lineHeight: 1.55 }}>
+              {markers.length > 0 ? (
+                <>
+                  <strong style={{ color: "#7ab0e0" }}>Your {markers.length} saved edit{markers.length !== 1 ? "s" : ""} are here.</strong>{" "}
+                  Load <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
+                  <div style={{ fontSize: 11, color: "#2d5080", marginTop: 5 }}>
+                    Switching devices? The file can come from your phone, laptop, or any device — as long as it's the same recording. AirDrop or transfer it here, then tap Relink.
+                  </div>
+                </>
+              ) : (
+                <>Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue.</>
+              )}
             </div>
             <button onClick={() => fileInputRef.current?.click()}
-              style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+              style={{ background: markers.length > 0 ? "#3b82f6" : ORANGE, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
               Relink
             </button>
           </div>
@@ -1727,32 +1783,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             {isDictating ? <MicOff size={18} color="#ef4444" /> : <Mic size={18} color="#888" />}
           </button>
         </div>
-
-        {/* ── Export Exhibit Video ──────────────────────────────────── */}
-        {sortedMarkers.length > 0 && (
-          <button onClick={() => setShowExport(true)}
-            style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 20 }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = ORANGE + "44")}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#1a1200", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Clapperboard size={18} color={ORANGE} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Export Exhibit Video</div>
-              <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>
-                {videoUrl
-                  ? [
-                      `${sortedMarkers.filter(m => !m.type || m.type === "analysis").length} exhibit${sortedMarkers.filter(m => !m.type || m.type === "analysis").length !== 1 ? "s" : ""}`,
-                      sortedMarkers.some(m => m.type === "screen_cut") && `${sortedMarkers.filter(m => m.type === "screen_cut").length} screen cut${sortedMarkers.filter(m => m.type === "screen_cut").length !== 1 ? "s" : ""}`,
-                      sortedMarkers.some(m => m.type === "media_insert") && `${sortedMarkers.filter(m => m.type === "media_insert").length} media insert${sortedMarkers.filter(m => m.type === "media_insert").length !== 1 ? "s" : ""}`,
-                      sortedMarkers.some(m => m.type === "exhibit_screen") && `${sortedMarkers.filter(m => m.type === "exhibit_screen").length} AI screen${sortedMarkers.filter(m => m.type === "exhibit_screen").length !== 1 ? "s" : ""}`,
-                    ].filter(Boolean).join(" + ")
-                  : "Relink your video to export"}
-              </div>
-            </div>
-            <Download size={16} color={ORANGE} style={{ flexShrink: 0 }} />
-          </button>
-        )}
 
         {/* ── Markers list ──────────────────────────────────────────── */}
         {sortedMarkers.length > 0 && (

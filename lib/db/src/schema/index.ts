@@ -159,6 +159,10 @@ export const casesTable = pgTable("cases", {
   caseData: jsonb("case_data").notNull().$type<Record<string, unknown>>(),
   /** Structured output from the Organization Engine — clouds, facts, claims, etc. */
   structuredCase: jsonb("structured_case").$type<Record<string, unknown>>(),
+  /** Expiry timestamp for the studio project (markers + exhibits).
+   *  Set to now + 7 days on every studio autosave; cleared on expiry.
+   *  Null = no studio project exists yet. */
+  studioProjectExpiresAt: timestamp("studio_project_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({

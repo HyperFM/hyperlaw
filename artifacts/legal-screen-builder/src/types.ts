@@ -258,6 +258,12 @@ export interface StudioProject {
   jurisdictionVerification?: JurisdictionVerification;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Unix ms timestamp when this project will be auto-deleted by the server
+   * if there has been no editing activity. Reset to now + 7 days on every
+   * autosave. Null/undefined until the first save after this field was introduced.
+   */
+  expiresAt?: number;
 }
 
 // ── Screen Builder engine (Manual Screen Builder) ──────────────────────────────

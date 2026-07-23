@@ -109,4 +109,12 @@ export const api = {
     delete: (id: string) =>
       apiFetch<{ ok: boolean }>(`/cases/${id}`, { method: "DELETE" }),
   },
+  studioProject: {
+    /** Refresh the 7-day retention timer for a case's studio project */
+    keepAlive: (caseId: string) =>
+      apiFetch<{ ok: boolean; expiresAt: string }>(`/cases/${caseId}/studio-project/keep-alive`, { method: "POST" }),
+    /** Explicitly clear the studio project expiry (called after export) */
+    clearExpiry: (caseId: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${caseId}/studio-project/clear-expiry`, { method: "DELETE" }),
+  },
 };

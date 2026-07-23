@@ -1,0 +1,39 @@
+HyperLaw Exhibit Studio Update: Moment-Based Editing Flow
+Why this update
+Right now the editor is a single track with a Cut tool and a Loop tool. People have to scrub back and forth repeatedly to find and mark moments, which is exhausting and disorganized for a 30+ minute video. This update replaces that with a guided 3-step process: Chunk → Label → Organize, so every user ends up with the same clean, finished structure no matter how messy their raw footage is.
+Remove
+	•	Loop Region tool (no longer needed — chunking replaces it)
+	•	Manual Split tool as a standalone action (folded into the Chunk step below)
+Keep
+	•	Exhibit button/flow (stays, now sits after Organize step)
+	•	Image insertion tool
+	•	Voice/mic tool
+	•	Relink / auto-save / 7-day expiration system
+New Flow: 3 Steps
+Step 1 — Chunk
+	•	User watches the video normally, start to finish.
+	•	One button: “Mark Moment.”
+	•	When pressed, it captures the entire relevant moment as a clip — not just a timestamp. (Exact capture logic — e.g. “last N seconds” vs “start of press to next press” — still needs to be defined/tested.)
+	•	Captured clips appear as segments directly on the main track, replacing the raw unbroken footage view.
+	•	User can re-open any chunk later and split it into two if it turns out to hold two separate moments.
+	•	No scrubbing required to “find” moments — capture happens live during a single watch-through.
+Step 2 — Label
+	•	Each chunk on the track gets a short label typed in by the user (plain language — what happened).
+	•	Optional: tag each chunk with a type, e.g. Consistency, Contradiction, Escalation, No Cause Given. (Tags help prep Step 3 — see below.)
+	•	Labeling happens right on the track, chunk by chunk, no separate screen.
+Step 3 — Organize
+	•	A second track appears below the main one, styled as a row of rounded-rectangle slots (start with ~10, auto-adds more as needed when the user drags past the last one).
+	•	User drags labeled chunks from the main track down into the slot track, in the order they want the final video to tell the story.
+	•	Contextual tip system: a small tip can surface here, e.g. “Consider starting with a moment that shows you were consistent from the start” — surfaced automatically if a chunk is tagged Consistency, rather than a vague “start with your best moment” prompt.
+Step 4 — Exhibits & Screens
+	•	Once ordered, user proceeds to the existing Exhibit step.
+	•	AI assists in writing the transition screens between moments, using: (a) what the user tells it about each moment, and (b) case details already tied to that project from the Case Profile/Barrel section.
+	•	AI does not watch the video — it works from user input + case file data only.
+Design tone
+	•	Interaction should feel satisfying, not childish — dragging and snapping chunks into slots, not cartoon/wiggly visuals.
+	•	Copy throughout should be short, plain, and reassuring — e.g. “Don’t edit yet. Just watch and mark.” / “Too much to organize? Start here.”
+	•	Goal: reduce the dread of rewatching hard footage repeatedly by making the first pass (Chunk) the only full watch-through required.
+Open questions to settle before/during build
+	1.	Exact capture window for “Mark Moment” button (time before/after press).
+	2.	How many default tag options in Step 2 (proposed: 4 — Consistency, Contradiction, Escalation, No Cause Given — expandable later).
+	3.	Whether re-splitting a chunk in Step 1 is available anytime, or locked once user reaches Step 2/3.

@@ -228,15 +228,18 @@ export interface ExhibitMarker {
    * "screen_cut"   = a manually built screen inserted as a video cut
    * "media_insert" = a local photo or video clip
    * "exhibit_screen" = AI-generated structured exhibit layout
+   * "video_cut"    = a region of video to skip during playback and export
    * Defaults to "analysis" if omitted (backward compat).
    */
-  type?: "analysis" | "screen_cut" | "media_insert" | "exhibit_screen";
+  type?: "analysis" | "screen_cut" | "media_insert" | "exhibit_screen" | "video_cut";
   /** Populated when type === "screen_cut" */
   screenInsert?: ScreenInsert;
   /** Populated when type === "media_insert" */
   mediaInsert?: MediaInsert;
   /** Populated when type === "exhibit_screen" */
   exhibitScreen?: ExhibitScreenData;
+  /** Populated when type === "video_cut" — end timestamp of the cut region (seconds) */
+  cutEnd?: number;
 }
 
 export interface JurisdictionVerification {

@@ -1446,19 +1446,58 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       stabilityLoop(sampleA_url, sampleA_px, 0);
     }
 
+    // ── Direct-seek fallback (used when target < PREROLL_RUNWAY) ─────────────
+    // For early frames there isn't enough runway to play forward, so we fall
+    // back to the original seek-and-wait approach.  This also avoids the
+    // "seek to same position → no seeked event" deadlock that happens when
+    // preroll clamps to the same value as target (frame 1 edge case).
+    const PREROLL_RUNWAY = 1.5; // seconds of play-forward runway required
+
+    function seekAndCapture(i: number) {
+      if (cancelled || !dur) return;
+      frameStart = Date.now();
+      const target = targetTime(i);
+
+      const skMsg = `[SK] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s — short-runway, using direct seek`;
+      console.log("[thumbs]", skMsg);
+      pushDebug(skMsg);
+
+      function onTargetSeeked() {
+        vid!.removeEventListener("seeked", onTargetSeeked);
+        if (cancelled) return;
+        const readyMsg = `[SK] f${i + 1} seeked to t=${vid!.currentTime.toFixed(3)}s — settle 80ms then capture`;
+        console.log("[thumbs]", readyMsg);
+        pushDebug(readyMsg);
+        setTimeout(() => {
+          if (cancelled) return;
+          requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+        }, 80);
+      }
+
+      vid!.addEventListener("seeked", onTargetSeeked);
+      vid!.currentTime = target;
+    }
+
     // ── Play-forward-then-pause: the core iOS Safari decode workaround ──────
-    // For each frame i:
-    //   1. Seek to (target - 1.5s) as a preroll point  [forces decoder context]
+    // For each frame i where target >= PREROLL_RUNWAY:
+    //   1. Seek to (target - PREROLL_RUNWAY) as a preroll point
     //   2. Call play() once the preroll seek fires
     //   3. Watch timeupdate; pause() as soon as currentTime >= target
     //   4. One rAF after pause to let the decoded frame settle
     //   5. captureFrame() → stabilityLoop() → acceptFrame() → next frame
+    // Frames with target < PREROLL_RUNWAY use seekAndCapture() instead.
     function playToAndCapture(i: number) {
       if (cancelled || !dur) return;
-      frameStart = Date.now();
       const target = targetTime(i);
-      // Preroll: 1.5 s before target (min 0.001 so we don't go negative)
-      const preroll = Math.max(0.001, target - 1.5);
+
+      // Not enough runway before target → fall back to direct seek
+      if (target < PREROLL_RUNWAY) {
+        seekAndCapture(i);
+        return;
+      }
+
+      frameStart = Date.now();
+      const preroll = target - PREROLL_RUNWAY;
 
       const pfMsg = `[PF] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s preroll=${preroll.toFixed(3)}s`;
       console.log("[thumbs]", pfMsg);
@@ -1475,17 +1514,31 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         console.log("[thumbs]", readyMsg);
         pushDebug(readyMsg);
 
-        // Step 2: play forward (muted → autoplay policy always allows this)
+        // Step 2: play forward (muted attribute is set on the element → autoplay always allowed)
         const playPromise = vid!.play();
         if (playPromise) {
-          playPromise.catch((err: unknown) => {
-            if (cancelled) return;
-            const errMsg = `[PF] f${i + 1} play() rejected: ${String(err)} — drawing anyway`;
-            console.warn("[thumbs]", errMsg);
-            pushDebug(errMsg);
-            // Fallback: draw whatever the decoder has right now
-            requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
-          });
+          playPromise
+            .then(() => {
+              if (cancelled) return;
+              const okMsg = `[PF] f${i + 1} play() resolved — playing`;
+              console.log("[thumbs]", okMsg);
+              pushDebug(okMsg);
+            })
+            .catch((err: unknown) => {
+              if (cancelled) return;
+              // Remove the timeupdate listener so we don't double-fire captureFrame
+              vid!.removeEventListener("timeupdate", onTimeUpdate);
+              const errMsg = `[PF] f${i + 1} play() REJECTED: ${String(err)} — drawing anyway`;
+              console.warn("[thumbs]", errMsg);
+              pushDebug(errMsg);
+              // Fallback: draw whatever the decoder has right now
+              requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+            });
+        } else {
+          // Browser returned undefined — treat as synchronous play start
+          const syncMsg = `[PF] f${i + 1} play() returned undefined (sync start assumed)`;
+          console.log("[thumbs]", syncMsg);
+          pushDebug(syncMsg);
         }
 
         // Step 3: watch timeupdate events until we reach or pass the target

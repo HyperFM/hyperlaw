@@ -1298,6 +1298,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
+    let lastUrlLen = -1; // duplicate-frame safeguard
     const results: string[] = [];
 
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
@@ -1316,9 +1317,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setThumbsLoading(true);
 
     // ── Capture the frame currently displayed by the hidden video ──
-    // Uses seeked + 80ms settle + rAF — the most reliable combo across all
-    // browsers in iframe / proxy environments where rVFC is unreliable.
-    function captureFrame() {
+    // Uses seeked + 80ms settle + rAF. Includes a duplicate-frame safeguard:
+    // if the captured data URL length matches the previous frame's, wait 150ms
+    // and redraw — up to 2 retries — before accepting it and advancing.
+    function captureFrame(retry = 0) {
       if (cancelled) return;
 
       const vw = vid!.videoWidth;
@@ -1329,7 +1331,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }
 
       // ── DIAGNOSTIC 3: log canvas and video dimensions before drawImage ──
-      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(2)}`;
+      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} retry=${retry} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(2)}`;
       console.log("[thumbs]", preMsg);
       pushDebug(preMsg);
 
@@ -1340,16 +1342,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
         dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       } catch (err) {
-        const errMsg = `[4] ERROR f${frameIdx + 1}: ${String(err)}`;
+        const errMsg = `[4] ERROR f${frameIdx + 1} retry=${retry}: ${String(err)}`;
         console.error("[thumbs]", errMsg);
         pushDebug(errMsg);
       }
 
       // ── DIAGNOSTIC 5: log resulting data URL length ──
-      const lenMsg = `[5] f${frameIdx + 1} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}`;
+      const isDup = dataUrl.length > 0 && dataUrl.length === lastUrlLen;
+      const lenMsg = `[5] f${frameIdx + 1} retry=${retry} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}${isDup ? " ← DUPLICATE" : ""}`;
       console.log("[thumbs]", lenMsg);
       pushDebug(lenMsg);
 
+      // Duplicate safeguard: stale frame detected — wait 150ms and retry
+      if (isDup && retry < 2) {
+        setTimeout(() => { if (!cancelled) captureFrame(retry + 1); }, 150);
+        return;
+      }
+
+      lastUrlLen = dataUrl.length;
       results.push(dataUrl);
       // Progressive update — frames appear one-by-one as captured
       if (dataUrl && !cancelled) setThumbnails([...results]);
@@ -1803,22 +1813,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* Hidden thumbnail extractor — position off-screen instead of
-             display:none.  WebKit / Safari refuse to decode frames from
-             display:none video elements (seeked fires but drawImage returns
-             black), so we make it invisible without hiding it from the
-             compositor. The 1×1 size keeps it from affecting layout. */}
+        {/* Hidden thumbnail extractor — 480×270 keeps Safari's decoder at
+             full priority. 1×1 caused mobile Safari to throttle decoding,
+             returning stale frames across sequential seeks. position:absolute
+             off-screen keeps it out of layout without hiding from compositor. */}
         <video
           ref={hiddenVideoRef as React.RefObject<HTMLVideoElement>}
           muted
           playsInline
           preload="auto"
           style={{
-            position: "fixed",
+            position: "absolute",
             top: -9999,
             left: -9999,
-            width: 1,
-            height: 1,
+            width: 480,
+            height: 270,
             opacity: 0,
             pointerEvents: "none",
             zIndex: -1,

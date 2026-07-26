@@ -1293,6 +1293,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let dur = 0;
     const results: string[] = [];
 
+    // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
+    {
+      const cs = window.getComputedStyle(vid);
+      console.log("[thumbs] hiddenVideo created — display:", cs.display,
+        "visibility:", cs.visibility,
+        "position:", cs.position,
+        "top:", cs.top, "left:", cs.left,
+        "width:", cs.width, "height:", cs.height,
+        "videoWidth:", vid.videoWidth, "videoHeight:", vid.videoHeight);
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 360;
@@ -1313,14 +1324,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         canvas.height = Math.min(vh, 540);
       }
 
+      // ── DIAGNOSTIC 3: log canvas and video dimensions before drawImage ──
+      console.log(`[thumbs] frame ${frameIdx + 1}/${THUMB_N} — canvas: ${canvas.width}×${canvas.height}, videoWidth: ${vw}, videoHeight: ${vh}, readyState: ${vid!.readyState}, currentTime: ${vid!.currentTime.toFixed(2)}`);
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let dataUrl = "";
+      // ── DIAGNOSTIC 4: catch and log any drawImage / toDataURL error ──
       try {
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
         dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      } catch {
-        // SecurityError or decode-not-ready — advance anyway
+      } catch (err) {
+        console.error("[thumbs] drawImage/toDataURL threw:", err);
       }
+
+      // ── DIAGNOSTIC 5: log resulting data URL length ──
+      console.log(`[thumbs] frame ${frameIdx + 1} dataUrl length: ${dataUrl.length}${dataUrl.length < 1000 ? " ← SUSPICIOUSLY SHORT" : ""}`);
 
       results.push(dataUrl);
       // Progressive update — frames appear one-by-one as captured
@@ -1349,6 +1367,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // The settle delay lets the decoder finish; rAF ensures we're in a paint cycle.
     function onSeeked() {
       if (cancelled) return;
+      // ── DIAGNOSTIC 2: log every seeked event ──
+      console.log(`[thumbs] seeked fired — currentTime: ${vid!.currentTime.toFixed(2)}, videoWidth: ${vid!.videoWidth}, videoHeight: ${vid!.videoHeight}, readyState: ${vid!.readyState}`);
       setTimeout(() => {
         if (cancelled) return;
         requestAnimationFrame(() => {
@@ -1365,6 +1385,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
 
     function onError() {
+      const ve = vid!.error;
+      console.error("[thumbs] video error — code:", ve?.code, "message:", ve?.message, "networkState:", vid!.networkState);
       if (!cancelled) setThumbsLoading(false);
     }
 

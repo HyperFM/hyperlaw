@@ -939,6 +939,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
+  // ── On-screen debug log (thumbnail diagnostics) ────────────────
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const debugLogRef = useRef<string[]>([]);
+  const pushDebug = useCallback((line: string) => {
+    debugLogRef.current = [...debugLogRef.current, line];
+    setDebugLog([...debugLogRef.current]);
+  }, []);
 
   // ── Preview mode ───────────────────────────────────────────────
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -1296,12 +1303,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
     {
       const cs = window.getComputedStyle(vid);
-      console.log("[thumbs] hiddenVideo created — display:", cs.display,
-        "visibility:", cs.visibility,
-        "position:", cs.position,
-        "top:", cs.top, "left:", cs.left,
-        "width:", cs.width, "height:", cs.height,
-        "videoWidth:", vid.videoWidth, "videoHeight:", vid.videoHeight);
+      const msg = `[1] hiddenVideo CSS: display=${cs.display} vis=${cs.visibility} pos=${cs.position} top=${cs.top} left=${cs.left} w=${cs.width} h=${cs.height} | videoW=${vid.videoWidth} videoH=${vid.videoHeight}`;
+      console.log("[thumbs]", msg);
+      pushDebug(msg);
     }
 
     const canvas = document.createElement("canvas");
@@ -1325,7 +1329,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }
 
       // ── DIAGNOSTIC 3: log canvas and video dimensions before drawImage ──
-      console.log(`[thumbs] frame ${frameIdx + 1}/${THUMB_N} — canvas: ${canvas.width}×${canvas.height}, videoWidth: ${vw}, videoHeight: ${vh}, readyState: ${vid!.readyState}, currentTime: ${vid!.currentTime.toFixed(2)}`);
+      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(2)}`;
+      console.log("[thumbs]", preMsg);
+      pushDebug(preMsg);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let dataUrl = "";
@@ -1334,11 +1340,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
         dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       } catch (err) {
-        console.error("[thumbs] drawImage/toDataURL threw:", err);
+        const errMsg = `[4] ERROR f${frameIdx + 1}: ${String(err)}`;
+        console.error("[thumbs]", errMsg);
+        pushDebug(errMsg);
       }
 
       // ── DIAGNOSTIC 5: log resulting data URL length ──
-      console.log(`[thumbs] frame ${frameIdx + 1} dataUrl length: ${dataUrl.length}${dataUrl.length < 1000 ? " ← SUSPICIOUSLY SHORT" : ""}`);
+      const lenMsg = `[5] f${frameIdx + 1} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}`;
+      console.log("[thumbs]", lenMsg);
+      pushDebug(lenMsg);
 
       results.push(dataUrl);
       // Progressive update — frames appear one-by-one as captured
@@ -1368,7 +1378,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     function onSeeked() {
       if (cancelled) return;
       // ── DIAGNOSTIC 2: log every seeked event ──
-      console.log(`[thumbs] seeked fired — currentTime: ${vid!.currentTime.toFixed(2)}, videoWidth: ${vid!.videoWidth}, videoHeight: ${vid!.videoHeight}, readyState: ${vid!.readyState}`);
+      const seekMsg = `[2] seeked t=${vid!.currentTime.toFixed(2)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
+      console.log("[thumbs]", seekMsg);
+      pushDebug(seekMsg);
       setTimeout(() => {
         if (cancelled) return;
         requestAnimationFrame(() => {
@@ -1386,7 +1398,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     function onError() {
       const ve = vid!.error;
-      console.error("[thumbs] video error — code:", ve?.code, "message:", ve?.message, "networkState:", vid!.networkState);
+      const errMsg = `[ERR] video error code=${ve?.code} msg="${ve?.message}" net=${vid!.networkState}`;
+      console.error("[thumbs]", errMsg);
+      pushDebug(errMsg);
       if (!cancelled) setThumbsLoading(false);
     }
 
@@ -2454,6 +2468,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           animation: "hlConfirmFlash 0.25s ease-out",
         }}>
           {insertToast}
+        </div>
+      )}
+
+      {/* ── Thumbnail diagnostic overlay ── */}
+      {debugLog.length > 0 && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.88)", maxHeight: 220, overflowY: "auto",
+          padding: "8px 10px", boxSizing: "border-box",
+          fontFamily: "monospace", fontSize: 10, color: "#0f0", lineHeight: 1.5,
+          borderTop: "1px solid #333",
+        }}>
+          <div style={{ fontWeight: 700, color: "#ff0", marginBottom: 4, fontSize: 10 }}>
+            THUMB DIAGNOSTICS ({debugLog.length} lines)
+          </div>
+          {debugLog.map((line, i) => (
+            <div key={i} style={{ color: line.startsWith("[4]") || line.startsWith("[ERR]") ? "#f55" : "#0f0" }}>
+              {line}
+            </div>
+          ))}
         </div>
       )}
     </div>

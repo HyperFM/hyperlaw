@@ -1276,13 +1276,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     if (!thumbCanvasRef.current) {
       const c = document.createElement("canvas");
-      c.width = 160; c.height = 90;
+      // Capture at the video's native resolution, capped so we don't blow memory.
+      // Higher res → sharper filmstrip on wide desktop tracks.
+      c.width  = Math.min(vid.videoWidth  || 640, 960);
+      c.height = Math.min(vid.videoHeight || 540, 540);
       thumbCanvasRef.current = c;
     }
+    const { width: cw, height: ch } = thumbCanvasRef.current;
     const ctx = thumbCanvasRef.current.getContext("2d")!;
-    ctx.clearRect(0, 0, 160, 90);
-    ctx.drawImage(vid, 0, 0, 160, 90);
-    thumbSlotsRef.current[idx] = thumbCanvasRef.current.toDataURL("image/jpeg", 0.85);
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(vid, 0, 0, cw, ch);
+    // Use PNG for the first frame so it's lossless; JPEG 0.92 for the rest —
+    // high enough that compression artefacts don't show on the timeline strip.
+    thumbSlotsRef.current[idx] = thumbCanvasRef.current.toDataURL(
+      idx === 0 ? "image/png" : "image/jpeg",
+      0.92,
+    );
 
     // Rebuild the thumbnails array: use nearest captured slot for any gap
     const slots = thumbSlotsRef.current;
@@ -1927,8 +1936,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, color: "#555", marginBottom: 12, lineHeight: 1.6 }}>
               {chunks.length === 0
-                ? "Don't edit yet. Just watch and mark."
-                : `${chunks.length} moment${chunks.length !== 1 ? "s" : ""} marked.${chunks.length < 3 ? " Keep watching." : " Ready to label when you're done."}`}
+                ? "Watch the video and chunk it into sections or moments — tap the button each time you want to mark the end of a section."
+                : `${chunks.length} section${chunks.length !== 1 ? "s" : ""} chunked.${chunks.length < 3 ? " Keep going." : " Ready to label when you're done."}`}
             </div>
             <button
               onClick={markMoment}
@@ -1937,7 +1946,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                 padding: "18px 12px", display: "flex", alignItems: "center", justifyContent: "center",
                 gap: 10, cursor: "pointer", fontWeight: 900, fontSize: 16, color: "#000" }}>
               <Bookmark size={18} color="#000" strokeWidth={2.5} />
-              Mark Moment
+              Chunk It
             </button>
             {chunks.length > 0 && (
               <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1958,11 +1967,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             {chunks.length === 0 ? (
               <div style={{ background: "#0d0d0d", border: "1px dashed #222", borderRadius: 12,
                 padding: "20px 16px", textAlign: "center" }}>
-                <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>No moments yet.</div>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>No sections chunked yet.</div>
                 <button onClick={() => setCurrentStep(1)}
                   style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "10px 20px",
                     fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
-                  Go mark moments first
+                  Go chunk sections first
                 </button>
               </div>
             ) : (

@@ -1280,7 +1280,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Phase 1 thumbnail extraction ──────────────────────────────────────────
   // Rules (per spec):
   //   • Use hiddenVideoRef — never seek the visible player.
-  //   • Wait for "seeked" (not "timeupdate") before drawing each frame.
+  //   • Play-forward-then-pause for each frame (forces real iOS Safari decode).
+  //   • Pixel stability check retained as a safety net after pause settles.
   //   • Cache results; only re-run when videoUrl changes.
   //   • Show a loading skeleton while generating.
   const THUMB_N = 20; // Phase 2 will make this dynamic (pixels-per-second × track width)
@@ -1300,10 +1301,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let dur = 0;
     // decoder warm-up state machine:
     //   warmup1  – pre-seek to ~500ms to wake the decoder
-    //   warmup2  – seek back to near-start, then begin real loop
-    //   capturing – real 20-frame seek loop with stability checks
+    //   warmup2  – seek back to near-start, then hand off to play-forward loop
+    //   capturing – play-forward-then-pause per frame
     let phase: "warmup1" | "warmup2" | "capturing" = "warmup1";
     const results: string[] = [];
+    let captureAllStart = 0; // wall-clock ms when capturing phase began
+    let frameStart = 0;      // wall-clock ms for the current frame
 
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
     {
@@ -1321,6 +1324,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setThumbsLoading(true);
 
     // ── Helpers ────────────────────────────────────────────────────
+
+    // Evenly-spaced target timestamp for the i-th frame
+    function targetTime(i: number): number {
+      const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
+      return Math.min(Math.max(raw, 0.001), dur - 0.05);
+    }
 
     // Sample 9 pixels spread across the canvas as a cheap pixel fingerprint
     function pixelFingerprint(): string {
@@ -1353,20 +1362,30 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       return { dataUrl, pixels: dataUrl ? pixelFingerprint() : "" };
     }
 
-    // Commit a captured frame and advance to the next seek
+    // Commit a captured frame and kick off the next play-forward capture
     function acceptFrame(dataUrl: string, pixels: string) {
+      const frameMs = Date.now() - frameStart;
+      const totalSoFar = Date.now() - captureAllStart;
+      const timeMsg = `[TIME] f${frameIdx + 1} took ${frameMs}ms | running total ${totalSoFar}ms`;
+      console.log("[thumbs]", timeMsg);
+      pushDebug(timeMsg);
+
       results.push(dataUrl);
       if (dataUrl && !cancelled) setThumbnails([...results]);
       frameIdx++;
       if (frameIdx < THUMB_N) {
-        seekTo(frameIdx);
+        playToAndCapture(frameIdx);
       } else if (!cancelled) {
+        const totalMs = Date.now() - captureAllStart;
+        const doneMsg = `[TOTAL] all ${THUMB_N} frames in ${totalMs}ms (avg ${Math.round(totalMs / THUMB_N)}ms/frame)`;
+        console.log("[thumbs]", doneMsg);
+        pushDebug(doneMsg);
         setThumbnails([...results]);
         setThumbsLoading(false);
       }
     }
 
-    // ── Stability check loop ────────────────────────────────────────
+    // ── Stability check loop (safety net after play-pause decode) ──────────
     // Protocol per frame:
     //   a. captureFrame() does draw → sampleA  (logged as [5] SAMPLE_A)
     //   b. stabilityLoop waits 150ms (real setTimeout)
@@ -1398,7 +1417,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }, 150);
     }
 
-    // ── First capture after seeked fires ───────────────────────────
+    // ── Draw + stability check after video has paused at target ──────────
     function captureFrame() {
       if (cancelled) return;
 
@@ -1427,15 +1446,87 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       stabilityLoop(sampleA_url, sampleA_px, 0);
     }
 
-    // ── Seek to the i-th evenly-spaced timestamp ──
-    function seekTo(i: number) {
+    // ── Play-forward-then-pause: the core iOS Safari decode workaround ──────
+    // For each frame i:
+    //   1. Seek to (target - 1.5s) as a preroll point  [forces decoder context]
+    //   2. Call play() once the preroll seek fires
+    //   3. Watch timeupdate; pause() as soon as currentTime >= target
+    //   4. One rAF after pause to let the decoded frame settle
+    //   5. captureFrame() → stabilityLoop() → acceptFrame() → next frame
+    function playToAndCapture(i: number) {
       if (cancelled || !dur) return;
-      const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
-      const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
-      vid!.currentTime = t;
+      frameStart = Date.now();
+      const target = targetTime(i);
+      // Preroll: 1.5 s before target (min 0.001 so we don't go negative)
+      const preroll = Math.max(0.001, target - 1.5);
+
+      const pfMsg = `[PF] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s preroll=${preroll.toFixed(3)}s`;
+      console.log("[thumbs]", pfMsg);
+      pushDebug(pfMsg);
+
+      // Step 1: seek to preroll
+      vid!.currentTime = preroll;
+
+      function onPrerollSeeked() {
+        vid!.removeEventListener("seeked", onPrerollSeeked);
+        if (cancelled) return;
+
+        const readyMsg = `[PF] f${i + 1} preroll ready t=${vid!.currentTime.toFixed(3)}s — calling play()`;
+        console.log("[thumbs]", readyMsg);
+        pushDebug(readyMsg);
+
+        // Step 2: play forward (muted → autoplay policy always allows this)
+        const playPromise = vid!.play();
+        if (playPromise) {
+          playPromise.catch((err: unknown) => {
+            if (cancelled) return;
+            const errMsg = `[PF] f${i + 1} play() rejected: ${String(err)} — drawing anyway`;
+            console.warn("[thumbs]", errMsg);
+            pushDebug(errMsg);
+            // Fallback: draw whatever the decoder has right now
+            requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+          });
+        }
+
+        // Step 3: watch timeupdate events until we reach or pass the target
+        function onTimeUpdate() {
+          if (cancelled) {
+            vid!.removeEventListener("timeupdate", onTimeUpdate);
+            vid!.pause();
+            return;
+          }
+          if (vid!.currentTime >= target) {
+            vid!.removeEventListener("timeupdate", onTimeUpdate);
+            // Step 4: pause and wait one rAF for the frame to fully settle
+            vid!.pause();
+            requestAnimationFrame(() => {
+              if (cancelled) return;
+              const pausedMsg = `[PF] f${i + 1} paused at t=${vid!.currentTime.toFixed(3)}s (target=${target.toFixed(3)}s)`;
+              console.log("[thumbs]", pausedMsg);
+              pushDebug(pausedMsg);
+              // Step 5: draw + stability check
+              captureFrame();
+            });
+          }
+        }
+        vid!.addEventListener("timeupdate", onTimeUpdate);
+      }
+
+      vid!.addEventListener("seeked", onPrerollSeeked);
     }
 
-    // seeked → 80ms settle → rAF → captureFrame (then stabilityLoop takes over)
+    // ── Called once warm-up is complete ─────────────────────────────────────
+    function startCapturing() {
+      captureAllStart = Date.now();
+      const capMsg = `[CAP] warm-up done — starting play-forward capture of ${THUMB_N} frames`;
+      console.log("[thumbs]", capMsg);
+      pushDebug(capMsg);
+      playToAndCapture(0);
+    }
+
+    // ── Warm-up: two seeks to wake the 4K decoder before real capture ───────
+    // onSeeked only drives warmup1/warmup2; during "capturing" it is a no-op
+    // (preroll seeks inside playToAndCapture use their own one-shot listeners).
     function onSeeked() {
       if (cancelled) return;
       // ── DIAGNOSTIC 2: log every seeked event ──
@@ -1450,21 +1541,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         return;
       }
 
-      // ── Warm-up phase 2: at start, begin real loop ──
+      // ── Warm-up phase 2: at start, hand off to play-forward loop ──
       if (phase === "warmup2") {
         phase = "capturing";
-        const wuMsg = `[WU] warm-up done — starting seek loop`;
-        console.log("[thumbs]", wuMsg);
-        pushDebug(wuMsg);
-        seekTo(0);
+        startCapturing();
         return;
       }
 
-      // ── Capturing: 80ms settle → rAF → first draw + stability loop ──
-      setTimeout(() => {
-        if (cancelled) return;
-        requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
-      }, 80);
+      // phase === "capturing": preroll seeks fire here too; ignore them —
+      // they are handled by the one-shot listeners inside playToAndCapture.
     }
 
     function onLoadedMetadata() {
@@ -1497,6 +1582,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     return () => {
       cancelled = true;
+      vid.pause(); // stop any in-flight playback
       vid.removeEventListener("loadedmetadata", onLoadedMetadata);
       vid.removeEventListener("seeked", onSeeked);
       vid.removeEventListener("error", onError);

@@ -939,7 +939,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
-  const [thumbsDebug, setThumbsDebug] = useState<string>("idle");
 
   // ── Preview mode ───────────────────────────────────────────────
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -966,6 +965,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
+  // Info panel — auto-opens on first visit; ⓘ button toggles it afterward
+  const [infoPanelOpen, setInfoPanelOpen] = useState(() => {
+    try { return !localStorage.getItem("studio-info-seen"); } catch { return true; }
+  });
   const [exportSettings, setExportSettings] = useState<ExportSettings>({
     resKey: "1080", fps: 30, format: "mp4", includeAudio: true,
   });
@@ -1302,9 +1305,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const hasRVFC = "requestVideoFrameCallback" in (vid as any);
 
     setThumbsLoading(true);
-    setThumbsDebug(`starting… rVFC=${hasRVFC}`);
 
-    // ── Capture the frame that is currently displayed by the hidden video ──
+    // ── Capture the frame currently displayed by the hidden video ──
     function captureFrame() {
       if (cancelled) return;
 
@@ -1319,52 +1321,45 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       let dataUrl = "";
       try {
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
-        const cx = canvas.width >> 1, cy = canvas.height >> 1;
-        const px = ctx.getImageData(cx, cy, 1, 1).data;
-        const isBlack = px[0] + px[1] + px[2] === 0;
-        setThumbsDebug(`frame ${frameIdx + 1}/${THUMB_N}: px(${px[0]},${px[1]},${px[2]})${isBlack ? " ← BLACK" : " ✓"} ${canvas.width}×${canvas.height}`);
         dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-      } catch (err) {
-        setThumbsDebug(`frame ${frameIdx + 1}: drawImage threw → ${String(err)}`);
+      } catch {
+        // security error or decode failure — leave dataUrl empty, advance anyway
       }
 
       results.push(dataUrl);
+      // Update progressively so frames appear one-by-one as they're captured
+      if (dataUrl && !cancelled) setThumbnails([...results]);
       frameIdx++;
 
       if (frameIdx < THUMB_N) {
         seekTo(frameIdx);
       } else {
         if (!cancelled) {
-          const good = results.filter(Boolean);
-          setThumbsDebug(`done — ${good.length}/${THUMB_N} real frames`);
           setThumbnails([...results]);
           setThumbsLoading(false);
         }
       }
     }
 
-    // ── Seek the hidden video to the i-th evenly-spaced timestamp ──
+    // ── Seek to the i-th evenly-spaced timestamp ──
     function seekTo(i: number) {
       if (cancelled || !dur) return;
       const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
       const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
-      setThumbsDebug(`seeking ${i + 1}/${THUMB_N} → ${t.toFixed(1)}s`);
 
       if (hasRVFC) {
-        // Cancel any stale callback before seeking to avoid double-capture
         if (rVFCHandle) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (vid as any).cancelVideoFrameCallback(rVFCHandle);
           rVFCHandle = 0;
         }
         vid!.currentTime = t;
-        // rVFC fires AFTER the new frame is composited — guaranteed non-black
+        // rVFC fires only after the frame is composited — guaranteed non-black
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         rVFCHandle = (vid as any).requestVideoFrameCallback(() => {
           if (!cancelled) captureFrame();
         });
       } else {
-        // Fallback: seeked + readyState guard
         vid!.currentTime = t;
       }
     }
@@ -1372,17 +1367,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     function onLoadedMetadata() {
       if (cancelled) return;
       dur = vid!.duration;
-      if (!dur || !isFinite(dur) || dur < 0.1) {
-        setThumbsDebug(`ERROR: bad duration (${dur})`);
-        return;
-      }
-      setThumbsDebug(`metadata: dur=${dur.toFixed(1)}s ${vid!.videoWidth}×${vid!.videoHeight} rs=${vid!.readyState} rVFC=${hasRVFC}`);
+      if (!dur || !isFinite(dur) || dur < 0.1) return;
       seekTo(0);
     }
 
     function onSeeked() {
-      if (cancelled || hasRVFC) return; // rVFC path handles capture instead
-      // readyState guard — WebKit fires seeked before frame decode completes
+      if (cancelled || hasRVFC) return;
       if (vid!.readyState < 2) {
         setTimeout(() => { if (!cancelled) onSeeked(); }, 60);
         return;
@@ -1391,8 +1381,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
 
     function onError() {
-      const ve = vid!.error;
-      setThumbsDebug(`VIDEO ERROR code=${ve?.code} "${ve?.message}" net=${vid!.networkState}`);
       if (!cancelled) setThumbsLoading(false);
     }
 
@@ -1633,6 +1621,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const viewingMarker = markers.find(m => m.id === viewingDraftId);
   const sortedMarkers = [...markers].sort((a, b) => a.timestamp - b.timestamp);
   const court = hlCase.court;
+  // Badge count: number of things the user should know about (jurisdiction missing = 1)
+  const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
 
   return (
@@ -1671,58 +1661,103 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           style={{ background: "none", border: "none", cursor: markers.length > 0 ? "pointer" : "not-allowed", padding: 4, opacity: markers.length > 0 ? 1 : 0.3, display: "flex", alignItems: "center" }}>
           <Download size={16} color={markers.length > 0 ? ORANGE : "#444"} />
         </button>
-      </div>
-
-      {/* ── Jurisdiction strip ───────────────────────────────────── */}
-      <div style={{ flexShrink: 0, background: "#0d0d0d", borderBottom: "1px solid #131313", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
-          {verification ? (
-            <>
-              {verification.verdict === "permitted"    && <CheckCircle2 size={13} color="#22c55e" />}
-              {verification.verdict === "limited"      && <AlertCircle  size={13} color="#f59e0b" />}
-              {verification.verdict === "not_accepted" && <XCircle      size={13} color="#ef4444" />}
-            </>
-          ) : (
-            <Shield size={13} color="#444" />
-          )}
-          <span style={{ fontSize: 12, color: "#555", fontWeight: 700 }}>Jurisdiction</span>
-          <span style={{ fontSize: 12, color: court ? "#888" : "#3a3a3a", fontStyle: court ? "normal" : "italic" }}>
-            {court ? `${court.state}${court.name ? ` · ${court.name}` : ""}` : "not set — add court in Case Profile"}
-          </span>
-        </div>
-        {verification ? (
-          <button onClick={() => setShowVerifResult(true)}
-            style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: verification.verdict === "permitted" ? "#22c55e" : verification.verdict === "limited" ? "#f59e0b" : "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-            <Eye size={11} /> View
-          </button>
-        ) : (
-          <JurisdictionVerifyButton onVerify={handleVerify} disabled={verifying || !court} />
-        )}
-      </div>
-
-      {/* ── Evidence preservation reminder ───────────────────────── */}
-      <div style={{ flexShrink: 0, background: "#0a0800", borderBottom: "1px solid #1a1500", padding: "7px 16px", fontSize: 11, color: "#6b5a00", display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.5 }}>
-        <AlertCircle size={11} color="#6b5a00" style={{ flexShrink: 0, marginTop: 1 }} />
-        <span>
-          Keep the original video file saved on your device.{" "}
-          <span style={{ color: "#7a6500" }}>Switching between phone and laptop is fine</span> — just make sure the same video is on both and use <strong style={{ color: "#8a7300" }}>Relink</strong> to reconnect it. Your edits and exhibit screens are always saved here; the video never leaves your device.
-        </span>
-      </div>
-
-      {/* ── 7-day retention notice ───────────────────────────────────── */}
-      {markers.length > 0 && (
-        <div style={{ flexShrink: 0, background: "#060c1a", borderBottom: "1px solid #0c1830", padding: "6px 16px", fontSize: 11, color: "#2d4870", display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
-            <Info size={11} color="#2d4870" style={{ flexShrink: 0 }} />
-            <span>Edits auto-delete after 7 days without activity. Export to save permanently.</span>
-          </div>
-          {hlCase.studioProject?.expiresAt && hlCase.studioProject.expiresAt > Date.now() && (
-            <span style={{ color: "#3a5c8a", fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>
-              Until {new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        {/* ⓘ Info bubble */}
+        <button
+          onClick={() => setInfoPanelOpen(p => !p)}
+          title="Studio guide"
+          style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+          <Info size={16} color={infoPanelOpen ? ORANGE : "#555"} />
+          {issueCount > 0 && !infoPanelOpen && (
+            <span style={{ position: "absolute", top: 0, right: 0, background: "#ef4444", color: "#fff", borderRadius: 99, fontSize: 8, fontWeight: 900, minWidth: 13, height: 13, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", lineHeight: 1 }}>
+              {issueCount}
             </span>
           )}
+        </button>
+      </div>
+
+      {/* ── Info panel ────────────────────────────────────────────── */}
+      {infoPanelOpen && (
+        <div style={{ position: "fixed", top: 52, right: 12, width: 300, maxWidth: "calc(100vw - 24px)", background: "#111", border: "1px solid #252525", borderRadius: 14, zIndex: 1200, padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.7)" }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: "#ddd" }}>Studio Guide</span>
+            <button onClick={() => {
+              setInfoPanelOpen(false);
+              try { localStorage.setItem("studio-info-seen", "1"); } catch {}
+            }} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex" }}>
+              <X size={14} color="#555" />
+            </button>
+          </div>
+
+          {/* File loading */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 7 }}>Loading Your Video</div>
+            <div style={{ fontSize: 12, color: "#666", lineHeight: 1.65 }}>
+              Save your video from your photo library to the <strong style={{ color: "#999" }}>Files app</strong> on your device first, then tap <strong style={{ color: "#999" }}>Load Video</strong> here and choose it from Files.
+              <br /><br />
+              Switching between phone and laptop is fine — transfer the same video to the other device and tap <strong style={{ color: "#999" }}>Relink</strong> to reconnect it. Your edits and exhibit screens are always saved here; the video never leaves your device.
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #1c1c1c", marginBottom: 14 }} />
+
+          {/* 7-day warning */}
+          <div style={{ background: "#130900", border: "1px solid #2e1500", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
+            <AlertCircle size={13} color="#c2740a" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 12, color: "#a0620a", lineHeight: 1.6 }}>
+              <strong style={{ color: "#d97706" }}>Edits auto-delete after 7 days</strong> without activity. Export your video to save it permanently.
+              {hlCase.studioProject?.expiresAt && hlCase.studioProject.expiresAt > Date.now() && (
+                <div style={{ marginTop: 4, color: "#7a5000", fontWeight: 700 }}>
+                  Saved until {new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Jurisdiction */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
+              Jurisdiction
+              {issueCount > 0 && (
+                <span style={{ background: "#ef4444", color: "#fff", borderRadius: 99, fontSize: 8, fontWeight: 900, padding: "1px 5px", lineHeight: 1.4 }}>1</span>
+              )}
+            </div>
+            {court ? (
+              <div style={{ fontSize: 12, color: "#777", lineHeight: 1.6 }}>
+                {verification ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {verification.verdict === "permitted"    && <CheckCircle2 size={12} color="#22c55e" />}
+                    {verification.verdict === "limited"      && <AlertCircle  size={12} color="#f59e0b" />}
+                    {verification.verdict === "not_accepted" && <XCircle      size={12} color="#ef4444" />}
+                    <span>{court.state}{court.name ? ` · ${court.name}` : ""}</span>
+                  </div>
+                ) : (
+                  <span>{court.state}{court.name ? ` · ${court.name}` : ""} — tap Verify in the editor to check illustrative aid rules.</span>
+                )}
+                {verification && (
+                  <button onClick={() => { setInfoPanelOpen(false); setShowVerifResult(true); }}
+                    style={{ marginTop: 8, background: "none", border: "1px solid #252525", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: verification.verdict === "permitted" ? "#22c55e" : verification.verdict === "limited" ? "#f59e0b" : "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+                    <Eye size={10} /> View jurisdiction result
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: "#555", lineHeight: 1.65 }}>
+                No court set. Add your court in <strong style={{ color: "#777" }}>Case Profile</strong> to check whether illustrative aids are permitted in your jurisdiction.
+              </div>
+            )}
+          </div>
+
+          {/* Dismiss */}
+          <button onClick={() => {
+            setInfoPanelOpen(false);
+            try { localStorage.setItem("studio-info-seen", "1"); } catch {}
+          }} style={{ width: "100%", background: "#181818", border: "1px solid #252525", borderRadius: 10, padding: "9px 14px", fontSize: 12, fontWeight: 700, color: "#777", cursor: "pointer" }}>
+            Got it
+          </button>
         </div>
       )}
+
 
       {/* ── Scrollable content ─────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
@@ -1898,18 +1933,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               </div>
               {!isDragging && (
                 <div style={{ fontSize: 12, color: "#444", textAlign: "center", maxWidth: 280, lineHeight: 1.55 }}>
-                  Any length supported — 30 minutes, 1 hour, or longer.
-                  <br />Videos stay on your device; nothing is uploaded to the server.
+                  Save your video to the <strong style={{ color: "#555" }}>Files app</strong> first, then tap here to load it.
+                  <br />Any length supported — nothing is uploaded to the server.
                 </div>
               )}
-            </div>
-
-            {/* iCloud warning */}
-            <div style={{ background: "#0d0900", border: "1px solid #2a1a00", borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11, color: "#7a5a00", lineHeight: 1.5 }}>
-              <AlertCircle size={13} color="#7a5a00" style={{ flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <strong style={{ color: "#aa8800" }}>If the picker gets stuck loading:</strong> the video is stored in iCloud and hasn't been downloaded to your device yet. Open the Photos app, tap the video, and wait for it to fully load — then try again.
-              </div>
             </div>
           </div>
         )}
@@ -2032,12 +2059,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           step={currentStep}
         />
 
-        {/* ── Thumbnail diagnostics (temporary — remove once confirmed working) */}
-        {videoUrl && (
-          <div style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 6, padding: "5px 10px", marginBottom: 8, fontSize: 10, fontFamily: "monospace", color: thumbsDebug.includes("ERROR") || thumbsDebug.includes("black") || thumbsDebug.includes("BLACK") ? "#f87171" : thumbsDebug.includes("✓") || thumbsDebug.startsWith("done") ? "#4ade80" : "#888", wordBreak: "break-all" }}>
-            🎞 {thumbsDebug}
-          </div>
-        )}
 
         {/* ── Step Navigation ───────────────────────────────────────── */}
         {videoUrl && (

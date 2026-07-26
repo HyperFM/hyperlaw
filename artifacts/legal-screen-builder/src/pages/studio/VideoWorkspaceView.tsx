@@ -107,7 +107,7 @@ function VideoTimeline({
   duration, currentTime, markers, onSeek,
   activeMarkerId, onSelectMarker,
   chunks, onSplitChunk, onRemoveChunk,
-  thumbnails, step,
+  thumbnails, thumbsLoading, step,
 }: {
   duration: number; currentTime: number;
   markers: ExhibitMarker[];
@@ -118,6 +118,7 @@ function VideoTimeline({
   onSplitChunk: (id: string, at: number) => void;
   onRemoveChunk: (id: string) => void;
   thumbnails: string[];
+  thumbsLoading: boolean;
   step: number;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -205,13 +206,33 @@ function VideoTimeline({
           {allSegs.length === 0 && duration > 0 && (
             <div style={{ position: "absolute", inset: 0 }}>
               {thumbnails.length > 0 ? (
+                /* Real frames — one img per captured thumbnail */
                 <div style={{ position: "absolute", inset: 0, display: "flex" }}>
                   {thumbnails.map((src, i) => (
                     <img key={i} src={src} alt="" draggable={false}
                       style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
                   ))}
                 </div>
+              ) : thumbsLoading ? (
+                /* Skeleton tiles while the hidden video is generating frames */
+                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} style={{
+                      flex: 1, height: "100%",
+                      background: i % 2 === 0 ? "#1c1c1c" : "#161616",
+                      borderRight: "1px solid #111",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {i === 5 && (
+                        <div style={{ fontSize: 8, color: "#333", fontWeight: 700, whiteSpace: "nowrap" }}>
+                          Loading…
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               ) : (
+                /* Idle — no video loaded yet */
                 <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(90deg,#111 0,#111 1px,#161616 1px,#161616 40px)" }} />
               )}
             </div>
@@ -867,6 +888,7 @@ interface Props {
 export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Props) {
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -916,6 +938,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   });
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [thumbsLoading, setThumbsLoading] = useState(false);
 
   // ── Preview mode ───────────────────────────────────────────────
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -1243,66 +1266,91 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     return () => clearTimeout(t);
   }, [videoLoading]);
 
-  // ── Extract video thumbnails using the main video element ─────────────────
-  // We use videoRef (the visible player) because it's guaranteed to be loaded
-  // and playable — no blob-URL CORS issues, no separate element loading race.
-  // ── Progressive thumbnail capture from the live video element ─────────────
-  // Rather than a separate video element (which gets throttled / has CORS
-  // quirks with blob URLs), we capture directly from the already-playing
-  // videoRef as its frames are decoded. No seeking race, no CORS, guaranteed
-  // to produce real frames because the browser is already rendering them.
-  const THUMB_N = 16;
-  const thumbSlotsRef = useRef<(string | null)[]>(Array(THUMB_N).fill(null));
-  const thumbCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // ── Phase 1 thumbnail extraction ──────────────────────────────────────────
+  // Rules (per spec):
+  //   • Use hiddenVideoRef — never seek the visible player.
+  //   • Wait for "seeked" (not "timeupdate") before drawing each frame.
+  //   • Cache results; only re-run when videoUrl changes.
+  //   • Show a loading skeleton while generating.
+  const THUMB_N = 20; // Phase 2 will make this dynamic (pixels-per-second × track width)
 
-  // Reset slots whenever a new video is loaded
   useEffect(() => {
-    thumbSlotsRef.current = Array(THUMB_N).fill(null);
-    thumbCanvasRef.current = null;
     setThumbnails([]);
-  }, [videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!videoUrl) { setThumbsLoading(false); return; }
 
-  function captureCurrentFrame() {
-    const vid = videoRef.current;
-    if (!vid || vid.readyState < 2) return;
-    // Use the DOM's live duration — NOT the React state value, which lags by
-    // one render cycle and is still 0 when onCanPlay first fires.
-    const dur = vid.duration;
-    if (!dur || !isFinite(dur) || dur < 0.5) return;
+    const vid = hiddenVideoRef.current;
+    if (!vid) return;
 
-    const t = vid.currentTime;
-    const idx = Math.min(Math.floor((t / dur) * THUMB_N), THUMB_N - 1);
-    if (idx < 0 || thumbSlotsRef.current[idx]) return; // already have this slot
+    let cancelled = false;
+    let frameIdx = 0;
+    let dur = 0;
+    const results: string[] = [];
 
-    if (!thumbCanvasRef.current) {
-      const c = document.createElement("canvas");
-      // Capture at the video's native resolution, capped so we don't blow memory.
-      // Higher res → sharper filmstrip on wide desktop tracks.
-      c.width  = Math.min(vid.videoWidth  || 640, 960);
-      c.height = Math.min(vid.videoHeight || 540, 540);
-      thumbCanvasRef.current = c;
+    // Canvas is created once, resized to match video dimensions on first seeked.
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext("2d")!;
+
+    setThumbsLoading(true);
+
+    function seekTo(i: number) {
+      if (cancelled || !dur) return;
+      // Spread N frames evenly; keep strictly > 0 so "seeked" always fires
+      // (some browsers skip the event when currentTime is already at the target).
+      const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
+      const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
+      vid!.currentTime = t;
     }
-    const { width: cw, height: ch } = thumbCanvasRef.current;
-    const ctx = thumbCanvasRef.current.getContext("2d")!;
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.drawImage(vid, 0, 0, cw, ch);
-    // Use PNG for the first frame so it's lossless; JPEG 0.92 for the rest —
-    // high enough that compression artefacts don't show on the timeline strip.
-    thumbSlotsRef.current[idx] = thumbCanvasRef.current.toDataURL(
-      idx === 0 ? "image/png" : "image/jpeg",
-      0.92,
-    );
 
-    // Rebuild the thumbnails array: use nearest captured slot for any gap
-    const slots = thumbSlotsRef.current;
-    const filled = slots.map((s, i) => {
-      if (s) return s;
-      let best: string | null = null, bestD = Infinity;
-      slots.forEach((t2, j) => { if (t2 && Math.abs(j - i) < bestD) { bestD = Math.abs(j - i); best = t2; } });
-      return best;
-    }).filter(Boolean) as string[];
-    if (filled.length > 0) setThumbnails(filled);
-  }
+    function onLoadedMetadata() {
+      if (cancelled) return;
+      dur = vid!.duration;
+      if (!dur || !isFinite(dur) || dur < 0.1) return;
+      seekTo(0);
+    }
+
+    function onSeeked() {
+      if (cancelled) return;
+
+      // Resize canvas to video's native dimensions on the first frame.
+      const vw = vid!.videoWidth;
+      const vh = vid!.videoHeight;
+      if (vw && vh && (canvas.width !== vw || canvas.height !== vh)) {
+        canvas.width  = Math.min(vw, 960);
+        canvas.height = Math.min(vh, 540);
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
+      results.push(canvas.toDataURL("image/jpeg", 0.92));
+      frameIdx++;
+
+      if (frameIdx < THUMB_N) {
+        seekTo(frameIdx);
+      } else {
+        if (!cancelled) {
+          setThumbnails([...results]);
+          setThumbsLoading(false);
+        }
+      }
+    }
+
+    vid.addEventListener("loadedmetadata", onLoadedMetadata);
+    vid.addEventListener("seeked", onSeeked);
+    // Set src AFTER listeners — avoids a race where loadedmetadata fires
+    // before the listener is attached on a fast local file.
+    vid.src = videoUrl;
+    vid.load();
+
+    return () => {
+      cancelled = true;
+      vid.removeEventListener("loadedmetadata", onLoadedMetadata);
+      vid.removeEventListener("seeked", onSeeked);
+      vid.src = "";
+      setThumbsLoading(false);
+    };
+  }, [videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Expiry check on mount — clean up server data for expired projects ──────
   useEffect(() => {
@@ -1640,6 +1688,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
+        {/* Hidden thumbnail extractor — stays in DOM, never visible.
+             A real DOM element (not document.createElement) so the browser
+             won't throttle or suspend it like a detached media element. */}
+        <video
+          ref={hiddenVideoRef as React.RefObject<HTMLVideoElement>}
+          muted
+          playsInline
+          preload="auto"
+          style={{ display: "none" }}
+        />
+
         {/* ── Video area ─────────────────────────────────────────────
              The <video> element is ALWAYS in the DOM so videoRef.current
              is never null when loadVideo() fires inside the gesture handler.
@@ -1653,7 +1712,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onTimeUpdate={e => {
               setCurrentTime(e.currentTarget.currentTime);
               currentTimeRef.current = e.currentTarget.currentTime;
-              captureCurrentFrame();
             }}
             onDurationChange={e => {
               const d = e.currentTarget.duration;
@@ -1662,9 +1720,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               triggerAutosave(markers);
             }}
             onLoadedMetadata={() => setVideoLoading(false)}
-            onCanPlay={() => { setVideoLoading(false); captureCurrentFrame(); }}
-            onLoadedData={() => { setVideoLoading(false); captureCurrentFrame(); }}
-            onSeeked={() => captureCurrentFrame()}
+            onCanPlay={() => setVideoLoading(false)}
+            onLoadedData={() => setVideoLoading(false)}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
             onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
@@ -1896,6 +1953,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onSplitChunk={splitChunk}
           onRemoveChunk={removeChunk}
           thumbnails={thumbnails}
+          thumbsLoading={thumbsLoading}
           step={currentStep}
         />
 

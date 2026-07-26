@@ -1,0 +1,36 @@
+I need two features added to the video track component in the Exhibit Studio editor: frame thumbnails and zoom. Please implement these in two separate phases — do NOT combine them. Confirm phase 1 is working before starting phase 2.
+
+=== PHASE 1: FRAME THUMBNAILS ===
+
+Goal: show a strip of thumbnail images along the video track representing frames throughout the video, instead of a blank/black track.
+
+Requirements:
+1. Do NOT seek the visible <video> player element to generate thumbnails — this causes blank frames and jank. Instead, create a second hidden <video> element (display:none or off-screen) dedicated only to thumbnail extraction, plus an offscreen <canvas>.
+2. On video load, calculate N evenly-spaced timestamps across the full duration (e.g. one thumbnail every 3-5 seconds — pick a count based on track width, not video length).
+3. For each timestamp, in sequence:
+   - Set hiddenVideo.currentTime = timestamp
+   - Wait for the 'seeked' event to fire (NOT 'timeupdate' — that fires before the frame is ready and will give you blank/wrong frames)
+   - Once seeked fires, draw the frame: ctx.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height)
+   - Convert to a data URL or ImageBitmap and store it in an array/state (e.g. thumbnails[i])
+4. Cache these thumbnails once generated — do not regenerate them on every re-render, scroll, or state change. Only regenerate if the underlying video file changes.
+5. Render the cached thumbnails as a horizontal strip of background tiles across the track UI.
+6. Show a loading state (e.g. skeleton/placeholder tiles) while thumbnails are being generated, especially for longer videos.
+
+Please confirm this is rendering correctly with real thumbnails (not black frames) before touching zoom.
+
+=== PHASE 2: ZOOM ON THE TRACK ===
+
+Goal: a zoom control that scales the timeline in/out, with everything on the track staying aligned.
+
+Requirements:
+1. Establish ONE single source of truth for scale: pixelsPerSecond = basePixelsPerSecond * zoomLevel (zoomLevel as state, e.g. starting at 1).
+2. Every element positioned on the track must derive its position from that same pixelsPerSecond value — no separate/hardcoded width calculations anywhere else in the component. This includes:
+   - Thumbnail tile positions/widths
+   - The playhead position
+   - Chunk/section boundary markers
+   - Click-to-seek logic (converting click X position back to a timestamp)
+3. Zoom in/out buttons (and the existing 1x control shown in the UI) should only update zoomLevel — nothing else should need to change independently.
+4. Test that after zooming, clicking on the track still seeks to the correct timestamp, the playhead still lines up with the correct thumbnail, and chunk markers don't drift out of position.
+5. Keep zoom level within reasonable bounds (e.g. 0.5x to 5x) and make sure the track container scrolls horizontally when zoomed content exceeds visible width.
+
+Please implement phase 1 fully first and let me review/confirm it before starting phase 2.

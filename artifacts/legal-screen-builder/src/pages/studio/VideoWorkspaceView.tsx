@@ -1352,6 +1352,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let dataUrl = "";
       try {
+        // ── DIAGNOSTIC: unique draw ID so we can confirm each call executes separately ──
+        const drawId = performance.now().toFixed(1);
+        const drawMsg = `[DRAW] f${frameIdx + 1} drawImage @ t=${vid!.currentTime.toFixed(4)}s id=${drawId} canvas=${canvas.width}×${canvas.height}`;
+        console.log("[thumbs]", drawMsg);
+        pushDebug(drawMsg);
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
         dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       } catch (err) {

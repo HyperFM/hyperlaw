@@ -1367,27 +1367,33 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     }
 
     // ── Stability check loop ────────────────────────────────────────
-    // After each seek settles, we draw the frame twice 150ms apart.
-    // If the two pixel fingerprints MATCH the decoder has caught up — accept.
-    // If they differ the decoder is still decoding — draw again and compare,
-    // up to MAX_CHECKS times (8 × 150ms = 1200ms max per frame).
+    // Protocol per frame:
+    //   a. captureFrame() does draw → sampleA  (logged as [5] SAMPLE_A)
+    //   b. stabilityLoop waits 150ms (real setTimeout)
+    //   c. stabilityLoop does a FRESH draw → sampleB  (logged as [SC] SAMPLE_B)
+    //   d. compares sampleA vs sampleB — both values printed side-by-side
+    //   e. if match → accept sampleB; if not → sampleA = sampleB, repeat b–e
+    //   max 8 rounds (1200ms) before giving up and accepting whatever sampleB is.
     const MAX_CHECKS = 8;
 
-    function stabilityLoop(prevUrl: string, prevPx: string, attempt: number) {
+    function stabilityLoop(sampleA_url: string, sampleA_px: string, attempt: number) {
       if (cancelled) return;
+      // ── step b: REAL 150ms wait ──
       setTimeout(() => {
         if (cancelled) return;
-        const { dataUrl: currUrl, pixels: currPx } = drawSample();
-        const matched = currPx !== "" && currPx === prevPx;
-        const scMsg = `[SC] f${frameIdx + 1} chk=${attempt + 1}/${MAX_CHECKS} match=${matched} px=[${currPx.slice(0, 40)}]`;
+        // ── step c: fresh draw → sampleB (completely new drawImage call) ──
+        const { dataUrl: sampleB_url, pixels: sampleB_px } = drawSample();
+        // ── step d: compare A vs B, log BOTH values side by side ──
+        const matched = sampleB_px !== "" && sampleB_px === sampleA_px;
+        const scMsg = `[SC] f${frameIdx + 1} chk=${attempt + 1}/${MAX_CHECKS} match=${matched} | A=[${sampleA_px.slice(0, 35)}] | B=[${sampleB_px.slice(0, 35)}]`;
         console.log("[thumbs]", scMsg);
         pushDebug(scMsg);
-
+        // ── step e ──
         if (matched || attempt >= MAX_CHECKS - 1) {
-          // Stable (or gave up) — use the latest draw
-          acceptFrame(currUrl || prevUrl, currPx || prevPx);
+          acceptFrame(sampleB_url || sampleA_url, sampleB_px || sampleA_px);
         } else {
-          stabilityLoop(currUrl, currPx, attempt + 1);
+          // sampleB becomes next sampleA
+          stabilityLoop(sampleB_url, sampleB_px, attempt + 1);
         }
       }, 150);
     }
@@ -1409,15 +1415,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       console.log("[thumbs]", preMsg);
       pushDebug(preMsg);
 
-      const { dataUrl, pixels } = drawSample();
+      // ── step a: first draw → sampleA ──
+      const { dataUrl: sampleA_url, pixels: sampleA_px } = drawSample();
 
-      // ── DIAGNOSTIC 5: initial draw result ──
-      const lenMsg = `[5] f${frameIdx + 1} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""} px=[${pixels.slice(0, 40)}]`;
+      // ── DIAGNOSTIC 5: log sampleA ──
+      const lenMsg = `[5] f${frameIdx + 1} SAMPLE_A urlLen=${sampleA_url.length}${sampleA_url.length < 1000 ? " ← SHORT" : ""} px=[${sampleA_px.slice(0, 35)}]`;
       console.log("[thumbs]", lenMsg);
       pushDebug(lenMsg);
 
-      // Begin stability loop — compare this draw to the next one 150ms later
-      stabilityLoop(dataUrl, pixels, 0);
+      // ── step b starts inside stabilityLoop after the 150ms setTimeout ──
+      stabilityLoop(sampleA_url, sampleA_px, 0);
     }
 
     // ── Seek to the i-th evenly-spaced timestamp ──

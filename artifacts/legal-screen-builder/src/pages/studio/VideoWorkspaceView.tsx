@@ -939,6 +939,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
+  const [thumbsDebug, setThumbsDebug] = useState<string>("idle");
 
   // ── Preview mode ───────────────────────────────────────────────
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -1279,41 +1280,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (!videoUrl) { setThumbsLoading(false); return; }
 
     const vid = hiddenVideoRef.current;
-    if (!vid) return;
+    if (!vid) {
+      console.error("[thumbs] hiddenVideoRef.current is null — effect ran before DOM mounted");
+      return;
+    }
 
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
+    let rVFCHandle = 0;
     const results: string[] = [];
 
-    // Canvas is created once, resized to match video dimensions on first seeked.
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 360;
     const ctx = canvas.getContext("2d")!;
 
+    // requestVideoFrameCallback (Chrome 83+, Safari 15.4+) fires only when
+    // a frame is truly composited — eliminates seeked-before-decode black frames.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hasRVFC = "requestVideoFrameCallback" in (vid as any);
+
     setThumbsLoading(true);
+    setThumbsDebug(`starting… rVFC=${hasRVFC}`);
 
-    function seekTo(i: number) {
-      if (cancelled || !dur) return;
-      // Spread N frames evenly; keep strictly > 0 so "seeked" always fires
-      // (some browsers skip the event when currentTime is already at the target).
-      const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
-      const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
-      vid!.currentTime = t;
-    }
-
-    function onLoadedMetadata() {
-      if (cancelled) return;
-      dur = vid!.duration;
-      if (!dur || !isFinite(dur) || dur < 0.1) return;
-      seekTo(0);
-    }
-
-    function onSeeked() {
+    // ── Capture the frame that is currently displayed by the hidden video ──
+    function captureFrame() {
       if (cancelled) return;
 
-      // Resize canvas to video's native dimensions on the first frame.
       const vw = vid!.videoWidth;
       const vh = vid!.videoHeight;
       if (vw && vh && (canvas.width !== vw || canvas.height !== vh)) {
@@ -1322,31 +1316,101 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
-      results.push(canvas.toDataURL("image/jpeg", 0.92));
+      let dataUrl = "";
+      try {
+        ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
+        const cx = canvas.width >> 1, cy = canvas.height >> 1;
+        const px = ctx.getImageData(cx, cy, 1, 1).data;
+        const isBlack = px[0] + px[1] + px[2] === 0;
+        setThumbsDebug(`frame ${frameIdx + 1}/${THUMB_N}: px(${px[0]},${px[1]},${px[2]})${isBlack ? " ← BLACK" : " ✓"} ${canvas.width}×${canvas.height}`);
+        dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      } catch (err) {
+        setThumbsDebug(`frame ${frameIdx + 1}: drawImage threw → ${String(err)}`);
+      }
+
+      results.push(dataUrl);
       frameIdx++;
 
       if (frameIdx < THUMB_N) {
         seekTo(frameIdx);
       } else {
         if (!cancelled) {
+          const good = results.filter(Boolean);
+          setThumbsDebug(`done — ${good.length}/${THUMB_N} real frames`);
           setThumbnails([...results]);
           setThumbsLoading(false);
         }
       }
     }
 
+    // ── Seek the hidden video to the i-th evenly-spaced timestamp ──
+    function seekTo(i: number) {
+      if (cancelled || !dur) return;
+      const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
+      const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
+      setThumbsDebug(`seeking ${i + 1}/${THUMB_N} → ${t.toFixed(1)}s`);
+
+      if (hasRVFC) {
+        // Cancel any stale callback before seeking to avoid double-capture
+        if (rVFCHandle) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (vid as any).cancelVideoFrameCallback(rVFCHandle);
+          rVFCHandle = 0;
+        }
+        vid!.currentTime = t;
+        // rVFC fires AFTER the new frame is composited — guaranteed non-black
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rVFCHandle = (vid as any).requestVideoFrameCallback(() => {
+          if (!cancelled) captureFrame();
+        });
+      } else {
+        // Fallback: seeked + readyState guard
+        vid!.currentTime = t;
+      }
+    }
+
+    function onLoadedMetadata() {
+      if (cancelled) return;
+      dur = vid!.duration;
+      if (!dur || !isFinite(dur) || dur < 0.1) {
+        setThumbsDebug(`ERROR: bad duration (${dur})`);
+        return;
+      }
+      setThumbsDebug(`metadata: dur=${dur.toFixed(1)}s ${vid!.videoWidth}×${vid!.videoHeight} rs=${vid!.readyState} rVFC=${hasRVFC}`);
+      seekTo(0);
+    }
+
+    function onSeeked() {
+      if (cancelled || hasRVFC) return; // rVFC path handles capture instead
+      // readyState guard — WebKit fires seeked before frame decode completes
+      if (vid!.readyState < 2) {
+        setTimeout(() => { if (!cancelled) onSeeked(); }, 60);
+        return;
+      }
+      captureFrame();
+    }
+
+    function onError() {
+      const ve = vid!.error;
+      setThumbsDebug(`VIDEO ERROR code=${ve?.code} "${ve?.message}" net=${vid!.networkState}`);
+      if (!cancelled) setThumbsLoading(false);
+    }
+
     vid.addEventListener("loadedmetadata", onLoadedMetadata);
     vid.addEventListener("seeked", onSeeked);
-    // Set src AFTER listeners — avoids a race where loadedmetadata fires
-    // before the listener is attached on a fast local file.
+    vid.addEventListener("error", onError);
     vid.src = videoUrl;
     vid.load();
 
     return () => {
       cancelled = true;
+      if (rVFCHandle && hasRVFC) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (vid as any).cancelVideoFrameCallback(rVFCHandle);
+      }
       vid.removeEventListener("loadedmetadata", onLoadedMetadata);
       vid.removeEventListener("seeked", onSeeked);
+      vid.removeEventListener("error", onError);
       vid.src = "";
       setThumbsLoading(false);
     };
@@ -1688,15 +1752,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* Hidden thumbnail extractor — stays in DOM, never visible.
-             A real DOM element (not document.createElement) so the browser
-             won't throttle or suspend it like a detached media element. */}
+        {/* Hidden thumbnail extractor — position off-screen instead of
+             display:none.  WebKit / Safari refuse to decode frames from
+             display:none video elements (seeked fires but drawImage returns
+             black), so we make it invisible without hiding it from the
+             compositor. The 1×1 size keeps it from affecting layout. */}
         <video
           ref={hiddenVideoRef as React.RefObject<HTMLVideoElement>}
           muted
           playsInline
           preload="auto"
-          style={{ display: "none" }}
+          style={{
+            position: "fixed",
+            top: -9999,
+            left: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: "none",
+            zIndex: -1,
+          }}
         />
 
         {/* ── Video area ─────────────────────────────────────────────
@@ -1956,6 +2031,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           thumbsLoading={thumbsLoading}
           step={currentStep}
         />
+
+        {/* ── Thumbnail diagnostics (temporary — remove once confirmed working) */}
+        {videoUrl && (
+          <div style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 6, padding: "5px 10px", marginBottom: 8, fontSize: 10, fontFamily: "monospace", color: thumbsDebug.includes("ERROR") || thumbsDebug.includes("black") || thumbsDebug.includes("BLACK") ? "#f87171" : thumbsDebug.includes("✓") || thumbsDebug.startsWith("done") ? "#4ade80" : "#888", wordBreak: "break-all" }}>
+            🎞 {thumbsDebug}
+          </div>
+        )}
 
         {/* ── Step Navigation ───────────────────────────────────────── */}
         {videoUrl && (

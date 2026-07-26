@@ -1959,6 +1959,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </div>
           </div>
 
+          {/* Large file notice */}
+          {largFileWarning && (
+            <>
+              <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
+                <AlertCircle size={13} color="#cc6600" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: "#a05000", lineHeight: 1.6, flex: 1 }}>
+                  <strong style={{ color: "#cc6600" }}>Large file detected.</strong> If playback is slow, trim unnecessary portions before loading.
+                </div>
+                <button onClick={() => setLargeFileWarning(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
+                  <X size={13} color="#6b3800" />
+                </button>
+              </div>
+              <div style={{ borderTop: "1px solid #1c1c1c", marginBottom: 14 }} />
+            </>
+          )}
+
           {/* Jurisdiction */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2195,16 +2211,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onChange={handleFileChange}
         />
 
-        {/* Large file warning (non-blocking) */}
-        {largFileWarning && (
-          <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cc6600" }}>
-            <AlertCircle size={13} color="#cc6600" />
-            <div style={{ flex: 1 }}>Large file detected. If playback is slow, trim unnecessary portions of the video before loading.</div>
-            <button onClick={() => setLargeFileWarning(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-              <X size={14} color="#cc6600" />
-            </button>
-          </div>
-        )}
 
         {/* ── Relink banner ─────────────────────────────────────────── */}
         {!videoUrl && videoFileName && (

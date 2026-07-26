@@ -1291,7 +1291,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
-    let rVFCHandle = 0;
     const results: string[] = [];
 
     const canvas = document.createElement("canvas");
@@ -1299,14 +1298,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     canvas.height = 360;
     const ctx = canvas.getContext("2d")!;
 
-    // requestVideoFrameCallback (Chrome 83+, Safari 15.4+) fires only when
-    // a frame is truly composited — eliminates seeked-before-decode black frames.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hasRVFC = "requestVideoFrameCallback" in (vid as any);
-
     setThumbsLoading(true);
 
     // ── Capture the frame currently displayed by the hidden video ──
+    // Uses seeked + 80ms settle + rAF — the most reliable combo across all
+    // browsers in iframe / proxy environments where rVFC is unreliable.
     function captureFrame() {
       if (cancelled) return;
 
@@ -1321,13 +1317,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       let dataUrl = "";
       try {
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
-        dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       } catch {
-        // security error or decode failure — leave dataUrl empty, advance anyway
+        // SecurityError or decode-not-ready — advance anyway
       }
 
       results.push(dataUrl);
-      // Update progressively so frames appear one-by-one as they're captured
+      // Progressive update — frames appear one-by-one as captured
       if (dataUrl && !cancelled) setThumbnails([...results]);
       frameIdx++;
 
@@ -1346,22 +1342,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (cancelled || !dur) return;
       const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
       const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
+      vid!.currentTime = t;
+    }
 
-      if (hasRVFC) {
-        if (rVFCHandle) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (vid as any).cancelVideoFrameCallback(rVFCHandle);
-          rVFCHandle = 0;
-        }
-        vid!.currentTime = t;
-        // rVFC fires only after the frame is composited — guaranteed non-black
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        rVFCHandle = (vid as any).requestVideoFrameCallback(() => {
+    // seeked → 80ms settle → requestAnimationFrame → drawImage
+    // The settle delay lets the decoder finish; rAF ensures we're in a paint cycle.
+    function onSeeked() {
+      if (cancelled) return;
+      setTimeout(() => {
+        if (cancelled) return;
+        requestAnimationFrame(() => {
           if (!cancelled) captureFrame();
         });
-      } else {
-        vid!.currentTime = t;
-      }
+      }, 80);
     }
 
     function onLoadedMetadata() {
@@ -1369,15 +1362,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       dur = vid!.duration;
       if (!dur || !isFinite(dur) || dur < 0.1) return;
       seekTo(0);
-    }
-
-    function onSeeked() {
-      if (cancelled || hasRVFC) return;
-      if (vid!.readyState < 2) {
-        setTimeout(() => { if (!cancelled) onSeeked(); }, 60);
-        return;
-      }
-      captureFrame();
     }
 
     function onError() {
@@ -1392,10 +1376,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     return () => {
       cancelled = true;
-      if (rVFCHandle && hasRVFC) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (vid as any).cancelVideoFrameCallback(rVFCHandle);
-      }
       vid.removeEventListener("loadedmetadata", onLoadedMetadata);
       vid.removeEventListener("seeked", onSeeked);
       vid.removeEventListener("error", onError);

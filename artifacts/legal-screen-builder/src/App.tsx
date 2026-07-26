@@ -5171,8 +5171,8 @@ export default function App() {
 
   return (
     <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
-      {/* Notification bell — fixed top-right (hidden on Tutor tab) */}
-      {navTab !== "tutor" && (
+      {/* Notification bell — fixed top-right (hidden on Tutor tab and Studio workspace, which has its own ⓘ button) */}
+      {navTab !== "tutor" && !(navTab === "builder" && view.type === "studio_workspace") && (
         <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300 }}>
           <NotificationBell onOpenChat={sid => setChatSessionId(sid)} />
         </div>

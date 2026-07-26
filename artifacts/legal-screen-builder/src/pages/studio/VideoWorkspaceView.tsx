@@ -1298,7 +1298,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
-    let lastUrlLen = -1; // duplicate-frame safeguard
+    // duplicate-frame detection: track previous frame's urlLen and pixel fingerprint
+    let lastUrlLen = -1;
+    let lastPixels = "";
+    // when a retry is in flight, store the retry count so onSeeked knows the settle time
+    let pendingRetry = 0; // 0 = normal seek, >0 = retry after duplicate detected
     const results: string[] = [];
 
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
@@ -1316,10 +1320,28 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     setThumbsLoading(true);
 
+    // Sample ~9 pixels spread across the canvas as a pixel fingerprint
+    function pixelFingerprint(): string {
+      try {
+        const w = canvas.width, h = canvas.height;
+        const pts = [
+          [w >> 2, h >> 2], [w >> 1, h >> 2], [(w * 3) >> 2, h >> 2],
+          [w >> 2, h >> 1], [w >> 1, h >> 1], [(w * 3) >> 2, h >> 1],
+          [w >> 2, (h * 3) >> 2], [w >> 1, (h * 3) >> 2], [(w * 3) >> 2, (h * 3) >> 2],
+        ];
+        return pts.map(([x, y]) => {
+          const d = ctx.getImageData(x, y, 1, 1).data;
+          return `${d[0]},${d[1]},${d[2]}`;
+        }).join("|");
+      } catch {
+        return "err";
+      }
+    }
+
     // ── Capture the frame currently displayed by the hidden video ──
-    // Uses seeked + 80ms settle + rAF. Includes a duplicate-frame safeguard:
-    // if the captured data URL length matches the previous frame's, wait 150ms
-    // and redraw — up to 2 retries — before accepting it and advancing.
+    // Duplicate safeguard: if urlLen OR pixel fingerprint matches previous frame,
+    // force a genuine re-seek (tiny currentTime nudge) and wait for the new
+    // 'seeked' event with a 300ms settle to give the 4K decoder time to finish.
     function captureFrame(retry = 0) {
       if (cancelled) return;
 
@@ -1330,14 +1352,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         canvas.height = Math.min(vh, 540);
       }
 
-      // ── DIAGNOSTIC 3: log canvas and video dimensions before drawImage ──
-      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} retry=${retry} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(2)}`;
+      // ── DIAGNOSTIC 3: canvas + video state before drawImage ──
+      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} retry=${retry} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(3)}`;
       console.log("[thumbs]", preMsg);
       pushDebug(preMsg);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let dataUrl = "";
-      // ── DIAGNOSTIC 4: catch and log any drawImage / toDataURL error ──
+      // ── DIAGNOSTIC 4: catch drawImage / toDataURL errors ──
       try {
         ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
         dataUrl = canvas.toDataURL("image/jpeg", 0.85);
@@ -1347,19 +1369,29 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         pushDebug(errMsg);
       }
 
-      // ── DIAGNOSTIC 5: log resulting data URL length ──
-      const isDup = dataUrl.length > 0 && dataUrl.length === lastUrlLen;
-      const lenMsg = `[5] f${frameIdx + 1} retry=${retry} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}${isDup ? " ← DUPLICATE" : ""}`;
+      const pixels = dataUrl ? pixelFingerprint() : "";
+      const isDupLen = dataUrl.length > 0 && dataUrl.length === lastUrlLen;
+      const isDupPx  = pixels !== "" && pixels === lastPixels;
+      const isDup    = isDupLen || isDupPx;
+
+      // ── DIAGNOSTIC 5: urlLen + pixel fingerprint ──
+      const lenMsg = `[5] f${frameIdx + 1} retry=${retry} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}${isDupLen ? " ← DUP_LEN" : ""}${isDupPx ? " ← DUP_PX" : ""} px=[${pixels.slice(0, 40)}]`;
       console.log("[thumbs]", lenMsg);
       pushDebug(lenMsg);
 
-      // Duplicate safeguard: stale frame detected — wait 150ms and retry
+      // Duplicate detected — force a genuine re-seek so Safari re-decodes the frame.
+      // Re-assigning currentTime (with tiny nudge) triggers a new 'seeked' event.
+      // onSeeked will use a 300ms settle for retries instead of 80ms.
       if (isDup && retry < 2) {
-        setTimeout(() => { if (!cancelled) captureFrame(retry + 1); }, 150);
-        return;
+        pendingRetry = retry + 1;
+        const t = vid!.currentTime;
+        // nudge by ±0.05s (alternating) to guarantee Safari sees a change
+        vid!.currentTime = t + (retry % 2 === 0 ? 0.05 : -0.05);
+        return; // wait for the new seeked event
       }
 
       lastUrlLen = dataUrl.length;
+      lastPixels = pixels;
       results.push(dataUrl);
       // Progressive update — frames appear one-by-one as captured
       if (dataUrl && !cancelled) setThumbnails([...results]);
@@ -1378,25 +1410,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // ── Seek to the i-th evenly-spaced timestamp ──
     function seekTo(i: number) {
       if (cancelled || !dur) return;
+      pendingRetry = 0;
       const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
       const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
       vid!.currentTime = t;
     }
 
-    // seeked → 80ms settle → requestAnimationFrame → drawImage
-    // The settle delay lets the decoder finish; rAF ensures we're in a paint cycle.
+    // seeked → settle (80ms normal / 300ms retry) → rAF → captureFrame
     function onSeeked() {
       if (cancelled) return;
+      const retry = pendingRetry; // capture before any async gap
       // ── DIAGNOSTIC 2: log every seeked event ──
-      const seekMsg = `[2] seeked t=${vid!.currentTime.toFixed(2)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
+      const seekMsg = `[2] seeked t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState} (retry=${retry})`;
       console.log("[thumbs]", seekMsg);
       pushDebug(seekMsg);
+      const settle = retry > 0 ? 300 : 80;
       setTimeout(() => {
         if (cancelled) return;
         requestAnimationFrame(() => {
-          if (!cancelled) captureFrame();
+          if (!cancelled) captureFrame(retry);
         });
-      }, 80);
+      }, settle);
     }
 
     function onLoadedMetadata() {
@@ -1408,7 +1442,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     function onError() {
       const ve = vid!.error;
-      const errMsg = `[ERR] video error code=${ve?.code} msg="${ve?.message}" net=${vid!.networkState}`;
+      // ── DIAGNOSTIC: log src/currentSrc at moment of error ──
+      const errMsg = `[ERR] video error code=${ve?.code} msg="${ve?.message}" net=${vid!.networkState} src="${vid!.src.slice(0, 60)}" curSrc="${vid!.currentSrc.slice(0, 60)}"`;
       console.error("[thumbs]", errMsg);
       pushDebug(errMsg);
       if (!cancelled) setThumbsLoading(false);

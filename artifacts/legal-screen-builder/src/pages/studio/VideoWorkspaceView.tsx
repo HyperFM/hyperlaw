@@ -1264,9 +1264,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   function captureCurrentFrame() {
     const vid = videoRef.current;
-    if (!vid || !duration || duration < 0.5 || vid.readyState < 2) return;
+    if (!vid || vid.readyState < 2) return;
+    // Use the DOM's live duration — NOT the React state value, which lags by
+    // one render cycle and is still 0 when onCanPlay first fires.
+    const dur = vid.duration;
+    if (!dur || !isFinite(dur) || dur < 0.5) return;
+
     const t = vid.currentTime;
-    const idx = Math.min(Math.floor((t / duration) * THUMB_N), THUMB_N - 1);
+    const idx = Math.min(Math.floor((t / dur) * THUMB_N), THUMB_N - 1);
     if (idx < 0 || thumbSlotsRef.current[idx]) return; // already have this slot
 
     if (!thumbCanvasRef.current) {
@@ -1283,7 +1288,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const slots = thumbSlotsRef.current;
     const filled = slots.map((s, i) => {
       if (s) return s;
-      // nearest captured frame
       let best: string | null = null, bestD = Infinity;
       slots.forEach((t2, j) => { if (t2 && Math.abs(j - i) < bestD) { bestD = Math.abs(j - i); best = t2; } });
       return best;

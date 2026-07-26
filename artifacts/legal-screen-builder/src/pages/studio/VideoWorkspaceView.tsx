@@ -1298,15 +1298,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
-    // duplicate-frame detection: track previous frame's urlLen and pixel fingerprint
-    let lastUrlLen = -1;
-    let lastPixels = "";
-    // when a retry is in flight, store the retry count so onSeeked knows the settle time
-    let pendingRetry = 0; // 0 = normal seek, >0 = retry after duplicate detected
-    // decoder warm-up state machine
-    // warmup1: pre-seek to ~500ms to wake the decoder
-    // warmup2: seek back to near-start, then wait 1200ms before real loop
-    // capturing: real 20-frame seek loop
+    // decoder warm-up state machine:
+    //   warmup1  – pre-seek to ~500ms to wake the decoder
+    //   warmup2  – seek back to near-start, then begin real loop
+    //   capturing – real 20-frame seek loop with stability checks
     let phase: "warmup1" | "warmup2" | "capturing" = "warmup1";
     const results: string[] = [];
 
@@ -1325,7 +1320,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     setThumbsLoading(true);
 
-    // Sample ~9 pixels spread across the canvas as a pixel fingerprint
+    // ── Helpers ────────────────────────────────────────────────────
+
+    // Sample 9 pixels spread across the canvas as a cheap pixel fingerprint
     function pixelFingerprint(): string {
       try {
         const w = canvas.width, h = canvas.height;
@@ -1338,18 +1335,68 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           const d = ctx.getImageData(x, y, 1, 1).data;
           return `${d[0]},${d[1]},${d[2]}`;
         }).join("|");
-      } catch {
-        return "err";
+      } catch { return "err"; }
+    }
+
+    // Draw the current video frame and return its dataUrl + pixel fingerprint
+    function drawSample(): { dataUrl: string; pixels: string } {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let dataUrl = "";
+      try {
+        ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
+        dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      } catch (err) {
+        const errMsg = `[4] ERROR f${frameIdx + 1}: ${String(err)}`;
+        console.error("[thumbs]", errMsg);
+        pushDebug(errMsg);
+      }
+      return { dataUrl, pixels: dataUrl ? pixelFingerprint() : "" };
+    }
+
+    // Commit a captured frame and advance to the next seek
+    function acceptFrame(dataUrl: string, pixels: string) {
+      results.push(dataUrl);
+      if (dataUrl && !cancelled) setThumbnails([...results]);
+      frameIdx++;
+      if (frameIdx < THUMB_N) {
+        seekTo(frameIdx);
+      } else if (!cancelled) {
+        setThumbnails([...results]);
+        setThumbsLoading(false);
       }
     }
 
-    // ── Capture the frame currently displayed by the hidden video ──
-    // Duplicate safeguard: if urlLen OR pixel fingerprint matches previous frame,
-    // force a genuine re-seek (tiny currentTime nudge) and wait for the new
-    // 'seeked' event with a 300ms settle to give the 4K decoder time to finish.
-    function captureFrame(retry = 0) {
+    // ── Stability check loop ────────────────────────────────────────
+    // After each seek settles, we draw the frame twice 150ms apart.
+    // If the two pixel fingerprints MATCH the decoder has caught up — accept.
+    // If they differ the decoder is still decoding — draw again and compare,
+    // up to MAX_CHECKS times (8 × 150ms = 1200ms max per frame).
+    const MAX_CHECKS = 8;
+
+    function stabilityLoop(prevUrl: string, prevPx: string, attempt: number) {
+      if (cancelled) return;
+      setTimeout(() => {
+        if (cancelled) return;
+        const { dataUrl: currUrl, pixels: currPx } = drawSample();
+        const matched = currPx !== "" && currPx === prevPx;
+        const scMsg = `[SC] f${frameIdx + 1} chk=${attempt + 1}/${MAX_CHECKS} match=${matched} px=[${currPx.slice(0, 40)}]`;
+        console.log("[thumbs]", scMsg);
+        pushDebug(scMsg);
+
+        if (matched || attempt >= MAX_CHECKS - 1) {
+          // Stable (or gave up) — use the latest draw
+          acceptFrame(currUrl || prevUrl, currPx || prevPx);
+        } else {
+          stabilityLoop(currUrl, currPx, attempt + 1);
+        }
+      }, 150);
+    }
+
+    // ── First capture after seeked fires ───────────────────────────
+    function captureFrame() {
       if (cancelled) return;
 
+      // Resize canvas to native video resolution (capped 960×540)
       const vw = vid!.videoWidth;
       const vh = vid!.videoHeight;
       if (vw && vh && (canvas.width !== vw || canvas.height !== vh)) {
@@ -1357,106 +1404,60 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         canvas.height = Math.min(vh, 540);
       }
 
-      // ── DIAGNOSTIC 3: canvas + video state before drawImage ──
-      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} retry=${retry} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(3)}`;
+      // ── DIAGNOSTIC 3: state before first draw ──
+      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(3)}`;
       console.log("[thumbs]", preMsg);
       pushDebug(preMsg);
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      let dataUrl = "";
-      // ── DIAGNOSTIC 4: catch drawImage / toDataURL errors ──
-      try {
-        ctx.drawImage(vid!, 0, 0, canvas.width, canvas.height);
-        dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      } catch (err) {
-        const errMsg = `[4] ERROR f${frameIdx + 1} retry=${retry}: ${String(err)}`;
-        console.error("[thumbs]", errMsg);
-        pushDebug(errMsg);
-      }
+      const { dataUrl, pixels } = drawSample();
 
-      const pixels = dataUrl ? pixelFingerprint() : "";
-      const isDupLen = dataUrl.length > 0 && dataUrl.length === lastUrlLen;
-      const isDupPx  = pixels !== "" && pixels === lastPixels;
-      const isDup    = isDupLen || isDupPx;
-
-      // ── DIAGNOSTIC 5: urlLen + pixel fingerprint ──
-      const lenMsg = `[5] f${frameIdx + 1} retry=${retry} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""}${isDupLen ? " ← DUP_LEN" : ""}${isDupPx ? " ← DUP_PX" : ""} px=[${pixels.slice(0, 40)}]`;
+      // ── DIAGNOSTIC 5: initial draw result ──
+      const lenMsg = `[5] f${frameIdx + 1} urlLen=${dataUrl.length}${dataUrl.length < 1000 ? " ← SHORT" : ""} px=[${pixels.slice(0, 40)}]`;
       console.log("[thumbs]", lenMsg);
       pushDebug(lenMsg);
 
-      // Duplicate detected — force a genuine re-seek so Safari re-decodes the frame.
-      // Re-assigning currentTime (with tiny nudge) triggers a new 'seeked' event.
-      // onSeeked will use a 300ms settle for retries instead of 80ms.
-      if (isDup && retry < 2) {
-        pendingRetry = retry + 1;
-        const t = vid!.currentTime;
-        // nudge by ±0.05s (alternating) to guarantee Safari sees a change
-        vid!.currentTime = t + (retry % 2 === 0 ? 0.05 : -0.05);
-        return; // wait for the new seeked event
-      }
-
-      lastUrlLen = dataUrl.length;
-      lastPixels = pixels;
-      results.push(dataUrl);
-      // Progressive update — frames appear one-by-one as captured
-      if (dataUrl && !cancelled) setThumbnails([...results]);
-      frameIdx++;
-
-      if (frameIdx < THUMB_N) {
-        seekTo(frameIdx);
-      } else {
-        if (!cancelled) {
-          setThumbnails([...results]);
-          setThumbsLoading(false);
-        }
-      }
+      // Begin stability loop — compare this draw to the next one 150ms later
+      stabilityLoop(dataUrl, pixels, 0);
     }
 
     // ── Seek to the i-th evenly-spaced timestamp ──
     function seekTo(i: number) {
       if (cancelled || !dur) return;
-      pendingRetry = 0;
       const raw = (i / Math.max(1, THUMB_N - 1)) * dur;
       const t = Math.min(Math.max(raw, 0.001), dur - 0.05);
       vid!.currentTime = t;
     }
 
-    // seeked handler — drives both the warm-up state machine and the real capture loop
+    // seeked → 80ms settle → rAF → captureFrame (then stabilityLoop takes over)
     function onSeeked() {
       if (cancelled) return;
       // ── DIAGNOSTIC 2: log every seeked event ──
-      const seekMsg = `[2] seeked phase=${phase} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState} pendingRetry=${pendingRetry}`;
+      const seekMsg = `[2] seeked phase=${phase} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
       console.log("[thumbs]", seekMsg);
       pushDebug(seekMsg);
 
-      // ── Warm-up phase 1: decoder woken, now seek back to near-start ──
+      // ── Warm-up phase 1: decoder woken, seek back to near-start ──
       if (phase === "warmup1") {
         phase = "warmup2";
         vid!.currentTime = 0.001;
         return;
       }
 
-      // ── Warm-up phase 2: back at start, wait 1200ms then begin real loop ──
+      // ── Warm-up phase 2: at start, begin real loop ──
       if (phase === "warmup2") {
         phase = "capturing";
-        const warmupMsg = `[WU] warm-up complete — starting 1200ms hold before seek loop`;
-        console.log("[thumbs]", warmupMsg);
-        pushDebug(warmupMsg);
-        setTimeout(() => {
-          if (!cancelled) seekTo(0);
-        }, 1200);
+        const wuMsg = `[WU] warm-up done — starting seek loop`;
+        console.log("[thumbs]", wuMsg);
+        pushDebug(wuMsg);
+        seekTo(0);
         return;
       }
 
-      // ── Capturing phase: normal settle → rAF → captureFrame ──
-      const retry = pendingRetry;
-      const settle = retry > 0 ? 300 : 80;
+      // ── Capturing: 80ms settle → rAF → first draw + stability loop ──
       setTimeout(() => {
         if (cancelled) return;
-        requestAnimationFrame(() => {
-          if (!cancelled) captureFrame(retry);
-        });
-      }, settle);
+        requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+      }, 80);
     }
 
     function onLoadedMetadata() {

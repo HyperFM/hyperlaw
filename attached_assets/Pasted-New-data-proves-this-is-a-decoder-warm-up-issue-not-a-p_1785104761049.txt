@@ -1,0 +1,16 @@
+New data proves this is a decoder warm-up issue, not a per-seek timing race: retries now confirm real new "seeked" events fire at correct new timestamps, but frames 2 through 5 return pixel-identical data to frame 1 (byte-for-byte same px sample) regardless of target timestamp. It self-resolves starting at frame 6, every time, consistently. This means the 4K decoder needs a one-time warm-up period after video load before it actually starts serving distinct frames — no amount of per-frame retrying fixes it, because the decoder isn't ready yet regardless of seek target.
+
+Fix:
+1. After the hidden video reaches readyState 4 (HAVE_ENOUGH_DATA) for the first time, insert a ONE-TIME warm-up delay of ~1200ms before starting the thumbnail seek loop at all (not per-frame — once, up front).
+2. During that warm-up, optionally pre-seek to something like t=500ms and back to 0 once, to force the decoder to start working, then begin the real 20-frame loop after the delay.
+3. Keep the existing duplicate pixel-check as a safety net, but it should rarely trigger once the warm-up is in place.
+4. Please don't increase per-frame retry wait times further — the data shows retries were never the fix.
+
+SEPARATE VISUAL REQUEST — make the filmstrip track look like CapCut / CutCut:
+- Thumbnails should be edge-to-edge with no gaps or borders between tiles — one continuous filmstrip strip, cropped/cover-fit into fixed-height tiles so they form a seamless band.
+- Track background should be a solid dark strip so any loading/empty tiles blend in rather than showing as blank white/black squares.
+- The playhead should be a thin vertical line with a small top handle (like a flag/teardrop shape), not just a bar.
+- Chunk/section markers should sit as thin vertical dividers directly on top of the filmstrip, not as separate boxes below it.
+- Keep this purely visual/CSS — do not touch the capture or warm-up logic in the same pass.
+
+Please implement the warm-up fix first, confirm frames 1-20 are all pixel-distinct with no DUP flags, then apply the visual styling on top. Share the diagnostic log after the warm-up fix specifically before moving to styling.

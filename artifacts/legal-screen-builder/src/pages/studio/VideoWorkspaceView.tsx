@@ -1303,6 +1303,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let lastPixels = "";
     // when a retry is in flight, store the retry count so onSeeked knows the settle time
     let pendingRetry = 0; // 0 = normal seek, >0 = retry after duplicate detected
+    // decoder warm-up state machine
+    // warmup1: pre-seek to ~500ms to wake the decoder
+    // warmup2: seek back to near-start, then wait 1200ms before real loop
+    // capturing: real 20-frame seek loop
+    let phase: "warmup1" | "warmup2" | "capturing" = "warmup1";
     const results: string[] = [];
 
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
@@ -1416,14 +1421,35 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       vid!.currentTime = t;
     }
 
-    // seeked → settle (80ms normal / 300ms retry) → rAF → captureFrame
+    // seeked handler — drives both the warm-up state machine and the real capture loop
     function onSeeked() {
       if (cancelled) return;
-      const retry = pendingRetry; // capture before any async gap
       // ── DIAGNOSTIC 2: log every seeked event ──
-      const seekMsg = `[2] seeked t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState} (retry=${retry})`;
+      const seekMsg = `[2] seeked phase=${phase} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState} pendingRetry=${pendingRetry}`;
       console.log("[thumbs]", seekMsg);
       pushDebug(seekMsg);
+
+      // ── Warm-up phase 1: decoder woken, now seek back to near-start ──
+      if (phase === "warmup1") {
+        phase = "warmup2";
+        vid!.currentTime = 0.001;
+        return;
+      }
+
+      // ── Warm-up phase 2: back at start, wait 1200ms then begin real loop ──
+      if (phase === "warmup2") {
+        phase = "capturing";
+        const warmupMsg = `[WU] warm-up complete — starting 1200ms hold before seek loop`;
+        console.log("[thumbs]", warmupMsg);
+        pushDebug(warmupMsg);
+        setTimeout(() => {
+          if (!cancelled) seekTo(0);
+        }, 1200);
+        return;
+      }
+
+      // ── Capturing phase: normal settle → rAF → captureFrame ──
+      const retry = pendingRetry;
       const settle = retry > 0 ? 300 : 80;
       setTimeout(() => {
         if (cancelled) return;
@@ -1437,7 +1463,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (cancelled) return;
       dur = vid!.duration;
       if (!dur || !isFinite(dur) || dur < 0.1) return;
-      seekTo(0);
+      // Kick off warm-up: pre-seek to ~500ms to force decoder to start working
+      const warmupTarget = Math.min(0.5, dur * 0.02);
+      const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s — pre-seeking to ${warmupTarget.toFixed(3)}s`;
+      console.log("[thumbs]", wuMsg);
+      pushDebug(wuMsg);
+      phase = "warmup1";
+      vid!.currentTime = warmupTarget;
     }
 
     function onError() {

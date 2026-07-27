@@ -1,6 +1,6 @@
 - [Clerk Auth Setup](clerk-auth-setup.md) — Clerk provisioned (not_configured → managed); dev keys auto-set; Apple needs Auth pane toggle.
 - [HyperLaw Architecture](hyperlaw-arch.md) — Cases now server-persisted (casesTable); Organization Engine auto-triggers post-assembly; TutorView reads structuredCase.clouds directly.
-- [Stripe Replit Connector](stripe-replit-connector.md) — credential field names and header quirks; esbuild externalization; syncBackfill behavior.
+- [Stripe Sync Package Quirks](stripe-replit-connector.md) — STRIPE_LIVE_API_KEY required (Replit connector fallback removed); esbuild externalization; syncBackfill behavior.
 - [HyperLaw Phase 3 Payments](hyperlaw-phase3-payments.md) — credit wallet architecture, idempotency table, server-authoritative credit amounts.
 - [HyperLaw Phase 4 Paywall](hyperlaw-phase4-paywall.md) — SUPERSEDED: paywall retired; unlock route + toClientDoc truncation removed; docs always return full content now.
 - [Credit Charge Integrity](credit-charge-integrity.md) — atomic claim-then-charge pattern; retry loop on lost deduction race; never charge before committing terminal state.

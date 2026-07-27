@@ -1,16 +1,14 @@
 ---
-name: Stripe Replit Connector
-description: Quirks when using the Stripe Replit integration connector in api-server
+name: Stripe Sync Package Quirks
+description: Quirks when using the stripe-replit-sync package in api-server (Postgres sync + webhook processing)
 ---
 
-## Connector API field names
-- Credential endpoint: `https://$REPLIT_CONNECTORS_HOSTNAME/api/v2/connection?include_secrets=true&connector_names=stripe`
-- Auth header MUST be `"X-Replit-Token"` (hyphen), NOT `X_REPLIT_TOKEN` (underscore) — JS fetch passes names verbatim.
-- Secret key field is `settings.secret` (NOT `settings.secret_key`).
-- Publishable key field is `settings.publishable`.
-- Token format: `"repl " + process.env.REPL_IDENTITY`.
-
-**Why:** The Replit Stripe connector schema uses `secret`/`publishable` — not the generic `secret_key` pattern you might assume from other connectors.
+## Credentials
+Both `getUncachableStripeClient()` and `getStripeSync()` (in `artifacts/api-server/src/stripeClient.ts`)
+read `STRIPE_LIVE_API_KEY` directly from the environment. The project previously fell back to a
+Replit-connector HTTP call (`REPLIT_CONNECTORS_HOSTNAME` + `X-Replit-Token`) when that env var was
+unset; that fallback was removed when the project moved off Replit — `STRIPE_LIVE_API_KEY` is now
+required.
 
 ## esbuild externalization (critical)
 `stripe-replit-sync` and `stripe` MUST be in the `external` list in `artifacts/api-server/build.mjs`.

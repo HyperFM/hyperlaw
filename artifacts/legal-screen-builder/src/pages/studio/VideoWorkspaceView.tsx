@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
-  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Download,
+  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
   Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
@@ -11,7 +11,6 @@ import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
-import exhibitStudioLogo from "../../assets/exhibit-studio-logo.png";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -206,9 +205,16 @@ function VideoTimeline({
           {/* Raw footage strip — shown before any chunks are marked */}
           {allSegs.length === 0 && duration > 0 && (
             <div style={{ position: "absolute", inset: 0 }}>
-              {thumbsLoading ? (
-                /* Generating — always show the skeleton, never partially
-                   populated tiles: the finished filmstrip reveals at once. */
+              {thumbnails.length > 0 ? (
+                /* Real frames — one img per captured thumbnail */
+                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
+                  {thumbnails.map((src, i) => (
+                    <img key={i} src={src} alt="" draggable={false}
+                      style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
+                  ))}
+                </div>
+              ) : thumbsLoading ? (
+                /* Skeleton tiles while the hidden video is generating frames */
                 <div style={{ position: "absolute", inset: 0, display: "flex" }}>
                   {Array.from({ length: 12 }).map((_, i) => (
                     <div key={i} style={{
@@ -223,14 +229,6 @@ function VideoTimeline({
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              ) : thumbnails.length > 0 ? (
-                /* Real frames — one img per captured thumbnail */
-                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
-                  {thumbnails.map((src, i) => (
-                    <img key={i} src={src} alt="" draggable={false}
-                      style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
                   ))}
                 </div>
               ) : (
@@ -1681,21 +1679,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     vid.src = videoUrl;
     vid.load();
 
-    // Cold-load watchdog: if metadata never arrives at all (memory-pressured
-    // Safari, unreadable file), abort cleanly — never leave the skeleton and
-    // loading overlay up forever with nothing running underneath.
-    const metaWatchdog = setTimeout(() => {
-      if (cancelled || dur > 0) return;
-      console.error("[thumbs] no loadedmetadata after 15s — aborting thumbnail generation");
-      setThumbsLoading(false);
-    }, 15000);
-
     return () => {
       cancelled = true;
       vid.pause(); // stop any in-flight playback
       if (rvfcTimer) clearTimeout(rvfcTimer);
       if (readyWatchdog) clearTimeout(readyWatchdog);
-      clearTimeout(metaWatchdog);
       if (pendingSk) vid.removeEventListener("seeked", pendingSk);
       if (hasRVFC && rvfcId) {
         (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
@@ -2179,29 +2167,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               ● PREVIEW
             </div>
           )}
-          {/* Loading overlay — on top of the already-rendering video element.
-              Stays up through the ENTIRE thumbnail generation too, so the user
-              only ever sees the finished filmstrip appear at once. */}
-          {(videoLoading || thumbsLoading) && (
+          {/* Loading overlay — on top of the already-rendering video element */}
+          {videoLoading && (
             <div style={{
               position: "absolute", inset: 0, borderRadius: 12,
               background: "rgba(5,5,5,0.92)",
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
-              zIndex: 2, // MUST beat the player (zIndex 1) — with no zIndex this overlay renders UNDERNEATH it and is invisible
+              zIndex: 2, // sits above the player (zIndex 1)
             }}>
-              <img
-                src={exhibitStudioLogo}
-                alt="Exhibit Studio"
-                style={{
-                  height: 40,
-                  width: "auto",
-                  filter: "drop-shadow(0 0 16px rgba(244,93,1,0.55)) drop-shadow(0 0 36px rgba(244,93,1,0.3))",
-                }}
-              />
+              <Clapperboard size={40} color={ORANGE} />
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>
-                  {videoLoading ? "Importing video…" : `Building timeline… ${thumbnails.length}/${THUMB_N}`}
-                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
                 <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>
               </div>
               <div style={{ width: 180, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>

@@ -17,3 +17,8 @@ description: Why offscreen <video> elements return stale pixels to drawImage on 
 - Safari fires no `seeked` for no-op seeks (Δ<5ms); detect and capture directly.
 - CONFIRMED on-device: in-viewport + rVFC produced correct, position-accurate frames after 13 failed offscreen attempts.
 - Some regions of a file can stall `fastSeek` (rVFC never fires) while the rest is instant. Waiting longer doesn't help — retry with a DIFFERENT strategy: short timeouts (~2.5s) on cheap rungs (fastSeek exact → fastSeek +2s for a different keyframe) before one long-timeout exact-seek rescue. A ±2s landing error is invisible in filmstrip tiles.
+
+## Stale-tab trap during iOS debug marathons
+- After a revert, the phone showed OLD behavior (blocking overlay, minutes-long strip build). Working tree was git-diff-verified identical to the user-approved commit (only cosmetic deltas). The code was fine; the device wasn't running it.
+- **Why:** iOS Safari keeps executing the previously loaded bundle until the tab is force-closed (tab switcher → swipe away). An in-page refresh on a frozen/janked page often never lands. Long sessions repeatedly loading a 4K HEVC blob also wedge the per-tab video decoder — every seek stalls, each frame burns the full retry ladder (~13s × 20 ≈ 4-5 min) and 4K drawImage readbacks jank the UI into "frozen".
+- **How to apply:** when a user reports pre-revert behavior after a revert, git-diff the working tree against the approved commit FIRST. If identical, do not edit code — have them force-close the Safari tab (not just refresh), reopen fresh, and if still stalling, restart the phone and check Low Power Mode. Tell them the visual signature of each version so they can self-identify which build they're on.

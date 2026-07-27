@@ -1681,11 +1681,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     vid.src = videoUrl;
     vid.load();
 
+    // Cold-load watchdog: if metadata never arrives at all (memory-pressured
+    // Safari, unreadable file), abort cleanly — never leave the skeleton and
+    // loading overlay up forever with nothing running underneath.
+    const metaWatchdog = setTimeout(() => {
+      if (cancelled || dur > 0) return;
+      console.error("[thumbs] no loadedmetadata after 15s — aborting thumbnail generation");
+      setThumbsLoading(false);
+    }, 15000);
+
     return () => {
       cancelled = true;
       vid.pause(); // stop any in-flight playback
       if (rvfcTimer) clearTimeout(rvfcTimer);
       if (readyWatchdog) clearTimeout(readyWatchdog);
+      clearTimeout(metaWatchdog);
       if (pendingSk) vid.removeEventListener("seeked", pendingSk);
       if (hasRVFC && rvfcId) {
         (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
@@ -2177,6 +2187,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               position: "absolute", inset: 0, borderRadius: 12,
               background: "rgba(5,5,5,0.92)",
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
+              zIndex: 2, // MUST beat the player (zIndex 1) — with no zIndex this overlay renders UNDERNEATH it and is invisible
             }}>
               <img
                 src={exhibitStudioLogo}
@@ -2188,7 +2199,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                 }}
               />
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>
+                  {videoLoading ? "Importing video…" : `Building timeline… ${thumbnails.length}/${THUMB_N}`}
+                </div>
                 <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>
               </div>
               <div style={{ width: 180, height: 3, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>

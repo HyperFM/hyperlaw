@@ -1478,11 +1478,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let rvfcId = 0;
     let rvfcTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingSk: (() => void) | null = null; // armed one-shot 'seeked' listener (non-rVFC fallback)
-    // Generous per-attempt wait: rVFC firing early makes a long timeout free —
-    // only genuinely slow decodes pay it. Prior tests showed some frames need
-    // several seconds of real decode time.
-    const RVFC_WAIT_MS = 8000;
+    // Adaptive per-attempt waits: when a seek stalls, waiting longer rarely
+    // helps — retrying with a different strategy does. So the first two rungs
+    // time out fast (2.5s) and only the final guaranteed rung waits long.
+    const ATTEMPT_TIMEOUTS_MS = [2500, 2500, 8000];
     const MAX_SEEK_ATTEMPTS = 3;
+    const waitForAttempt = (a: number) => ATTEMPT_TIMEOUTS_MS[Math.min(a, ATTEMPT_TIMEOUTS_MS.length) - 1];
     const bestEffortFrames: number[] = []; // 1-based frame numbers captured without rVFC confirmation
 
     // Buffered time-ranges snapshot — logged with every seek so we can see
@@ -1502,13 +1503,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (cancelled || !dur) return;
       if (attempt === 1) frameStart = Date.now(); // total per-frame time spans all attempts
       const target = targetTime(i);
-      // Retries nudge the target by +40ms per attempt: re-seeking to the exact
-      // same time is a no-op on Safari (no seeked, no new presentation), so a
-      // tiny offset forces the decoder to genuinely re-seek. Invisible in a thumb.
-      const seekTarget = attempt === 1 ? target : Math.min(Math.max(0, dur - 0.05), target + (attempt - 1) * 0.04);
+      // Retry ladder targets (each rung must differ from the last — re-seeking
+      // the same time is a no-op on Safari, no seeked/no new presentation):
+      //   try1: fastSeek at the exact target (nearest keyframe)
+      //   try2: fastSeek 2s later — lands on a DIFFERENT keyframe, dodging
+      //         whatever stalls at that spot (±2s is invisible per ~104s tile)
+      //   try3: exact currentTime seek +80ms — slow but guaranteed decode
+      const clampT = (t: number) => Math.min(Math.max(0, dur - 0.05), t);
+      const seekTarget = attempt === 1 ? target : attempt === 2 ? clampT(target + 2.0) : clampT(target + 0.08);
       const curT = vid!.currentTime;
-      const useFastSeek = attempt === 1 && hasFastSeek;
-      const capMsg = `[CAP] f${i + 1}/${THUMB_N} try${attempt}/${MAX_SEEK_ATTEMPTS} target=${seekTarget.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC} fs=${useFastSeek ? 1 : 0} buf=${bufStr()}`;
+      const useFastSeek = attempt <= 2 && hasFastSeek;
+      const attemptWait = waitForAttempt(attempt);
+      const capMsg = `[CAP] f${i + 1}/${THUMB_N} try${attempt}/${MAX_SEEK_ATTEMPTS} target=${seekTarget.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC} fs=${useFastSeek ? 1 : 0} wait=${attemptWait}ms buf=${bufStr()}`;
       console.log("[thumbs]", capMsg);
       pushDebug(capMsg);
 
@@ -1537,7 +1543,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           rvfcTimer = null;
           (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
           if (attempt < MAX_SEEK_ATTEMPTS) {
-            const rtMsg = `[CAP] f${i + 1} RVFC-TIMEOUT (${RVFC_WAIT_MS}ms, no frame presented) — retrying seek (try${attempt + 1})`;
+            const rtMsg = `[CAP] f${i + 1} RVFC-TIMEOUT (${attemptWait}ms, no frame presented) — retrying seek (try${attempt + 1})`;
             console.warn("[thumbs]", rtMsg);
             pushDebug(rtMsg);
             captureAt(i, attempt + 1);
@@ -1549,7 +1555,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             settled = false; // re-arm finish for the fallback capture
             finish("timeout-best-effort");
           }
-        }, RVFC_WAIT_MS);
+        }, attemptWait);
       } else {
         // Non-rVFC fallback: one-shot 'seeked' listener, tracked in pendingSk so
         // finish()/cleanup can always remove it (no leaks across no-op paths),
@@ -1563,11 +1569,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         vid!.addEventListener("seeked", onSk);
         rvfcTimer = setTimeout(() => {
           if (settled || cancelled) return;
-          const toMsg = `[CAP] f${i + 1} SEEKED-TIMEOUT (${RVFC_WAIT_MS}ms) — capturing anyway`;
+          const toMsg = `[CAP] f${i + 1} SEEKED-TIMEOUT (${attemptWait}ms) — capturing anyway`;
           console.warn("[thumbs]", toMsg);
           pushDebug(toMsg);
           finish("seeked-timeout");
-        }, RVFC_WAIT_MS);
+        }, attemptWait);
       }
 
       // No-op-seek guard: Safari fires neither 'seeked' nor a new presentation
@@ -1581,9 +1587,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         return;
       }
 
-      // First attempt: fastSeek to the nearest keyframe (fast — one frame to
-      // decode). If it times out or lands on an already-presented frame, the
-      // retry path escalates to an exact (nudged) currentTime seek.
+      // Rungs 1-2: fastSeek (nearest keyframe — one frame to decode).
+      // Rung 3: exact currentTime seek, slow but guaranteed.
       if (useFastSeek) {
         (vid as unknown as { fastSeek: (t: number) => void }).fastSeek(seekTarget);
       } else {

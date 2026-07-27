@@ -15,3 +15,5 @@ description: Why offscreen <video> elements return stale pixels to drawImage on 
 - rVFC "firing only once" on a hidden element is not flakiness — it is correctly reporting that only one frame was ever presented. It becomes reliable the moment the element is in-viewport.
 - Plain seeks are fast enough once presentation works; play-forward-at-1× workarounds are unnecessary and painfully slow (~44s/frame on 4K).
 - Safari fires no `seeked` for no-op seeks (Δ<5ms); detect and capture directly.
+- CONFIRMED on-device: in-viewport + rVFC produced correct, position-accurate frames after 13 failed offscreen attempts.
+- Some regions of a file can stall `fastSeek` (rVFC never fires) while the rest is instant. Waiting longer doesn't help — retry with a DIFFERENT strategy: short timeouts (~2.5s) on cheap rungs (fastSeek exact → fastSeek +2s for a different keyframe) before one long-timeout exact-seek rescue. A ±2s landing error is invisible in filmstrip tiles.

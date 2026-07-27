@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
-  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
+  Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Download,
   Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
@@ -11,6 +11,7 @@ import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
+import exhibitStudioLogo from "../../assets/exhibit-studio-logo.png";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -205,16 +206,9 @@ function VideoTimeline({
           {/* Raw footage strip — shown before any chunks are marked */}
           {allSegs.length === 0 && duration > 0 && (
             <div style={{ position: "absolute", inset: 0 }}>
-              {thumbnails.length > 0 ? (
-                /* Real frames — one img per captured thumbnail */
-                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
-                  {thumbnails.map((src, i) => (
-                    <img key={i} src={src} alt="" draggable={false}
-                      style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
-                  ))}
-                </div>
-              ) : thumbsLoading ? (
-                /* Skeleton tiles while the hidden video is generating frames */
+              {thumbsLoading ? (
+                /* Generating — always show the skeleton, never partially
+                   populated tiles: the finished filmstrip reveals at once. */
                 <div style={{ position: "absolute", inset: 0, display: "flex" }}>
                   {Array.from({ length: 12 }).map((_, i) => (
                     <div key={i} style={{
@@ -229,6 +223,14 @@ function VideoTimeline({
                         </div>
                       )}
                     </div>
+                  ))}
+                </div>
+              ) : thumbnails.length > 0 ? (
+                /* Real frames — one img per captured thumbnail */
+                <div style={{ position: "absolute", inset: 0, display: "flex" }}>
+                  {thumbnails.map((src, i) => (
+                    <img key={i} src={src} alt="" draggable={false}
+                      style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
                   ))}
                 </div>
               ) : (
@@ -940,9 +942,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
   // ── On-screen debug log (thumbnail diagnostics) ────────────────
+  // Flip THUMB_DEBUG to true to bring back the green on-screen diagnostic
+  // overlay (the console [thumbs] logs always run regardless).
+  const THUMB_DEBUG = false;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLogRef = useRef<string[]>([]);
   const pushDebug = useCallback((line: string) => {
+    if (!THUMB_DEBUG) return;
     debugLogRef.current = [...debugLogRef.current, line];
     setDebugLog([...debugLogRef.current]);
   }, []);
@@ -1278,12 +1284,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }, [videoLoading]);
 
   // ── Phase 1 thumbnail extraction ──────────────────────────────────────────
-  // Rules (per spec):
-  //   • Use hiddenVideoRef — never seek the visible player.
-  //   • Play-forward-then-pause for each frame (forces real iOS Safari decode).
-  //   • Pixel stability check retained as a safety net after pause settles.
+  // Approach (iOS Safari-proven — see .agents/memory/ios-video-frame-presentation.md):
+  //   • Dedicated extractor <video> that MUST stay inside the viewport (covered
+  //     by the player) — Safari never presents frames to off-screen videos.
+  //   • rVFC-confirmed seek ladder per frame: fastSeek → fastSeek+2s → exact.
+  //   • Pixel stability check only as a net for unconfirmed (non-rVFC) captures.
   //   • Cache results; only re-run when videoUrl changes.
-  //   • Show a loading skeleton while generating.
+  //   • Track reveals only once ALL frames are done — the loading overlay
+  //     covers the whole generation, no progressive population.
   const THUMB_N = 20; // Phase 2 will make this dynamic (pixels-per-second × track width)
 
   useEffect(() => {
@@ -2161,14 +2169,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               ● PREVIEW
             </div>
           )}
-          {/* Loading overlay — on top of the already-rendering video element */}
-          {videoLoading && (
+          {/* Loading overlay — on top of the already-rendering video element.
+              Stays up through the ENTIRE thumbnail generation too, so the user
+              only ever sees the finished filmstrip appear at once. */}
+          {(videoLoading || thumbsLoading) && (
             <div style={{
               position: "absolute", inset: 0, borderRadius: 12,
               background: "rgba(5,5,5,0.92)",
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
             }}>
-              <Clapperboard size={40} color={ORANGE} />
+              <img
+                src={exhibitStudioLogo}
+                alt="Exhibit Studio"
+                style={{
+                  height: 40,
+                  width: "auto",
+                  filter: "drop-shadow(0 0 16px rgba(244,93,1,0.55)) drop-shadow(0 0 36px rgba(244,93,1,0.3))",
+                }}
+              />
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#ddd", marginBottom: 4 }}>Importing video…</div>
                 <div style={{ fontSize: 11, color: "#666", maxWidth: 220, lineHeight: 1.5, wordBreak: "break-all" }}>{loadingFileName}</div>

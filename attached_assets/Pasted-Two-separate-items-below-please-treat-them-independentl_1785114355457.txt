@@ -1,0 +1,48 @@
+Two separate items below — please treat them independently. Do the frame-accuracy fix (PART A) first and confirm it before touching the logo swap (PART B), since PART B is purely cosmetic and shouldn't be mixed with capture logic changes.
+
+=================================================
+PART A — FRAME ACCURACY FIX
+=================================================
+
+Great speed improvement (18.7s total for 20 frames) — but frames 1-6 are still wrong, and the log shows exactly why: they're all "presented via=timeout" (RVFC-TIMEOUT after 1500ms, no frame arrived), meaning requestVideoFrameCallback genuinely never fired for these seeks, and the code fell back to capturing the stale canvas instead of a real frame. Frame 7 onward, via=rvfc fires correctly every time with accurate mediaTime.
+
+This means the real remaining bug is: for large forward seeks in roughly the first 550 seconds of this specific video, the decoder is too slow to produce a frame within the 1500ms timeout — likely because this file has sparse keyframes (large GOP) in that early section specifically.
+
+STEP 1 — FIX THE TIMEOUT FALLBACK:
+1. Increase the rVFC wait significantly for early frames — e.g. up to 6000-8000ms — since we know from earlier tests some frames genuinely took 20-40+ seconds to resolve via play-forward, meaning the decoder needs real time, not a short timeout.
+2. On timeout, do NOT capture the stale frame. Instead, retry the seek (re-assign currentTime to the same target to force a new rVFC registration) and wait again, up to 3 total attempts, before giving up.
+3. Only if all retries exhaust should it fall back to capturing whatever's available — and if so, flag that frame as best-effort in the returned data so we know which thumbnails, if any, aren't confirmed accurate.
+4. Log video.buffered ranges at the moment each seek is issued, so we can see if frames 1-6 fall in a differently-buffered/keyframed region than frame 7 onward.
+
+Confirm frames 1-6 no longer show "via=timeout" before moving to the next steps below.
+
+STEP 2 — FRAME/PLAYHEAD SYNC (once Step 1 is confirmed):
+Verify the thumbnail track and player position are properly aligned now that frames are correct. Confirm each thumbnail's timestamp (t=X) matches its actual horizontal position on the track relative to total duration — i.e. thumbnail position = (t / totalDuration) * trackWidth. If misalignment was only ever a symptom of duplicate frames, this may already be resolved — but verify directly and report what you find, don't assume.
+
+STEP 3 — HIDE THE LOADING PROCESS BEHIND THE EXISTING LOADING SCREEN (once Step 1 and 2 are confirmed):
+We already have a working loading screen. Instead of letting the user watch thumbnails populate one by one (including any retry flicker), keep the existing loading screen visible and active for the ENTIRE thumbnail generation process — not just initial video load.
+
+- Do not dismiss/hide the loading screen until all 20 frames have been generated, verified accurate (no via=timeout fallback frames), and confirmed final.
+- Thumbnail generation happens fully in the background while the loading screen shows — no logic change to generation itself.
+- Only once thumbnails[] is complete and every frame has passed verification should the loading screen dismiss and the track reveal to the user.
+- If total generation time is noticeably long, keep the existing loading screen's visual treatment as-is — just extend how long it stays up.
+
+Goal: the user should only ever see the finished, correct filmstrip appear at once — never an empty track, never wrong frames, never frames populating one-by-one.
+
+Please share the diagnostic log plus a screenshot of the final track once all three steps above are done. Do NOT touch visual styling (CapCut polish, overlay removal) yet — that comes after all three of these are confirmed.
+
+=================================================
+PART B — LOADING SCREEN LOGO SWAP (visual only, do separately, do not mix with Part A's capture logic)
+=================================================
+
+On the existing loading screen (the one already built — orange glow design, otherwise keep everything about it exactly as-is), replace the current app icon/logo (the black rounded-square icon with the orange "H" mark) with a new logo image I'm providing.
+
+The new logo is the "Exhibit Studio" mark — a CD/disc with a USB flash drive laid horizontally across it, with "Exhibit STUDIO" text and a play-button icon on the flash drive body. It has a transparent background.
+
+Please:
+1. Crop the provided image down to just the CD + flash drive graphic itself — exclude the empty transparent space around it and exclude the "Bazaart" watermark text in the bottom-right corner.
+2. Replace the current logo element on the loading screen with this cropped image, at the same size/dimensions the old logo occupied, so the layout doesn't shift.
+3. Keep the existing orange glow effect that's already behind/around the logo on the loading screen — it should still glow orange underneath this new logo the same way it did with the old one.
+4. Everything else about the loading screen (background, animation, text, layout) stays exactly the same — this is strictly a logo asset swap plus crop, nothing else.
+
+I'm attaching the logo image now — see the second attached image for the logo, and use it exactly as shown.

@@ -1463,7 +1463,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       frameStart = Date.now();
       const target = targetTime(i);
 
-      const skMsg = `[SK] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s — short-runway, using direct seek`;
+      const skMsg = `[SK] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s curT=${vid!.currentTime.toFixed(3)}s — short-runway, direct seek`;
       console.log("[thumbs]", skMsg);
       pushDebug(skMsg);
 
@@ -1477,6 +1477,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           if (cancelled) return;
           requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
         }, 80);
+      }
+
+      // Safari will not fire 'seeked' if currentTime is already at (or within
+      // 5ms of) the target — e.g. frame 0 right after warmup2 left us at 0.001s.
+      // Detect the no-op and skip straight to capture.
+      const alreadyThere = Math.abs(vid!.currentTime - target) < 0.005;
+      if (alreadyThere) {
+        const noopMsg = `[SK] f${i + 1} already at target (Δ<5ms) — skipping seek, capturing directly`;
+        console.log("[thumbs]", noopMsg);
+        pushDebug(noopMsg);
+        setTimeout(() => {
+          if (cancelled) return;
+          requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+        }, 80);
+        return;
       }
 
       vid!.addEventListener("seeked", onTargetSeeked);
@@ -1586,11 +1601,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // onSeeked only drives warmup1/warmup2; during "capturing" it is a no-op
     // (preroll seeks inside playToAndCapture use their own one-shot listeners).
     function onSeeked() {
-      if (cancelled) return;
-      // ── DIAGNOSTIC 2: log every seeked event ──
-      const seekMsg = `[2] seeked phase=${phase} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
+      // ── DIAGNOSTIC 2a: fires before cancelled guard so we always see it ──
+      const seekMsg = `[2] seeked phase=${phase} cancelled=${cancelled} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
       console.log("[thumbs]", seekMsg);
       pushDebug(seekMsg);
+      if (cancelled) return;
 
       // ── Warm-up phase 1: decoder woken, seek back to near-start ──
       if (phase === "warmup1") {

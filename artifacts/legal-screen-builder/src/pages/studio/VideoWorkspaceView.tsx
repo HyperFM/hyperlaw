@@ -1477,6 +1477,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const hasFastSeek = typeof (vid as unknown as { fastSeek?: unknown }).fastSeek === "function";
     let rvfcId = 0;
     let rvfcTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingSk: (() => void) | null = null; // armed one-shot 'seeked' listener (non-rVFC fallback)
     // Generous per-attempt wait: rVFC firing early makes a long timeout free —
     // only genuinely slow decodes pay it. Prior tests showed some frames need
     // several seconds of real decode time.
@@ -1516,6 +1517,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         if (settled || cancelled) return;
         settled = true;
         if (rvfcTimer) { clearTimeout(rvfcTimer); rvfcTimer = null; }
+        if (pendingSk) { vid!.removeEventListener("seeked", pendingSk); pendingSk = null; }
         const finMsg = `[CAP] f${i + 1} presented via=${via}${mediaTime !== undefined ? ` mediaTime=${mediaTime.toFixed(3)}` : ""} t=${vid!.currentTime.toFixed(3)}`;
         console.log("[thumbs]", finMsg);
         pushDebug(finMsg);
@@ -1549,11 +1551,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           }
         }, RVFC_WAIT_MS);
       } else {
+        // Non-rVFC fallback: one-shot 'seeked' listener, tracked in pendingSk so
+        // finish()/cleanup can always remove it (no leaks across no-op paths),
+        // plus a timeout so this path has the same guaranteed termination.
         const onSk = () => {
           vid!.removeEventListener("seeked", onSk);
+          if (pendingSk === onSk) pendingSk = null;
           setTimeout(() => finish("seeked+80ms"), 80);
         };
+        pendingSk = onSk;
         vid!.addEventListener("seeked", onSk);
+        rvfcTimer = setTimeout(() => {
+          if (settled || cancelled) return;
+          const toMsg = `[CAP] f${i + 1} SEEKED-TIMEOUT (${RVFC_WAIT_MS}ms) — capturing anyway`;
+          console.warn("[thumbs]", toMsg);
+          pushDebug(toMsg);
+          finish("seeked-timeout");
+        }, RVFC_WAIT_MS);
       }
 
       // No-op-seek guard: Safari fires neither 'seeked' nor a new presentation
@@ -1589,9 +1603,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // initial buffering (frame 1 at ~0s timed out — impossible to blame on
     // sparse keyframes). Wait for readyState>=2 (first frame decodable).
     let captureStarted = false;
+    let readyWatchdog: ReturnType<typeof setTimeout> | null = null;
     function beginCapture() {
       if (cancelled || captureStarted || !dur) return;
       captureStarted = true;
+      if (readyWatchdog) { clearTimeout(readyWatchdog); readyWatchdog = null; }
       captureAllStart = Date.now();
       const goMsg = `[WU] ready rs=${vid!.readyState} buf=${bufStr()} — starting rVFC seek capture of ${THUMB_N} frames`;
       console.log("[thumbs]", goMsg);
@@ -1608,7 +1624,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     function onLoadedMetadata() {
       if (cancelled) return;
       dur = vid!.duration;
-      if (!dur || !isFinite(dur) || dur < 0.1) return;
+      if (!dur || !isFinite(dur) || dur < 0.1) {
+        // Terminal: never leave the skeleton spinning on an unusable duration
+        const badMsg = `[WU] unusable duration (${String(vid!.duration)}) — aborting thumbnail generation`;
+        console.warn("[thumbs]", badMsg);
+        pushDebug(badMsg);
+        setThumbsLoading(false);
+        return;
+      }
       const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s rs=${vid!.readyState} — ${vid!.readyState >= 2 ? "already ready" : "waiting for first frame (loadeddata/canplay)"}`;
       console.log("[thumbs]", wuMsg);
       pushDebug(wuMsg);
@@ -1617,6 +1640,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       } else {
         vid!.addEventListener("loadeddata", onReadyForCapture);
         vid!.addEventListener("canplay", onReadyForCapture);
+        // Watchdog: if loadeddata/canplay never fire (Safari decode edge case),
+        // start anyway after 10s — per-frame timeouts/retries handle the rest,
+        // so every path still terminates in acceptFrame.
+        readyWatchdog = setTimeout(() => {
+          if (cancelled || captureStarted) return;
+          const wdMsg = `[WU] readiness watchdog fired (10s, rs=${vid!.readyState}) — starting capture anyway`;
+          console.warn("[thumbs]", wdMsg);
+          pushDebug(wdMsg);
+          beginCapture();
+        }, 10000);
       }
     }
 
@@ -1639,6 +1672,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       cancelled = true;
       vid.pause(); // stop any in-flight playback
       if (rvfcTimer) clearTimeout(rvfcTimer);
+      if (readyWatchdog) clearTimeout(readyWatchdog);
+      if (pendingSk) vid.removeEventListener("seeked", pendingSk);
       if (hasRVFC && rvfcId) {
         (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
       }
@@ -2072,6 +2107,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               top: 0,
               left: 0,
               width: 320,
+              maxWidth: "100%", // never wider than the covering player on narrow layouts
               height: 180,
               opacity: 1,
               pointerEvents: "none",

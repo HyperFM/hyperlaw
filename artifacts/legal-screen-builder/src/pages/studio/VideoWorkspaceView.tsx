@@ -1311,9 +1311,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       pushDebug(msg);
     }
 
+    // Small canvas on purpose: filmstrip tiles render ~20-40px wide, so 320×180
+    // is already 3× oversampled — and every drawImage / getImageData /
+    // toDataURL call gets ~9× cheaper than the old 960×540.
     const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 360;
+    canvas.width = 320;
+    canvas.height = 180;
     const ctx = canvas.getContext("2d")!;
 
     setThumbsLoading(true);
@@ -1417,20 +1420,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }, 150);
     }
 
-    // ── Draw + stability check after video has paused at target ──────────
-    function captureFrame() {
+    // ── Draw (+ stability check only when the frame is NOT rVFC-confirmed) ──
+    // confirmed=true means requestVideoFrameCallback just told us this exact
+    // frame was presented — the authoritative freshness signal. Re-checking
+    // pixels 150ms later would only add dead time (3s+ across 20 frames).
+    function captureFrame(confirmed = false) {
       if (cancelled) return;
 
-      // Resize canvas to native video resolution (capped 960×540)
+      // Resize canvas to match aspect (capped 320×180)
       const vw = vid!.videoWidth;
       const vh = vid!.videoHeight;
-      if (vw && vh && (canvas.width !== vw || canvas.height !== vh)) {
-        canvas.width  = Math.min(vw, 960);
-        canvas.height = Math.min(vh, 540);
+      if (vw && vh && (canvas.width !== Math.min(vw, 320) || canvas.height !== Math.min(vh, 180))) {
+        canvas.width  = Math.min(vw, 320);
+        canvas.height = Math.min(vh, 180);
       }
 
       // ── DIAGNOSTIC 3: state before first draw ──
-      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(3)}`;
+      const preMsg = `[3] f${frameIdx + 1}/${THUMB_N} canvas=${canvas.width}×${canvas.height} vid=${vw}×${vh} rs=${vid!.readyState} t=${vid!.currentTime.toFixed(3)} confirmed=${confirmed}`;
       console.log("[thumbs]", preMsg);
       pushDebug(preMsg);
 
@@ -1441,6 +1447,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       const lenMsg = `[5] f${frameIdx + 1} SAMPLE_A urlLen=${sampleA_url.length}${sampleA_url.length < 1000 ? " ← SHORT" : ""} px=[${sampleA_px.slice(0, 35)}]`;
       console.log("[thumbs]", lenMsg);
       pushDebug(lenMsg);
+
+      // rVFC-confirmed + draw succeeded → accept immediately, no 150ms recheck
+      if (confirmed && sampleA_url && sampleA_px) {
+        acceptFrame(sampleA_url, sampleA_px);
+        return;
+      }
 
       // ── step b starts inside stabilityLoop after the 150ms setTimeout ──
       stabilityLoop(sampleA_url, sampleA_px, 0);
@@ -1458,6 +1470,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // captureFrame() → stabilityLoop (safety net) → acceptFrame → next.
     // Fallbacks: 1500ms timeout if rVFC never fires; seeked+80ms if no rVFC API.
     const hasRVFC = typeof (vid as unknown as { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === "function";
+    // fastSeek lands on the nearest KEYFRAME — no decode-from-keyframe-to-exact-
+    // millisecond work like currentTime seeks. For a filmstrip tile covering
+    // ~1/20th of the video, keyframe accuracy is visually identical and far
+    // faster on 4K HEVC. Retries escalate to exact seeks.
+    const hasFastSeek = typeof (vid as unknown as { fastSeek?: unknown }).fastSeek === "function";
     let rvfcId = 0;
     let rvfcTimer: ReturnType<typeof setTimeout> | null = null;
     // Generous per-attempt wait: rVFC firing early makes a long timeout free —
@@ -1489,7 +1506,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       // tiny offset forces the decoder to genuinely re-seek. Invisible in a thumb.
       const seekTarget = attempt === 1 ? target : Math.min(Math.max(0, dur - 0.05), target + (attempt - 1) * 0.04);
       const curT = vid!.currentTime;
-      const capMsg = `[CAP] f${i + 1}/${THUMB_N} try${attempt}/${MAX_SEEK_ATTEMPTS} target=${seekTarget.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC} buf=${bufStr()}`;
+      const useFastSeek = attempt === 1 && hasFastSeek;
+      const capMsg = `[CAP] f${i + 1}/${THUMB_N} try${attempt}/${MAX_SEEK_ATTEMPTS} target=${seekTarget.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC} fs=${useFastSeek ? 1 : 0} buf=${bufStr()}`;
       console.log("[thumbs]", capMsg);
       pushDebug(capMsg);
 
@@ -1501,7 +1519,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         const finMsg = `[CAP] f${i + 1} presented via=${via}${mediaTime !== undefined ? ` mediaTime=${mediaTime.toFixed(3)}` : ""} t=${vid!.currentTime.toFixed(3)}`;
         console.log("[thumbs]", finMsg);
         pushDebug(finMsg);
-        requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
+        const confirmed = via === "rvfc";
+        requestAnimationFrame(() => { if (!cancelled) captureFrame(confirmed); });
       }
 
       if (hasRVFC) {
@@ -1548,7 +1567,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         return;
       }
 
-      vid!.currentTime = seekTarget;
+      // First attempt: fastSeek to the nearest keyframe (fast — one frame to
+      // decode). If it times out or lands on an already-presented frame, the
+      // retry path escalates to an exact (nudged) currentTime seek.
+      if (useFastSeek) {
+        (vid as unknown as { fastSeek: (t: number) => void }).fastSeek(seekTarget);
+      } else {
+        vid!.currentTime = seekTarget;
+      }
     }
 
     // ── Diagnostic-only seeked logger (state machine removed) ───────────────

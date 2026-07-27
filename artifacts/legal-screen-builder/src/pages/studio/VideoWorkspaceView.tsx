@@ -1299,11 +1299,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let cancelled = false;
     let frameIdx = 0;
     let dur = 0;
-    // decoder warm-up state machine:
-    //   warmup1  – pre-seek to ~500ms to wake the decoder
-    //   warmup2  – seek back to near-start, then hand off to play-forward loop
-    //   capturing – play-forward-then-pause per frame
-    let phase: "warmup1" | "warmup2" | "capturing" = "warmup1";
     const results: string[] = [];
     let captureAllStart = 0; // wall-clock ms when capturing phase began
     let frameStart = 0;      // wall-clock ms for the current frame
@@ -1379,7 +1374,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (dataUrl && !cancelled) setThumbnails([...results]);
       frameIdx++;
       if (frameIdx < THUMB_N) {
-        playToAndCapture(frameIdx);
+        captureAt(frameIdx);
       } else if (!cancelled) {
         const totalMs = Date.now() - captureAllStart;
         const doneMsg = `[TOTAL] all ${THUMB_N} frames in ${totalMs}ms (avg ${Math.round(totalMs / THUMB_N)}ms/frame)`;
@@ -1451,191 +1446,90 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       stabilityLoop(sampleA_url, sampleA_px, 0);
     }
 
-    // ── Direct-seek fallback (used when target < PREROLL_RUNWAY) ─────────────
-    // For early frames there isn't enough runway to play forward, so we fall
-    // back to the original seek-and-wait approach.  This also avoids the
-    // "seek to same position → no seeked event" deadlock that happens when
-    // preroll clamps to the same value as target (frame 1 edge case).
-    const PREROLL_RUNWAY = 1.5; // seconds of play-forward runway required
+    // ── rVFC-driven seek capture ─────────────────────────────────────────────
+    // ROOT CAUSE of the duplicate-frame bug across all prior attempts: the
+    // extraction <video> sat OFF-VIEWPORT (top:-9999px, opacity:0). iOS Safari
+    // only PRESENTS decoded frames for elements inside the viewport —
+    // currentTime advanced correctly but drawImage kept reading the only frame
+    // ever presented (frame 1). The element now sits in-viewport hidden behind
+    // the opaque main player, so every seek presents its frame, and
+    // requestVideoFrameCallback (rVFC) signals exactly when it lands.
+    // Per frame: arm one-shot rVFC → seek → rVFC fires with mediaTime →
+    // captureFrame() → stabilityLoop (safety net) → acceptFrame → next.
+    // Fallbacks: 1500ms timeout if rVFC never fires; seeked+80ms if no rVFC API.
+    const hasRVFC = typeof (vid as unknown as { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === "function";
+    let rvfcId = 0;
+    let rvfcTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function seekAndCapture(i: number) {
+    function captureAt(i: number) {
       if (cancelled || !dur) return;
       frameStart = Date.now();
       const target = targetTime(i);
+      const curT = vid!.currentTime;
+      const capMsg = `[CAP] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC}`;
+      console.log("[thumbs]", capMsg);
+      pushDebug(capMsg);
 
-      const skMsg = `[SK] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s curT=${vid!.currentTime.toFixed(3)}s — short-runway, direct seek`;
-      console.log("[thumbs]", skMsg);
-      pushDebug(skMsg);
-
-      function onTargetSeeked() {
-        vid!.removeEventListener("seeked", onTargetSeeked);
-        if (cancelled) return;
-        const readyMsg = `[SK] f${i + 1} seeked to t=${vid!.currentTime.toFixed(3)}s — settle 80ms then capture`;
-        console.log("[thumbs]", readyMsg);
-        pushDebug(readyMsg);
-        setTimeout(() => {
-          if (cancelled) return;
-          requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
-        }, 80);
+      let settled = false;
+      function finish(via: string, mediaTime?: number) {
+        if (settled || cancelled) return;
+        settled = true;
+        if (rvfcTimer) { clearTimeout(rvfcTimer); rvfcTimer = null; }
+        const finMsg = `[CAP] f${i + 1} presented via=${via}${mediaTime !== undefined ? ` mediaTime=${mediaTime.toFixed(3)}` : ""} t=${vid!.currentTime.toFixed(3)}`;
+        console.log("[thumbs]", finMsg);
+        pushDebug(finMsg);
+        requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
       }
 
-      // Safari will not fire 'seeked' if currentTime is already at (or within
-      // 5ms of) the target — e.g. frame 0 right after warmup2 left us at 0.001s.
-      // Detect the no-op and skip straight to capture.
-      const alreadyThere = Math.abs(vid!.currentTime - target) < 0.005;
-      if (alreadyThere) {
-        const noopMsg = `[SK] f${i + 1} already at target (Δ<5ms) — skipping seek, capturing directly`;
+      if (hasRVFC) {
+        // Arm BEFORE seeking so the presentation of the seeked frame is caught
+        rvfcId = (vid as unknown as {
+          requestVideoFrameCallback: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+        }).requestVideoFrameCallback((_now, meta) => finish("rvfc", meta?.mediaTime));
+        rvfcTimer = setTimeout(() => {
+          const toMsg = `[CAP] f${i + 1} RVFC-TIMEOUT (1500ms, no frame presented) — capturing anyway`;
+          console.warn("[thumbs]", toMsg);
+          pushDebug(toMsg);
+          finish("timeout");
+        }, 1500);
+      } else {
+        const onSk = () => {
+          vid!.removeEventListener("seeked", onSk);
+          setTimeout(() => finish("seeked+80ms"), 80);
+        };
+        vid!.addEventListener("seeked", onSk);
+      }
+
+      // No-op-seek guard: Safari fires neither 'seeked' nor a new presentation
+      // when currentTime is already at target (e.g. frame 0 right after load).
+      if (Math.abs(curT - target) < 0.005) {
+        const noopMsg = `[CAP] f${i + 1} no-op seek (Δ<5ms) rs=${vid!.readyState}`;
         console.log("[thumbs]", noopMsg);
         pushDebug(noopMsg);
-        setTimeout(() => {
-          if (cancelled) return;
-          requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
-        }, 80);
+        if (!hasRVFC || vid!.readyState >= 2) finish("noop-direct");
+        // else: the initial-load presentation or the 1500ms timeout resolves it
         return;
       }
 
-      vid!.addEventListener("seeked", onTargetSeeked);
       vid!.currentTime = target;
     }
 
-    // ── Play-forward-then-pause: the core iOS Safari decode workaround ──────
-    // For each frame i where target >= PREROLL_RUNWAY:
-    //   1. Seek to (target - PREROLL_RUNWAY) as a preroll point
-    //   2. Call play() once the preroll seek fires
-    //   3. Watch timeupdate; pause() as soon as currentTime >= target
-    //   4. One rAF after pause to let the decoded frame settle
-    //   5. captureFrame() → stabilityLoop() → acceptFrame() → next frame
-    // Frames with target < PREROLL_RUNWAY use seekAndCapture() instead.
-    function playToAndCapture(i: number) {
-      if (cancelled || !dur) return;
-      const target = targetTime(i);
-
-      // Not enough runway before target → fall back to direct seek
-      if (target < PREROLL_RUNWAY) {
-        seekAndCapture(i);
-        return;
-      }
-
-      frameStart = Date.now();
-      const preroll = target - PREROLL_RUNWAY;
-
-      const pfMsg = `[PF] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s preroll=${preroll.toFixed(3)}s`;
-      console.log("[thumbs]", pfMsg);
-      pushDebug(pfMsg);
-
-      // Step 1: seek to preroll
-      vid!.currentTime = preroll;
-
-      function onPrerollSeeked() {
-        vid!.removeEventListener("seeked", onPrerollSeeked);
-        if (cancelled) return;
-
-        const readyMsg = `[PF] f${i + 1} preroll ready t=${vid!.currentTime.toFixed(3)}s — calling play()`;
-        console.log("[thumbs]", readyMsg);
-        pushDebug(readyMsg);
-
-        // Step 2: play forward (muted attribute is set on the element → autoplay always allowed)
-        const playPromise = vid!.play();
-        if (playPromise) {
-          playPromise
-            .then(() => {
-              if (cancelled) return;
-              const okMsg = `[PF] f${i + 1} play() resolved — playing`;
-              console.log("[thumbs]", okMsg);
-              pushDebug(okMsg);
-            })
-            .catch((err: unknown) => {
-              if (cancelled) return;
-              // Remove the timeupdate listener so we don't double-fire captureFrame
-              vid!.removeEventListener("timeupdate", onTimeUpdate);
-              const errMsg = `[PF] f${i + 1} play() REJECTED: ${String(err)} — drawing anyway`;
-              console.warn("[thumbs]", errMsg);
-              pushDebug(errMsg);
-              // Fallback: draw whatever the decoder has right now
-              requestAnimationFrame(() => { if (!cancelled) captureFrame(); });
-            });
-        } else {
-          // Browser returned undefined — treat as synchronous play start
-          const syncMsg = `[PF] f${i + 1} play() returned undefined (sync start assumed)`;
-          console.log("[thumbs]", syncMsg);
-          pushDebug(syncMsg);
-        }
-
-        // Step 3: watch timeupdate events until we reach or pass the target
-        function onTimeUpdate() {
-          if (cancelled) {
-            vid!.removeEventListener("timeupdate", onTimeUpdate);
-            vid!.pause();
-            return;
-          }
-          if (vid!.currentTime >= target) {
-            vid!.removeEventListener("timeupdate", onTimeUpdate);
-            // Step 4: pause and wait one rAF for the frame to fully settle
-            vid!.pause();
-            requestAnimationFrame(() => {
-              if (cancelled) return;
-              const pausedMsg = `[PF] f${i + 1} paused at t=${vid!.currentTime.toFixed(3)}s (target=${target.toFixed(3)}s)`;
-              console.log("[thumbs]", pausedMsg);
-              pushDebug(pausedMsg);
-              // Step 5: draw + stability check
-              captureFrame();
-            });
-          }
-        }
-        vid!.addEventListener("timeupdate", onTimeUpdate);
-      }
-
-      vid!.addEventListener("seeked", onPrerollSeeked);
-    }
-
-    // ── Called once warm-up is complete ─────────────────────────────────────
-    function startCapturing() {
-      captureAllStart = Date.now();
-      const capMsg = `[CAP] warm-up done — starting play-forward capture of ${THUMB_N} frames`;
-      console.log("[thumbs]", capMsg);
-      pushDebug(capMsg);
-      playToAndCapture(0);
-    }
-
-    // ── Warm-up: two seeks to wake the 4K decoder before real capture ───────
-    // onSeeked only drives warmup1/warmup2; during "capturing" it is a no-op
-    // (preroll seeks inside playToAndCapture use their own one-shot listeners).
+    // ── Diagnostic-only seeked logger (state machine removed) ───────────────
     function onSeeked() {
-      // ── DIAGNOSTIC 2a: fires before cancelled guard so we always see it ──
-      const seekMsg = `[2] seeked phase=${phase} cancelled=${cancelled} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
+      const seekMsg = `[2] seeked cancelled=${cancelled} t=${vid!.currentTime.toFixed(3)} vidW=${vid!.videoWidth} vidH=${vid!.videoHeight} rs=${vid!.readyState}`;
       console.log("[thumbs]", seekMsg);
       pushDebug(seekMsg);
-      if (cancelled) return;
-
-      // ── Warm-up phase 1: decoder woken, seek back to near-start ──
-      if (phase === "warmup1") {
-        phase = "warmup2";
-        vid!.currentTime = 0.001;
-        return;
-      }
-
-      // ── Warm-up phase 2: at start, hand off to play-forward loop ──
-      if (phase === "warmup2") {
-        phase = "capturing";
-        startCapturing();
-        return;
-      }
-
-      // phase === "capturing": preroll seeks fire here too; ignore them —
-      // they are handled by the one-shot listeners inside playToAndCapture.
     }
 
     function onLoadedMetadata() {
       if (cancelled) return;
       dur = vid!.duration;
       if (!dur || !isFinite(dur) || dur < 0.1) return;
-      // Kick off warm-up: pre-seek to ~500ms to force decoder to start working
-      const warmupTarget = Math.min(0.5, dur * 0.02);
-      const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s — pre-seeking to ${warmupTarget.toFixed(3)}s`;
+      captureAllStart = Date.now();
+      const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s — starting rVFC seek capture of ${THUMB_N} frames (no warm-up)`;
       console.log("[thumbs]", wuMsg);
       pushDebug(wuMsg);
-      phase = "warmup1";
-      vid!.currentTime = warmupTarget;
+      captureAt(0);
     }
 
     function onError() {
@@ -1656,6 +1550,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     return () => {
       cancelled = true;
       vid.pause(); // stop any in-flight playback
+      if (rvfcTimer) clearTimeout(rvfcTimer);
+      if (hasRVFC && rvfcId) {
+        (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
+      }
       vid.removeEventListener("loadedmetadata", onLoadedMetadata);
       vid.removeEventListener("seeked", onSeeked);
       vid.removeEventListener("error", onError);
@@ -2063,37 +1961,39 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* Hidden thumbnail extractor — 480×270 keeps Safari's decoder at
-             full priority. 1×1 caused mobile Safari to throttle decoding,
-             returning stale frames across sequential seeks. position:absolute
-             off-screen keeps it out of layout without hiding from compositor. */}
-        <video
-          ref={hiddenVideoRef as React.RefObject<HTMLVideoElement>}
-          muted
-          playsInline
-          preload="auto"
-          style={{
-            position: "absolute",
-            top: -9999,
-            left: -9999,
-            width: 480,
-            height: 270,
-            opacity: 0,
-            pointerEvents: "none",
-            zIndex: -1,
-          }}
-        />
-
         {/* ── Video area ─────────────────────────────────────────────
              The <video> element is ALWAYS in the DOM so videoRef.current
              is never null when loadVideo() fires inside the gesture handler.
              iOS silently ignores video.load() calls made outside a gesture. */}
         <div style={{ marginBottom: 12, position: "relative", display: videoUrl ? "block" : "none" }}>
+          {/* Thumbnail extractor — MUST be IN-VIEWPORT: iOS Safari only
+               presents decoded frames for elements inside the viewport.
+               Off-viewport (-9999px) elements advance currentTime but never
+               receive new frames — the root cause of the duplicate-thumbnail
+               bug. It hides UNDER the opaque main player (zIndex 0 vs 1),
+               which has minHeight 190 so it always covers this 180px element. */}
+          <video
+            ref={hiddenVideoRef as React.RefObject<HTMLVideoElement>}
+            muted
+            playsInline
+            preload="auto"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: 320,
+              height: 180,
+              opacity: 1,
+              pointerEvents: "none",
+              zIndex: 0,
+              borderRadius: 12,
+            }}
+          />
           <video
             ref={videoRef as React.RefObject<HTMLVideoElement>}
             playsInline
             preload="metadata"
-            style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260 }}
+            style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
             onTimeUpdate={e => {
               setCurrentTime(e.currentTarget.currentTime);
               currentTimeRef.current = e.currentTarget.currentTime;

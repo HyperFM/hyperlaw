@@ -1,0 +1,26 @@
+CONTEXT: I'm building a video thumbnail filmstrip for a video editor (Exhibit Studio). It captures 20 thumbnail frames from a 4K (2880x2160) video by seeking/playing to timestamps and drawing to a hidden canvas. This has been debugged extensively across ~13 attempts. I need you to read the actual source code yourself, not guess — the on-screen diagnostic overlay and past attempts are described below for context only.
+
+CURRENT BROKEN STATE (regression from last change):
+The process now stalls immediately after video metadata loads, before even the first warm-up seek completes. Last known-good log output stopped at:
+[1] hiddenVideo CSS: display=block vis=visible pos=absolute top=-9999px left=-9999px w=414px h=270px | videoW=0 videoH=0
+[WU] metadata loaded dur=2084.9s — pre-seeking to 0.500s
+
+No "[2] seeked phase=warmup1" line appears after this — meaning either the seek assignment isn't firing 'seeked', or new logging code that was just added broke something earlier in the execution chain, possibly a thrown/silently-caught error.
+
+FIRST STEP: Find and fix this regression. Check the actual browser console for real thrown errors (not just the custom on-screen overlay), and trace why warmup1's seeked event isn't firing anymore.
+
+BACKGROUND — WHAT'S BEEN TRIED BEFORE (for context, don't just repeat these):
+The underlying bug being chased: when capturing thumbnails, frames 2 through ~5 return pixel-IDENTICAL data to frame 1, even though the video's currentTime/paused-at timestamps are confirmed correct and different for each frame. This has survived multiple totally different fix strategies:
+1. Direct seek + fixed wait — duplicates persisted
+2. Seek + retry with currentTime nudge — duplicates persisted, retries never detected a real change
+3. One-time decoder "warm-up" delay before starting the capture loop — shifted which frames duplicated but didn't fix it
+4. Pixel-based stability check (draw, wait 150ms, draw again, compare) — confirmed duplicates are REAL (two independent draws 150ms apart returned byte-identical pixel data), not a comparison bug
+5. Play-forward-then-pause approach (seek near target, play(), pause exactly at target, then capture) instead of pure seeking — video position confirmed correct via paused-at timestamps, but pixel data STILL duplicated frame 1's data for frames 2-5
+
+Code review (via prior agent, unverified by you) suggested: canvas has clearRect before every drawImage (no stale-canvas bug), pixel reads are synchronous immediately after drawImage (no caching bug), no shared/module-level state causing races (capture is strictly sequential). The remaining hypothesis, NOT YET CONFIRMED: currentTime/paused position is reported by the demuxer independently of whether the decoder has actually written a fresh frame to the compositor buffer that drawImage reads from — meaning drawImage could be reading a stale decoded buffer even though currentTime is correct. This was about to be tested via a performance.now()-tagged draw-ID log when the regression above occurred instead.
+
+SEPARATE KNOWN ISSUE (lower priority, fix after the above): the play-forward approach is extremely slow — one frame took 44 seconds, several took multiple seconds each, because it plays at normal 1x speed to cover gaps of 100+ seconds between thumbnail timestamps. This needs either a much higher video.playbackRate during preroll, or a different approach entirely (e.g., generating one downscaled proxy video once, then seeking within that instead of the original 4K file).
+
+GOAL: A filmstrip of 20 correct, distinct thumbnail frames evenly spaced across the video, generated fast enough to feel near-instant (CapCut/CutCut-style), hidden entirely behind the existing loading screen until finished.
+
+Please start by actually reading the relevant component code yourself and finding the current regression before attempting any new fix.

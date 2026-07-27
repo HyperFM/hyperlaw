@@ -1377,7 +1377,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         captureAt(frameIdx);
       } else if (!cancelled) {
         const totalMs = Date.now() - captureAllStart;
-        const doneMsg = `[TOTAL] all ${THUMB_N} frames in ${totalMs}ms (avg ${Math.round(totalMs / THUMB_N)}ms/frame)`;
+        const doneMsg = `[TOTAL] all ${THUMB_N} frames in ${totalMs}ms (avg ${Math.round(totalMs / THUMB_N)}ms/frame) bestEffort=${bestEffortFrames.length ? bestEffortFrames.join(",") : "none"}`;
         console.log("[thumbs]", doneMsg);
         pushDebug(doneMsg);
         setThumbnails([...results]);
@@ -1460,13 +1460,36 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const hasRVFC = typeof (vid as unknown as { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === "function";
     let rvfcId = 0;
     let rvfcTimer: ReturnType<typeof setTimeout> | null = null;
+    // Generous per-attempt wait: rVFC firing early makes a long timeout free —
+    // only genuinely slow decodes pay it. Prior tests showed some frames need
+    // several seconds of real decode time.
+    const RVFC_WAIT_MS = 8000;
+    const MAX_SEEK_ATTEMPTS = 3;
+    const bestEffortFrames: number[] = []; // 1-based frame numbers captured without rVFC confirmation
 
-    function captureAt(i: number) {
+    // Buffered time-ranges snapshot — logged with every seek so we can see
+    // whether slow frames correlate with unbuffered/differently-keyframed regions.
+    function bufStr(): string {
+      try {
+        const b = vid!.buffered;
+        const parts: string[] = [];
+        for (let k = 0; k < b.length; k++) parts.push(`${b.start(k).toFixed(1)}-${b.end(k).toFixed(1)}`);
+        return parts.length ? parts.join(",") : "none";
+      } catch {
+        return "err";
+      }
+    }
+
+    function captureAt(i: number, attempt = 1) {
       if (cancelled || !dur) return;
-      frameStart = Date.now();
+      if (attempt === 1) frameStart = Date.now(); // total per-frame time spans all attempts
       const target = targetTime(i);
+      // Retries nudge the target by +40ms per attempt: re-seeking to the exact
+      // same time is a no-op on Safari (no seeked, no new presentation), so a
+      // tiny offset forces the decoder to genuinely re-seek. Invisible in a thumb.
+      const seekTarget = attempt === 1 ? target : Math.min(Math.max(0, dur - 0.05), target + (attempt - 1) * 0.04);
       const curT = vid!.currentTime;
-      const capMsg = `[CAP] f${i + 1}/${THUMB_N} target=${target.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC}`;
+      const capMsg = `[CAP] f${i + 1}/${THUMB_N} try${attempt}/${MAX_SEEK_ATTEMPTS} target=${seekTarget.toFixed(3)}s curT=${curT.toFixed(3)}s rvfc=${hasRVFC} buf=${bufStr()}`;
       console.log("[thumbs]", capMsg);
       pushDebug(capMsg);
 
@@ -1487,11 +1510,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           requestVideoFrameCallback: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
         }).requestVideoFrameCallback((_now, meta) => finish("rvfc", meta?.mediaTime));
         rvfcTimer = setTimeout(() => {
-          const toMsg = `[CAP] f${i + 1} RVFC-TIMEOUT (1500ms, no frame presented) — capturing anyway`;
-          console.warn("[thumbs]", toMsg);
-          pushDebug(toMsg);
-          finish("timeout");
-        }, 1500);
+          if (settled || cancelled) return;
+          // Never capture a stale canvas on timeout — retry the seek first.
+          settled = true; // disarm this attempt's rVFC/finish
+          rvfcTimer = null;
+          (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
+          if (attempt < MAX_SEEK_ATTEMPTS) {
+            const rtMsg = `[CAP] f${i + 1} RVFC-TIMEOUT (${RVFC_WAIT_MS}ms, no frame presented) — retrying seek (try${attempt + 1})`;
+            console.warn("[thumbs]", rtMsg);
+            pushDebug(rtMsg);
+            captureAt(i, attempt + 1);
+          } else {
+            const beMsg = `[BEST-EFFORT] f${i + 1} — ${MAX_SEEK_ATTEMPTS} attempts exhausted, capturing whatever is available (unconfirmed frame)`;
+            console.warn("[thumbs]", beMsg);
+            pushDebug(beMsg);
+            bestEffortFrames.push(i + 1);
+            settled = false; // re-arm finish for the fallback capture
+            finish("timeout-best-effort");
+          }
+        }, RVFC_WAIT_MS);
       } else {
         const onSk = () => {
           vid!.removeEventListener("seeked", onSk);
@@ -1502,16 +1539,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
       // No-op-seek guard: Safari fires neither 'seeked' nor a new presentation
       // when currentTime is already at target (e.g. frame 0 right after load).
-      if (Math.abs(curT - target) < 0.005) {
+      if (Math.abs(curT - seekTarget) < 0.005) {
         const noopMsg = `[CAP] f${i + 1} no-op seek (Δ<5ms) rs=${vid!.readyState}`;
         console.log("[thumbs]", noopMsg);
         pushDebug(noopMsg);
         if (!hasRVFC || vid!.readyState >= 2) finish("noop-direct");
-        // else: the initial-load presentation or the 1500ms timeout resolves it
+        // else: the initial-load presentation or the timeout/retry path resolves it
         return;
       }
 
-      vid!.currentTime = target;
+      vid!.currentTime = seekTarget;
     }
 
     // ── Diagnostic-only seeked logger (state machine removed) ───────────────
@@ -1521,15 +1558,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       pushDebug(seekMsg);
     }
 
+    // ── Start gating: metadata alone is NOT enough. Frames 1-6 previously
+    // timed out because capture began while the element was still doing its
+    // initial buffering (frame 1 at ~0s timed out — impossible to blame on
+    // sparse keyframes). Wait for readyState>=2 (first frame decodable).
+    let captureStarted = false;
+    function beginCapture() {
+      if (cancelled || captureStarted || !dur) return;
+      captureStarted = true;
+      captureAllStart = Date.now();
+      const goMsg = `[WU] ready rs=${vid!.readyState} buf=${bufStr()} — starting rVFC seek capture of ${THUMB_N} frames`;
+      console.log("[thumbs]", goMsg);
+      pushDebug(goMsg);
+      captureAt(0);
+    }
+
+    function onReadyForCapture() {
+      vid!.removeEventListener("loadeddata", onReadyForCapture);
+      vid!.removeEventListener("canplay", onReadyForCapture);
+      beginCapture();
+    }
+
     function onLoadedMetadata() {
       if (cancelled) return;
       dur = vid!.duration;
       if (!dur || !isFinite(dur) || dur < 0.1) return;
-      captureAllStart = Date.now();
-      const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s — starting rVFC seek capture of ${THUMB_N} frames (no warm-up)`;
+      const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s rs=${vid!.readyState} — ${vid!.readyState >= 2 ? "already ready" : "waiting for first frame (loadeddata/canplay)"}`;
       console.log("[thumbs]", wuMsg);
       pushDebug(wuMsg);
-      captureAt(0);
+      if (vid!.readyState >= 2) {
+        beginCapture();
+      } else {
+        vid!.addEventListener("loadeddata", onReadyForCapture);
+        vid!.addEventListener("canplay", onReadyForCapture);
+      }
     }
 
     function onError() {
@@ -1555,6 +1617,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         (vid as unknown as { cancelVideoFrameCallback?: (id: number) => void }).cancelVideoFrameCallback?.(rvfcId);
       }
       vid.removeEventListener("loadedmetadata", onLoadedMetadata);
+      vid.removeEventListener("loadeddata", onReadyForCapture);
+      vid.removeEventListener("canplay", onReadyForCapture);
       vid.removeEventListener("seeked", onSeeked);
       vid.removeEventListener("error", onError);
       vid.src = "";

@@ -1,0 +1,11 @@
+Huge speed win (18.7s total) — but frames 1-6 are still wrong, and the log now shows exactly why: they're all "presented via=timeout" (RVFC-TIMEOUT after 1500ms, no frame arrived), meaning requestVideoFrameCallback genuinely never fired for these seeks, and the code fell back to capturing the stale canvas instead of a real frame. Frame 7 onward, via=rvfc fires correctly every time with accurate mediaTime.
+
+This means the real remaining bug is: for large forward seeks in roughly the first 550 seconds of this specific video, the decoder is too slow to produce a frame within the 1500ms timeout — likely because this file has sparse keyframes (large GOP) in that early section specifically, requiring more decode work to reach the target frame.
+
+Fix: don't fall back to a stale capture on timeout. Instead:
+1. Increase the rVFC wait to something much longer for early frames — e.g. up to 6000-8000ms — since we now know from earlier tests that some frames genuinely took 20-40+ seconds to resolve via play-forward, meaning the decoder needs real time, not a short timeout.
+2. On timeout, do NOT capture the stale frame. Instead, retry the seek (re-assign currentTime to the same target to force a new rVFC registration) and wait again, up to 3 total attempts, before giving up.
+3. Only if all retries exhaust should it fall back to capturing whatever's available — and if so, mark that frame visibly (e.g., a flag in the returned data) so we know which thumbnails, if any, are best-effort rather than confirmed accurate.
+4. Log whether this ~550s boundary lines up with anything measurable about the file — e.g., log the buffered time ranges (video.buffered) at the moment each seek is issued, so we can see if frames 1-6 fall in a differently-buffered/differently-keyframed region than frame 7 onward.
+
+Test again and confirm frames 1-6 no longer show "via=timeout" — they should either resolve via=rvfc (even if it takes several extra seconds) or be clearly flagged as best-effort if genuinely undecodable in time.

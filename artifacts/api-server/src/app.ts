@@ -1,3 +1,5 @@
+import path from "node:path";
+import fs from "node:fs";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -116,5 +118,26 @@ app.use(
 );
 
 app.use("/api", router);
+
+// ── Serve the built frontend (legal-screen-builder) for everything else ───────
+// Populated by `pnpm --filter @workspace/legal-screen-builder run build` (see
+// Render's build command). In local dev, run the frontend separately instead
+// via `pnpm --filter @workspace/legal-screen-builder run dev` for Vite's HMR —
+// this block only serves whatever static build last landed in that dist dir,
+// and simply falls through to a 404 if it hasn't been built yet.
+const frontendDist = path.resolve(
+  import.meta.dirname,
+  "../../legal-screen-builder/dist/public",
+);
+const frontendIndexHtml = path.join(frontendDist, "index.html");
+
+app.use(express.static(frontendDist));
+app.use((req, res, next) => {
+  if (req.method !== "GET" || req.path.startsWith("/api") || !fs.existsSync(frontendIndexHtml)) {
+    next();
+    return;
+  }
+  res.sendFile(frontendIndexHtml);
+});
 
 export default app;

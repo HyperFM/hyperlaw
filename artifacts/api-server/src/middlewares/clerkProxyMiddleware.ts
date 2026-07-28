@@ -20,6 +20,7 @@
 import { createProxyMiddleware } from "http-proxy-middleware";
 import type { RequestHandler } from "express";
 import type { IncomingHttpHeaders } from "http";
+import { logger } from "../lib/logger.js";
 
 const CLERK_FAPI = "https://frontend-api.clerk.dev";
 export const CLERK_PROXY_PATH = "/api/__clerk";
@@ -74,6 +75,17 @@ export function clerkProxyMiddleware(): RequestHandler {
         const protocol = req.headers["x-forwarded-proto"] || "https";
         const host = getClerkProxyHost(req) || "";
         const proxyUrl = `${protocol}://${host}${CLERK_PROXY_PATH}`;
+
+        logger.info(
+          {
+            proxyUrl,
+            xForwardedHost: req.headers["x-forwarded-host"],
+            hostHeader: req.headers.host,
+            xForwardedProto: req.headers["x-forwarded-proto"],
+            secretKeyPrefix: secretKey.slice(0, 12),
+          },
+          "clerk proxy request",
+        );
 
         proxyReq.setHeader("Clerk-Proxy-Url", proxyUrl);
         proxyReq.setHeader("Clerk-Secret-Key", secretKey);

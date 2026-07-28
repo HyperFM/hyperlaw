@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ClerkProvider,
@@ -195,6 +195,45 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+/** If Clerk hasn't finished loading after a few seconds (e.g. the Frontend
+ *  API proxy is misconfigured/unreachable), show a visible message instead
+ *  of leaving the screen blank forever with no signal that anything's wrong. */
+function ClerkLoadFallback() {
+  const clerk = useClerk();
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!clerk.loaded) setTimedOut(true);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [clerk]);
+
+  if (!timedOut) return null;
+
+  return (
+    <div
+      style={{
+        minHeight: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0a0908",
+        color: "#f4efe8",
+        textAlign: "center",
+        padding: "24px",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      <p style={{ fontSize: 16, maxWidth: 360, lineHeight: 1.5 }}>
+        Having trouble loading sign-in. Please refresh in a moment — if this
+        keeps happening, the issue is on our end, not your connection.
+      </p>
+    </div>
+  );
+}
+
 function HomeRedirect() {
   return (
     <>
@@ -204,6 +243,7 @@ function HomeRedirect() {
       <Show when="signed-out">
         <WelcomePage />
       </Show>
+      <ClerkLoadFallback />
     </>
   );
 }

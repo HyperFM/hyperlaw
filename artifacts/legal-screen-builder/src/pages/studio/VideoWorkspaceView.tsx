@@ -107,7 +107,7 @@ function VideoTimeline({
   duration, currentTime, markers, onSeek,
   activeMarkerId, onSelectMarker,
   chunks, onSplitChunk, onRemoveChunk,
-  thumbnails, thumbsLoading, step,
+  thumbnails, thumbsLoading, step, zoom,
 }: {
   duration: number; currentTime: number;
   markers: ExhibitMarker[];
@@ -120,13 +120,29 @@ function VideoTimeline({
   thumbnails: string[];
   thumbsLoading: boolean;
   step: number;
+  zoom: number;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [draggingChunkId, setDraggingChunkId] = useState<string | null>(null);
   const dragState = useRef<{ active: boolean; startX: number; moved: boolean }>(
     { active: false, startX: 0, moved: false }
   );
+
+  // Re-center the scroll position on the current playhead whenever zoom changes,
+  // so zooming in/out doesn't yank the view to some other part of the timeline.
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !duration) return;
+    const progressFrac = Math.max(0, Math.min(1, currentTime / duration));
+    const contentWidth = scrollEl.scrollWidth;
+    const target = progressFrac * contentWidth - scrollEl.clientWidth / 2;
+    scrollEl.scrollLeft = Math.max(0, Math.min(contentWidth - scrollEl.clientWidth, target));
+    // Only re-center when the zoom level itself changes — not on every
+    // currentTime tick, or playback would constantly yank the scroll position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom]);
 
   function pctFromX(clientX: number) {
     const el = trackRef.current;
@@ -185,6 +201,13 @@ function VideoTimeline({
 
   return (
     <div style={{ padding: "0 0 26px", position: "relative", marginBottom: 4 }}>
+      {/* Scrollable viewport — stays 100% width regardless of zoom */}
+      <div ref={scrollRef} style={{ overflowX: "auto", overflowY: "hidden" }}>
+        {/* Zoom-scaled canvas — at zoom=1 this is exactly 100% (no scroll needed);
+            at zoom=N it's N×100% wide, so the existing percentage-based positioning
+            below (leftPct, widthPct, progress%, marker pct%) just works unchanged,
+            now spread across a wider — and thus more precise to click/drag — track. */}
+        <div style={{ width: `${zoom * 100}%`, minWidth: "100%" }}>
       <div style={{ display: "flex", alignItems: "stretch" }}>
         {/* ── Track ── */}
         <div ref={trackRef}
@@ -393,6 +416,8 @@ function VideoTimeline({
             </div>
           );
         })}
+      </div>
+        </div>
       </div>
     </div>
   );
@@ -2360,6 +2385,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           thumbnails={thumbnails}
           thumbsLoading={thumbsLoading}
           step={currentStep}
+          zoom={zoom}
         />
 
 

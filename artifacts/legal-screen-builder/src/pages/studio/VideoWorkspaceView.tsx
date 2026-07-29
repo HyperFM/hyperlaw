@@ -10,7 +10,7 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -1177,6 +1177,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // next render so the 800 ms debounce always captures the new value.
     snapshotRef.current.videoFileName = file.name;
     triggerAutosave(markers);
+
+    // Save the video's actual bytes locally so this case reopens without
+    // re-picking the file. Not awaited — playback shouldn't wait on it, and
+    // failure (e.g. storage quota on a very large file) is recoverable: the
+    // user just has to re-pick the file next time, same as it works today.
+    saveVideoBlob(hlCase.id, file, file.name).catch(() => {
+      showInsertToast("Couldn't save this video for next time — you'll need to re-add it if you close this case (may be too large for local storage).");
+    });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1924,6 +1932,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Restore a locally-saved video on mount, if this case has one ────
+  // This is the whole point of saving the video's bytes locally instead of
+  // just its filename: reopen the case and it's just there, no file picker,
+  // no "Relink" prompt. Falls through to that prompt only if no local copy
+  // exists (new case, or the browser evicted storage under space pressure).
+  useEffect(() => {
+    loadVideoBlob(hlCase.id).then(saved => {
+      if (!saved || videoUrlRef.current) return; // nothing saved, or user already picked one in the meantime
+      const file = new File([saved.blob], saved.fileName, { type: saved.blob.type || "video/mp4" });
+      loadVideo(file);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Cleanup ─────────────────────────────────────────────────────
   useEffect(() => {

@@ -33,6 +33,12 @@ interface VideoBlobRecord {
   blob: Blob;
   fileName: string;
   savedAt: number;
+  // Cached filmstrip thumbnails for this exact video, so they don't need to
+  // be regenerated (a real seek-by-seek extraction pass) every time the case
+  // is reopened — only when the video itself changes. Keyed by absolute
+  // timestamp in the source video, same as at generation time, so this is
+  // unaffected by chunks being reordered in the Organize step.
+  thumbnails?: string[];
 }
 
 const DB_NAME = "hyperlaw-studio";
@@ -120,21 +126,43 @@ export async function saveVideoBlob(caseId: string, blob: Blob, fileName: string
 
 /** Load the saved video for a case, or null if none was saved (or storage
  *  was cleared, e.g. the browser evicted it under storage pressure). */
-export async function loadVideoBlob(caseId: string): Promise<{ blob: Blob; fileName: string } | null> {
+export async function loadVideoBlob(caseId: string): Promise<{ blob: Blob; fileName: string; thumbnails?: string[] } | null> {
   try {
     const db = await openDB();
-    return await new Promise<{ blob: Blob; fileName: string } | null>((resolve, reject) => {
+    return await new Promise<{ blob: Blob; fileName: string; thumbnails?: string[] } | null>((resolve, reject) => {
       const tx = db.transaction(VIDEO_STORE, "readonly");
       const req = tx.objectStore(VIDEO_STORE).get(caseId);
       req.onsuccess = () => {
         db.close();
         const rec = req.result as VideoBlobRecord | undefined;
-        resolve(rec ? { blob: rec.blob, fileName: rec.fileName } : null);
+        resolve(rec ? { blob: rec.blob, fileName: rec.fileName, thumbnails: rec.thumbnails } : null);
       };
       req.onerror = () => { db.close(); reject(req.error); };
     });
   } catch {
     return null;
+  }
+}
+
+/** Attach generated thumbnails to the video already saved for a case.
+ *  No-ops if the video was replaced/removed in the meantime (nothing to
+ *  attach them to) rather than resurrecting a stale record. */
+export async function saveThumbnails(caseId: string, thumbnails: string[]): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(VIDEO_STORE, "readwrite");
+      const store = tx.objectStore(VIDEO_STORE);
+      const getReq = store.get(caseId);
+      getReq.onsuccess = () => {
+        const rec = getReq.result as VideoBlobRecord | undefined;
+        if (rec) store.put({ ...rec, thumbnails });
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  } catch {
+    /* non-fatal — thumbnails just regenerate next time */
   }
 }
 

@@ -10,7 +10,7 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob, clearVideoBlob } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob, clearVideoBlob, saveThumbnails } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -969,6 +969,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
+  // Thumbnails cached from a previous session (loaded alongside the video
+  // blob on mount) — if present, the extraction effect uses these directly
+  // instead of re-running the whole seek-by-seek capture pass. Cleared after
+  // being consumed once so a later "Change video" doesn't reuse stale frames.
+  const cachedThumbsRef = useRef<string[] | null>(null);
   // ── On-screen debug log (thumbnail diagnostics) ────────────────
   // Flip THUMB_DEBUG to true to bring back the green on-screen diagnostic
   // overlay (the console [thumbs] logs always run regardless).
@@ -1159,7 +1164,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }
 
   // ── Video controls ─────────────────────────────────────────────
-  function loadVideo(file: File) {
+  // cachedThumbnails: pass the previously-saved filmstrip when restoring a
+  // video from local storage, so it doesn't get regenerated. Omit (or leave
+  // undefined) for any fresh user-initiated pick (initial load, Relink,
+  // Change video) — this always resets the ref, so a stale filmstrip from a
+  // *different* video can never leak into a new one.
+  function loadVideo(file: File, cachedThumbnails?: string[]) {
+    cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
     // Show import loading state immediately — before any decoding happens
     setVideoLoading(true);
@@ -1340,9 +1351,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   //   • Cache results; only re-run when videoUrl changes.
   //   • Track reveals only once ALL frames are done — the loading overlay
   //     covers the whole generation, no progressive population.
-  const THUMB_N = 20; // Phase 2 will make this dynamic (pixels-per-second × track width)
+  //   • Results are also cached to IndexedDB (see cachedThumbsRef below) so
+  //     this whole seek-by-seek pass only ever has to run once per video,
+  //     not every time the case is reopened.
+  const THUMB_N = 80; // was 20 — at max zoom (8x) that's ~10 distinct frames
+  // visible at once instead of ~2.5, so zooming in stops repeating the same
+  // frame across a long stretch. Still Phase 1 (fixed count, not truly
+  // dynamic per pixels-per-second) but a real, bounded improvement — and
+  // now that it's cached, the one-time extraction cost is paid once ever
+  // per video, not once per session.
 
   useEffect(() => {
+    // If a previous session already generated (and cached) this exact
+    // video's thumbnails, use them directly — skip the whole capture pass.
+    if (cachedThumbsRef.current) {
+      setThumbnails(cachedThumbsRef.current);
+      setThumbsLoading(false);
+      cachedThumbsRef.current = null; // consumed — don't reuse across a later video swap
+      return;
+    }
+
     setThumbnails([]);
     if (!videoUrl) { setThumbsLoading(false); return; }
 
@@ -1441,6 +1469,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         pushDebug(doneMsg);
         setThumbnails([...results]);
         setThumbsLoading(false);
+        saveThumbnails(hlCase.id, results); // cache for next time — fire-and-forget, non-fatal if it fails
       }
     }
 
@@ -1963,7 +1992,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     loadVideoBlob(hlCase.id).then(saved => {
       if (!saved || videoUrlRef.current) return; // nothing saved, or user already picked one in the meantime
       const file = new File([saved.blob], saved.fileName, { type: saved.blob.type || "video/mp4" });
-      loadVideo(file);
+      loadVideo(file, saved.thumbnails);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

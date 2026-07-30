@@ -10,10 +10,15 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob, clearVideoBlob } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
+// Single source of truth for the studio project retention window — used for
+// both the video's local blob and the server-side markers/exhibit data, so
+// the two can never drift out of sync with each other.
+const EXPIRY_DAYS = 30;
+const EXPIRY_MS = EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
 function formatTime(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -1071,7 +1076,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       const project = getOrCreateProject();
       // Read from snapshotRef so we always get the latest values — calling code
       // may have just called setState and closures still hold stale values.
-      const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days from now
+      const expiresAt = Date.now() + EXPIRY_MS;
       const next: StudioProject = {
         ...project,
         videoFileName: snapshotRef.current.videoFileName,
@@ -1089,6 +1094,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
     }, 800);
+  }
+
+  /** Manually reset the retention clock without requiring an actual edit —
+   *  for the tap-to-extend timer next to the info button. Any real edit
+   *  already does this automatically via triggerAutosave; this is for when
+   *  there's nothing to change yet but the user still wants more time. */
+  function extendExpiry() {
+    const project = getOrCreateProject();
+    const expiresAt = Date.now() + EXPIRY_MS;
+    onUpdateCase({ ...hlCase, studioProject: { ...project, expiresAt, updatedAt: Date.now() } });
+    api.studioProject.keepAlive(hlCase.id).catch(() => {/* non-fatal */});
+    showInsertToast(`Saved until ${new Date(expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
   }
 
   /** Debounced IndexedDB save — 3 s after last call, writes the full snapshot.
@@ -1731,12 +1748,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     };
   }, [videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Expiry check on mount — clean up server data for expired projects ──────
+  // ── Expiry check on mount — clean up server data AND the locally-saved
+  // video for expired projects, together, so the two can't drift apart
+  // (video surviving locally after the markers/exhibit work it belongs to
+  // has already been wiped server-side would just be a confusing half-state).
   useEffect(() => {
     const sp = hlCase.studioProject;
     if (sp?.expiresAt && sp.expiresAt < Date.now()) {
       // Markers already cleared in initial state; remove the expired data from server too
       onUpdateCase({ ...hlCase, studioProject: undefined });
+      clearVideoBlob(hlCase.id);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2002,6 +2023,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           style={{ background: "none", border: "none", cursor: markers.length > 0 ? "pointer" : "not-allowed", padding: 4, opacity: markers.length > 0 ? 1 : 0.3, display: "flex", alignItems: "center" }}>
           <Download size={16} color={markers.length > 0 ? ORANGE : "#444"} />
         </button>
+        {/* Retention timer — tap to add 30 more days without needing an actual edit */}
+        {hlCase.studioProject?.expiresAt && (() => {
+          const daysLeft = Math.max(0, Math.ceil((hlCase.studioProject.expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+          const urgent = daysLeft <= 5;
+          return (
+            <button
+              onClick={extendExpiry}
+              title={`Saved until ${new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} — tap to add ${EXPIRY_DAYS} more days`}
+              style={{ background: "none", border: `1px solid ${urgent ? "#4a1500" : "#2a2a2a"}`, borderRadius: 20, padding: "3px 9px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: urgent ? "#ef4444" : "#666" }}>
+                {daysLeft}d
+              </span>
+            </button>
+          );
+        })()}
         {/* ⓘ Info bubble */}
         <button
           onClick={() => setInfoPanelOpen(p => !p)}
@@ -2046,10 +2082,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ background: "#130900", border: "1px solid #2e1500", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
             <AlertCircle size={13} color="#c2740a" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 12, color: "#a0620a", lineHeight: 1.6 }}>
-              <strong style={{ color: "#d97706" }}>Edits auto-delete after 7 days</strong> without activity. Export your video to save it permanently.
+              <strong style={{ color: "#d97706" }}>Edits auto-delete after {EXPIRY_DAYS} days</strong> without activity. Export your video to save it permanently.
               {hlCase.studioProject?.expiresAt && hlCase.studioProject.expiresAt > Date.now() && (
                 <div style={{ marginTop: 4, color: "#7a5000", fontWeight: 700 }}>
-                  Saved until {new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  Saved until {new Date(hlCase.studioProject.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} — tap the {Math.max(0, Math.ceil((hlCase.studioProject.expiresAt - Date.now()) / (24 * 60 * 60 * 1000)))}d badge above to add {EXPIRY_DAYS} more days anytime
                 </div>
               )}
             </div>

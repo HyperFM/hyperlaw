@@ -90,12 +90,12 @@ router.patch("/cases/:id/structured", async (req: Request, res: Response): Promi
   res.json({ ok: true });
 });
 
-// ── POST /cases/:id/studio-project/keep-alive — reset 7-day TTL ────────────────
+// ── POST /cases/:id/studio-project/keep-alive — reset 30-day TTL ───────────────
 router.post("/cases/:id/studio-project/keep-alive", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   await db
     .update(casesTable)

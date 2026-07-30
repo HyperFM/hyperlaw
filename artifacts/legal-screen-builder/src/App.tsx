@@ -6,7 +6,7 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
-  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown,
+  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -444,6 +444,21 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
   );
 }
 
+// ─── TOOLS VIEW ───────────────────────────────────────────────────────────────
+function ToolsView() {
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px", textAlign: "center" }}>
+      <div style={{ width: 64, height: 64, borderRadius: 32, background: `${ORANGE}16`, border: `1.5px solid ${ORANGE}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "40px auto 20px" }}>
+        <Wrench size={28} color={ORANGE} />
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 10, letterSpacing: -0.3 }}>Tools</div>
+      <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
+        Courtroom tools for pro se litigants are coming here soon.
+      </div>
+    </div>
+  );
+}
+
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
 function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError }: {
   data: AppData;
@@ -457,12 +472,13 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   onClearUploadError?: () => void;
 }) {
   const uploadNewRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   // Most recent active case for the "Continue Your Case" card
   const activeCases = [...data.cases]
     .filter(c => c.status !== "closed")
     .sort((a, b) => b.createdAt - a.createdAt);
-  const primaryCase = activeCases[0] ?? null;
   const closedCases = data.cases.filter(c => c.status === "closed");
 
   const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
@@ -482,12 +498,24 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
           <img src="/hyperlaw-logo.png" alt="HL" style={{ width: 32, height: 32, borderRadius: 8 }} />
           <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -0.5 }}>HyperLaw</div>
         </div>
-        <div style={{ color: "#444", fontSize: 14, lineHeight: 1.5 }}>Civil rights legal self-help platform.</div>
+        <div style={{ color: "#444", fontSize: 14, lineHeight: 1.5 }}>Legal self-help platform.</div>
       </div>
 
       {!hasCases ? (
         /* ── Empty state ─────────────────────────────────────────────────────── */
-        <div style={{ textAlign: "center", paddingTop: 40 }}>
+        <div
+          style={{ textAlign: "center", paddingTop: 40 }}
+          onDragEnter={onUploadForNewCase ? e => { e.preventDefault(); dragDepthRef.current++; setIsDraggingFile(true); } : undefined}
+          onDragOver={onUploadForNewCase ? e => e.preventDefault() : undefined}
+          onDragLeave={onUploadForNewCase ? e => { e.preventDefault(); dragDepthRef.current = Math.max(0, dragDepthRef.current - 1); if (dragDepthRef.current === 0) setIsDraggingFile(false); } : undefined}
+          onDrop={onUploadForNewCase ? e => {
+            e.preventDefault();
+            dragDepthRef.current = 0;
+            setIsDraggingFile(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) { onClearUploadError?.(); onUploadForNewCase(f); }
+          } : undefined}
+        >
           <div style={{ fontSize: 52, marginBottom: 20 }}>⚖️</div>
           <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 10, letterSpacing: -0.3 }}>Start Your First Case</div>
           <div style={{ color: "#555", fontSize: 15, marginBottom: 36, lineHeight: 1.65, maxWidth: 340, margin: "0 auto 36px" }}>
@@ -509,17 +537,27 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
                 style={{ display: "none" }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) { onUploadForNewCase(f); e.target.value = ""; } }}
               />
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <button onClick={() => { onClearUploadError?.(); uploadNewRef.current?.click(); }} style={{
-                  background: "none", border: "1px solid #2a2a2a", borderRadius: 10,
-                  padding: "11px 22px", color: "#555", fontSize: 14, cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 8, marginTop: 12,
+              <div
+                onClick={() => { onClearUploadError?.(); uploadNewRef.current?.click(); }}
+                style={{
+                  margin: "20px auto 0", maxWidth: 340, cursor: "pointer",
+                  border: `1.5px dashed ${isDraggingFile ? ORANGE : "#2a2a2a"}`,
+                  background: isDraggingFile ? ORANGE + "0f" : "transparent",
+                  borderRadius: 14, padding: "18px 20px",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                  transition: "all 0.15s",
                 }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
-                >
-                  <Upload size={15} /> Start from a Document
-                </button>
+                onMouseEnter={e => { if (!isDraggingFile) (e.currentTarget as HTMLDivElement).style.borderColor = ORANGE + "55"; }}
+                onMouseLeave={e => { if (!isDraggingFile) (e.currentTarget as HTMLDivElement).style.borderColor = "#2a2a2a"; }}
+              >
+                <Upload size={17} color={isDraggingFile ? ORANGE : "#555"} />
+                <div style={{ fontSize: 14, fontWeight: 800, color: isDraggingFile ? ORANGE : "#888" }}>
+                  Drag &amp; drop your complaint here
+                </div>
+                <div style={{ fontSize: 12, color: "#444", lineHeight: 1.5 }}>
+                  Or anything with your full case details — tap to browse instead.<br />
+                  Missing something? HyperLaw will ask you for it after.
+                </div>
               </div>
               {uploadError && (
                 <div style={{ marginTop: 10, padding: "8px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, fontSize: 13, color: "#ef4444", display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
@@ -545,20 +583,27 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
         </div>
       ) : (
         <>
-          {/* ── Your cases — circular slider (swipe / loop through active cases) ── */}
-          {activeCases.length >= 2 ? (
+          {/* ── Your cases — stacked up to 5; roster slider beyond that ─────────── */}
+          {activeCases.length > 5 ? (
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Your Cases</div>
               <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} />
             </div>
-          ) : primaryCase && (
+          ) : activeCases.length > 0 && (
             <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Continue Your Case</div>
-              <PrimaryCaseCard
-                hlCase={primaryCase}
-                onOpen={() => onOpenCase(primaryCase)}
-                onContinue={(stage) => onContinueCase(primaryCase, stage)}
-              />
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>
+                {activeCases.length === 1 ? "Continue Your Case" : "Your Cases"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {activeCases.map(c => (
+                  <PrimaryCaseCard
+                    key={c.id}
+                    hlCase={c}
+                    onOpen={() => onOpenCase(c)}
+                    onContinue={(stage) => onContinueCase(c, stage)}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
@@ -4429,40 +4474,52 @@ function BuilderIcon({ size = 22 }: { size?: number; color?: string }) {
   );
 }
 
-type NavTab = "home" | "builder" | "tutor" | "profile";
+type NavTab = "home" | "builder" | "tutor" | "profile" | "tools";
 
 interface NavItem { id: NavTab; icon: React.ElementType; label: string }
 const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: Home, label: "Barrel" },
+  { id: "tools", icon: Wrench, label: "Tools" },
   { id: "builder", icon: BuilderIcon, label: "Studio" },
   { id: "tutor", icon: Home, label: "Index" },
   { id: "profile", icon: User, label: "Profile" },
 ];
+const TOOLS_ITEM   = NAV_ITEMS[1];
+const BUILDER_ITEM = NAV_ITEMS[2];
+const TUTOR_ITEM   = NAV_ITEMS[3];
+const PROFILE_ITEM = NAV_ITEMS[4];
 
-function BottomNavBar({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
+function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; caseCount: number }) {
   const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
-  const left  = [NAV_ITEMS[0], NAV_ITEMS[1]];
-  const right = [NAV_ITEMS[2], NAV_ITEMS[3]];
+  const left  = [TOOLS_ITEM, BUILDER_ITEM];
+  const right = [TUTOR_ITEM, PROFILE_ITEM];
 
   function handleItemClick(id: NavTab) {
-    if (id === "home") setBarrelSpinKey(k => k + 1);
     onChange(id);
   }
 
+  function handleBarrelClick() {
+    setBarrelSpinKey(k => k + 1);
+    onChange("home");
+  }
+
   function renderIcon(item: NavItem) {
-    if (item.id === "home")    return <BarrelIcon  size={34} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tools")   return <Wrench     size={26} color={ORANGE} />;
     if (item.id === "tutor")   return <IndexIcon   size={55} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={28} />;
   }
 
+  const barrelActive = active === "home";
+
   return (
     <div style={{ borderTop: "1px solid #1e1e1e", background: "#0a0a0a", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100 }}>
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -22, zIndex: 10 }}>
-        <button onClick={onFab}
-          style={{ width: 46, height: 46, borderRadius: 23, background: ORANGE, border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}66`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
-          <Plus size={22} color="#000" />
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: -30, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+        <button onClick={handleBarrelClick}
+          style={{ width: 56, height: 56, borderRadius: 28, background: "#141414", border: "3px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}44`, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+          <BarrelIcon size={40} caseCount={caseCount} spinKey={barrelSpinKey} />
         </button>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: barrelActive ? ORANGE : "#555" }}>Barrel</span>
       </div>
       <div style={{ display: "flex" }}>
         {left.map(item => (
@@ -4494,6 +4551,7 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
 
   function renderSideIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
+    if (item.id === "tools")   return <Wrench      size={18} color={ORANGE} />;
     if (item.id === "tutor")   return <IndexIcon   size={28} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={18} />;
@@ -4654,6 +4712,19 @@ export default function App() {
     return () => {
       window.removeEventListener("online",  onOnline);
       window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  // Prevent the browser's default "navigate to dropped file" behavior anywhere
+  // outside an explicit drop zone — without this, a file dropped even slightly
+  // off-target replaces the whole app with the raw file.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
     };
   }, []);
 
@@ -4921,6 +4992,7 @@ export default function App() {
     if (tab === "home") setView({ type: "home" });
     if (tab === "builder") setView({ type: "home" });
     if (tab === "tutor") setView({ type: "tutor" });
+    if (tab === "tools") setView({ type: "home" });
   }
 
   function openNewIncident(caseId?: string) {
@@ -5123,6 +5195,10 @@ export default function App() {
       return <AboutCreatorView onBack={() => setView({ type: "home" })} />;
     }
 
+    if (navTab === "tools") {
+      return <ToolsView />;
+    }
+
     if (navTab === "profile") {
       return (
         <ProfileView
@@ -5237,7 +5313,7 @@ export default function App() {
       })()}
 
       {isMobile && view.type !== "document_intake" && (
-        <BottomNavBar active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
+        <BottomNavBar active={navTab} onChange={handleNavChange} caseCount={data.cases.length} />
       )}
 
       {showNewIncident && (

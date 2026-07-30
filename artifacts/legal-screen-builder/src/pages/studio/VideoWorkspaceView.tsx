@@ -278,7 +278,7 @@ function VideoTimeline({
             const tagColor = seg.tag ? TAG_COLORS[seg.tag] : null;
             return (
               <div key={seg.id}
-                draggable={!seg.isDeleted && step === 3}
+                draggable={!seg.isDeleted && step === 2}
                 onDragStart={e => {
                   e.stopPropagation(); e.dataTransfer.effectAllowed = "move";
                   e.dataTransfer.setData("text/plain", JSON.stringify({ chunkId: seg.id }));
@@ -292,7 +292,7 @@ function VideoTimeline({
                 }}
                 style={{ position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`,
                   top: 0, bottom: 0, boxSizing: "border-box",
-                  cursor: seg.isDeleted ? "default" : step === 3 ? "grab" : "pointer",
+                  cursor: seg.isDeleted ? "default" : step === 2 ? "grab" : "pointer",
                   opacity: draggingChunkId === seg.id ? 0.35 : 1,
                   transition: "opacity 0.12s" }}>
 
@@ -318,8 +318,8 @@ function VideoTimeline({
                     )}
                     {/* Tag color bar */}
                     {tagColor && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: tagColor, zIndex: 3 }} />}
-                    {/* Label overlay (step 2+) */}
-                    {step >= 2 && seg.label && (
+                    {/* Label overlay — shown as soon as it's typed, now that chunking and labeling happen together in step 1 */}
+                    {seg.label && (
                       <div style={{ position: "absolute", bottom: tagColor ? 5 : 2, left: 3, right: 3, zIndex: 4,
                         fontSize: 8, fontWeight: 800, color: "#fff", textShadow: "0 1px 3px #000",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -967,6 +967,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     return saved && saved.length >= 10 ? saved : Array(10).fill(null);
   });
   const [aiOrganizing, setAiOrganizing] = useState(false);
+  // Chunking and labeling now happen together in Step 1 — this tracks the
+  // most recently created chunk so its label input can be auto-focused,
+  // keeping the flow "chunk it, immediately say what happened, chunk the
+  // next one" instead of a separate labeling pass afterward.
+  const [lastChunkedId, setLastChunkedId] = useState<string | null>(null);
+  const labelInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  useEffect(() => {
+    if (!lastChunkedId) return;
+    labelInputRefs.current.get(lastChunkedId)?.focus();
+  }, [lastChunkedId]);
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
@@ -1251,6 +1261,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const newChunk: VideoChunk = { id, start: lastMark, end: t, label: "" };
     const updated = [...chunks, newChunk];
     setChunks(updated);
+    setLastChunkedId(id);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
   }
 
@@ -2504,7 +2515,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         {/* ── Step Navigation ───────────────────────────────────────── */}
         {videoUrl && (
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-            {(["Chunk", "Label", "Organize", "Exhibit"] as const).map((label, i) => {
+            {(["Chunk & Label", "Organize", "Exhibit"] as const).map((label, i) => {
               const s = i + 1;
               const isActive = currentStep === s;
               return (
@@ -2533,13 +2544,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* ── Step 1: Chunk ─────────────────────────────────────────── */}
+        {/* ── Step 1: Chunk & Label ─────────────────────────────────── */}
         {currentStep === 1 && videoUrl && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, color: "#555", marginBottom: 12, lineHeight: 1.6 }}>
               {chunks.length === 0
-                ? "Watch the video and chunk it into sections or moments — tap the button each time you want to mark the end of a section."
-                : `${chunks.length} section${chunks.length !== 1 ? "s" : ""} chunked.${chunks.length < 3 ? " Keep going." : " Ready to label when you're done."}`}
+                ? "Watch the video and chunk it into sections or moments — tap the button each time you want to mark the end of a section, then say what happened."
+                : `${chunks.length} moment${chunks.length !== 1 ? "s" : ""} chunked and labeled below.`}
             </div>
             <button
               onClick={markMoment}
@@ -2550,53 +2561,42 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <Bookmark size={18} color="#000" strokeWidth={2.5} />
               Chunk It
             </button>
-            {chunks.length > 0 && (
-              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {chunks.map(c => (
-                  <div key={c.id} style={{ background: "#111", border: "1px solid #1e1e1e",
-                    borderRadius: 8, padding: "4px 9px", fontSize: 11, color: "#555", fontWeight: 700 }}>
-                    {formatTime(c.start)}–{formatTime(c.end)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* ── Step 2: Label ─────────────────────────────────────────── */}
-        {currentStep === 2 && videoUrl && (
-          <div style={{ marginBottom: 20 }}>
-            {chunks.length === 0 ? (
-              <div style={{ background: "#0d0d0d", border: "1px dashed #222", borderRadius: 12,
-                padding: "20px 16px", textAlign: "center" }}>
-                <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>No sections chunked yet.</div>
-                <button onClick={() => setCurrentStep(1)}
-                  style={{ background: ORANGE, border: "none", borderRadius: 10, padding: "10px 20px",
-                    fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
-                  Go chunk sections first
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {chunks.length > 0 && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                 {chunks.map((c, i) => (
                   <div key={c.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e",
                     borderRadius: 12, padding: "12px 14px" }}>
                     <div style={{ fontSize: 10, color: "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
                       MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
                     </div>
-                    <input
-                      type="text"
-                      value={c.label}
-                      placeholder="What happened here?"
-                      onChange={e => {
-                        const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
-                        setChunks(updated);
-                        triggerAutosave(markers, updated, organizedSlots, currentStep);
-                      }}
-                      style={{ width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#ddd",
-                        fontWeight: 600, outline: "none", boxSizing: "border-box", marginBottom: 8 }}
-                    />
+                    <div style={{ position: "relative", marginBottom: 8 }}>
+                      <input
+                        ref={el => {
+                          if (el) labelInputRefs.current.set(c.id, el);
+                          else labelInputRefs.current.delete(c.id);
+                        }}
+                        type="text"
+                        value={c.label}
+                        placeholder="What happened here? (tap your keyboard's mic to speak it)"
+                        onChange={e => {
+                          const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
+                          setChunks(updated);
+                          triggerAutosave(markers, updated, organizedSlots, currentStep);
+                        }}
+                        style={{ width: "100%", background: "#111", border: "1px solid #252525",
+                          borderRadius: 8, padding: "9px 36px 9px 12px", fontSize: 13, color: "#ddd",
+                          fontWeight: 600, outline: "none", boxSizing: "border-box" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => labelInputRefs.current.get(c.id)?.focus()}
+                        title="Tap, then use your keyboard's dictation button to speak it"
+                        style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                          background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+                        <Mic size={15} color={ORANGE} />
+                      </button>
+                    </div>
                     <div style={{ display: "flex", gap: 5 }}>
                       {(["consistency", "contradiction", "escalation", "no_cause"] as const).map(tag => {
                         const tagColors: Record<string, string> = {
@@ -2631,8 +2631,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* ── Step 3: Organize ──────────────────────────────────────── */}
-        {currentStep === 3 && videoUrl && (
+        {/* ── Step 2: Organize ──────────────────────────────────────── */}
+        {currentStep === 2 && videoUrl && (
           <div style={{ marginBottom: 20 }}>
             {chunks.length === 0 ? (
               <div style={{ background: "#0d0d0d", border: "1px dashed #222", borderRadius: 12,
@@ -2703,8 +2703,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
         )}
 
-        {/* ── Step 4: Exhibit, Media, Mic ───────────────────────────── */}
-        {currentStep === 4 && (
+        {/* ── Step 3: Exhibit, Media, Mic ───────────────────────────── */}
+        {currentStep === 3 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
             <button
               onClick={() => {

@@ -43,7 +43,7 @@ export default function WelcomePage() {
         }}
       >
         <span style={{ height: 1, width: 28, background: "linear-gradient(90deg, transparent, #F45D01)", opacity: 0.7 }} />
-        Civil Rights Case Tool
+        Legal Self-Help Tool
         <span style={{ height: 1, width: 28, background: "linear-gradient(90deg, #F45D01, transparent)", opacity: 0.7 }} />
       </div>
 
@@ -75,7 +75,7 @@ export default function WelcomePage() {
         }}
       >
         Organize incidents, track cases, and understand your evidence — built for
-        pro se civil rights litigants who have to fight their own battles.
+        pro se litigants who have to fight their own battles.
       </p>
 
       {/* CTAs */}
@@ -135,7 +135,7 @@ export default function WelcomePage() {
       </div>
 
       <p style={{ color: "#3a3532", fontSize: 11, marginTop: 40, lineHeight: 1.6 }}>
-No subscription · pay only when you unlock a document
+No subscription necessary
       </p>
     </div>
   );

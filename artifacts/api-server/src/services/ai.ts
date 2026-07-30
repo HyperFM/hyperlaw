@@ -1293,6 +1293,82 @@ CRITICAL: Base everything ONLY on the provided case information. Do not fabricat
     };
   }
 
+  // ── Video Organization Assistant ────────────────────────────────────────────
+  // Suggests a presentation order for a Studio project's labeled video chunks —
+  // not necessarily their original chronological order in the raw footage.
+
+  async organizeVideoChunks(input: {
+    chunks: Array<{ id: string; start: number; end: number; label: string; tag?: string }>;
+    caseTitle?: string;
+    parties?: Array<{ firstName: string; lastName: string; type: string }>;
+    story?: string;
+    claims?: string[];
+  }): Promise<AiResult<{ order: string[] }>> {
+    const chunkIds = input.chunks.map(c => c.id);
+
+    const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+
+    const chunksBlock = input.chunks
+      .map((c, i) => `${i + 1}. id="${c.id}" [${fmt(c.start)}–${fmt(c.end)}] tag=${c.tag ?? "none"}: ${c.label || "(no label)"}`)
+      .join("\n");
+
+    const partiesBlock = input.parties?.length
+      ? input.parties.map(p => `${p.firstName} ${p.lastName} (${p.type})`).join(", ")
+      : "Not specified";
+
+    const prompt = `You are HyperLaw's Video Organization Assistant. A user has marked and labeled specific moments ("chunks") from video evidence. Decide the most persuasive, clearest PRESENTATION ORDER for these moments as a video exhibit — not necessarily their original chronological order in the raw footage.
+
+=== CASE CONTEXT ===
+Case: ${input.caseTitle || "Not specified"}
+Parties: ${partiesBlock}
+Story: ${input.story || "Not provided"}
+Known claims: ${input.claims?.length ? input.claims.join("; ") : "Not yet determined"}
+
+=== CHUNKS (numbered in original video order; use the "id" values in your answer) ===
+${chunksBlock}
+
+=== INSTRUCTIONS ===
+- Contrasting or contradicting moments should sit next to each other so the juxtaposition is obvious (e.g. a moment showing a stated policy immediately followed by a moment showing it being violated).
+- Escalation-tagged moments should generally build toward the strongest one.
+- Consistent/reinforcing moments that support the same point should be grouped together.
+- Use the case context to judge what matters, but base the order only on the chunks listed above — never invent a moment that isn't in the list.
+
+Return ONLY this JSON, nothing else:
+{ "order": ["<chunk id>", "<chunk id>", ...] }
+
+The "order" array must contain every chunk id listed above exactly once — no fewer, no more, no duplicates, no invented ids.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      system: "You are HyperLaw's Video Organization Assistant. Return only valid JSON. Never invent chunks that weren't provided.",
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    const parsed = this.parseJsonResponse<{ order?: unknown }>(response);
+    const rawOrder = Array.isArray(parsed.order) ? parsed.order.filter((id): id is string => typeof id === "string") : [];
+
+    // Defensive repair: guarantee the returned order is exactly the input
+    // chunk ids (no fewer, no more, no duplicates) regardless of what the
+    // model actually returned, so callers never have to validate this
+    // themselves.
+    const validIds = new Set(chunkIds);
+    const seen = new Set<string>();
+    const cleanedOrder: string[] = [];
+    for (const id of rawOrder) {
+      if (validIds.has(id) && !seen.has(id)) { cleanedOrder.push(id); seen.add(id); }
+    }
+    for (const id of chunkIds) {
+      if (!seen.has(id)) { cleanedOrder.push(id); seen.add(id); } // append anything the model dropped, in original order
+    }
+
+    return {
+      data: { order: cleanedOrder },
+      meta: this.buildMeta(response.usage, Date.now() - start),
+    };
+  }
+
   // ── Gap Detection Engine ───────────────────────────────────────────────────
   // Identifies missing information and batches ALL follow-up questions in one response.
 

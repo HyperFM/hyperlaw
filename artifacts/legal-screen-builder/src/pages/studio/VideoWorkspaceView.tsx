@@ -966,6 +966,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const saved = hlCase.studioProject?.organizedSlots;
     return saved && saved.length >= 10 ? saved : Array(10).fill(null);
   });
+  const [aiOrganizing, setAiOrganizing] = useState(false);
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
@@ -1281,6 +1282,30 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     setChunks(newChunks);
     setOrganizedSlots(newSlots);
     triggerAutosave(newMarkers, newChunks, newSlots, currentStep);
+  }
+
+  // ── AI-suggested presentation order for Step 3 ───────────────────
+  async function handleAIOrganize() {
+    if (aiOrganizing || chunks.length === 0) return;
+    setAiOrganizing(true);
+    try {
+      const { order } = await aiApi.organizeVideoChunks({
+        chunks: chunks.map(c => ({ id: c.id, start: c.start, end: c.end, label: c.label, tag: c.tag })),
+        caseTitle: hlCase.title,
+        parties: hlCase.parties.map(p => ({ firstName: p.firstName, lastName: p.lastName, type: p.type })),
+        story: hlCase.story,
+        claims: hlCase.structuredCase?.claims,
+        caseId: hlCase.id,
+      });
+      const newSlots = [...order, null, null];
+      setOrganizedSlots(newSlots);
+      triggerAutosave(markers, chunks, newSlots, currentStep);
+      showInsertToast("AI organized your moments — drag any of them to adjust.");
+    } catch (err) {
+      showInsertToast((err as Error).message || "Couldn't organize automatically — try again or arrange manually.");
+    } finally {
+      setAiOrganizing(false);
+    }
   }
 
   // ── Skip video_cut regions during playback ──────────────────────
@@ -2621,6 +2646,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               </div>
             ) : (
               <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                  <button
+                    onClick={handleAIOrganize}
+                    disabled={aiOrganizing}
+                    style={{ flex: 2, background: ORANGE, border: "none", borderRadius: 10,
+                      padding: "12px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                      cursor: aiOrganizing ? "default" : "pointer", opacity: aiOrganizing ? 0.7 : 1,
+                      fontWeight: 800, fontSize: 13, color: "#000" }}>
+                    {aiOrganizing ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                    {aiOrganizing ? "Organizing…" : "Let AI Organize It"}
+                  </button>
+                  <button
+                    onClick={() => showInsertToast("You're in control — drag moments below into the order you want.")}
+                    disabled={aiOrganizing}
+                    style={{ flex: 1, background: "none", border: "1px solid #2a2a2a", borderRadius: 10,
+                      padding: "12px 10px", cursor: aiOrganizing ? "default" : "pointer",
+                      fontWeight: 700, fontSize: 13, color: "#888" }}>
+                    Myself
+                  </button>
+                </div>
                 <div style={{ fontSize: 12, color: "#555", marginBottom: 10, lineHeight: 1.6 }}>
                   Drag moments from the track above into story order.{" "}
                   {chunks.some(c => c.tag === "consistency") && (

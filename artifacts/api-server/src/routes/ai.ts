@@ -1148,6 +1148,35 @@ router.post("/ai/organize", requireAuth, async (req: Request, res: Response): Pr
   }
 });
 
+// ── POST /ai/organize-video-chunks — Video Organization Assistant ──────────────
+// Suggests a presentation order for a Studio project's labeled video chunks.
+router.post("/ai/organize-video-chunks", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth.userId!;
+  const { chunks, caseTitle, parties, story, claims, caseId } = req.body as {
+    chunks: Array<{ id: string; start: number; end: number; label: string; tag?: string }>;
+    caseTitle?: string;
+    parties?: Array<{ firstName: string; lastName: string; type: string }>;
+    story?: string;
+    claims?: string[];
+    caseId?: string;
+  };
+
+  if (!Array.isArray(chunks) || chunks.length === 0) { res.status(400).json({ error: "chunks is required" }); return; }
+  if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
+
+  const limitResult = await checkDailyLimit(userId);
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+
+  try {
+    const result = await aiService.organizeVideoChunks({ chunks, caseTitle, parties, story, claims });
+    await logAiCall({ userId, feature: "organize_video_chunks", model: "claude", inputTokens: result.meta.inputTokens, outputTokens: result.meta.outputTokens, estimatedCostMicroUsd: result.meta.estimatedCostMicroUsd, responseTimeMs: result.meta.responseTimeMs, cacheHit: false, caseId });
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || "Video organization failed" });
+  }
+});
+
 // ── POST /ai/gap-detect — Gap Detection Engine ─────────────────────────────────
 // Batches ALL follow-up questions in one Claude call.
 router.post("/ai/gap-detect", requireAuth, async (req: Request, res: Response): Promise<void> => {

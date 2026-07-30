@@ -443,6 +443,21 @@ export const aiApi = {
     });
   },
 
+  /** Video Organization Assistant — suggest a presentation order for labeled video chunks */
+  organizeVideoChunks(input: {
+    chunks: Array<{ id: string; start: number; end: number; label: string; tag?: string }>;
+    caseTitle?: string;
+    parties?: Array<{ firstName: string; lastName: string; type: string }>;
+    story?: string;
+    claims?: string[];
+    caseId?: string;
+  }): Promise<{ order: string[] }> {
+    return aiFetch("/ai/organize-video-chunks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
   /** Builder Engine — extract structured data from dictation and generate exhibit draft */
   builderExtract(input: {
     timestamp: string;

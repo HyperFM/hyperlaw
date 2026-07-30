@@ -289,9 +289,13 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
   if (!r.ok) {
     const body = await r.json().catch(() => ({ error: "Request failed" })) as { error?: string; code?: string };
-    // Map 401 to a friendly message — raw "Unauthorized" from body.error should never
-    // reach the UI and confuse users who are signed in but hit a brief auth race.
-    const message = r.status === 401
+    // Map a *generic* 401 (no session yet) to a friendly message — raw "Unauthorized"
+    // should never reach the UI and confuse users who are signed in but hit a brief
+    // auth race. PIN-guarded endpoints (security verify, batch case delete, account
+    // delete) also return 401 for a WRONG PIN with their own specific message (e.g.
+    // "Incorrect PIN") — that message is meaningful and must reach the user as-is,
+    // not get overwritten by the generic session copy.
+    const message = r.status === 401 && body.error === "Unauthorized"
       ? "Session not ready — please try again in a moment."
       : (body.error || `AI request failed (${r.status})`);
     const err: AiError = new Error(message);

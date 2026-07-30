@@ -6,7 +6,7 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
-  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench,
+  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -49,6 +49,7 @@ import { IntakeChecklistView } from "./pages/workflow/IntakeChecklistView";
 import ConfirmDeleteButton from "./components/ConfirmDeleteButton";
 import PinGateModal from "./components/PinGateModal";
 import ManageCasesModal from "./components/ManageCasesModal";
+import { isPasskeySupported, createPasskey, cachePin, clearCachedPin } from "./lib/webauthn";
 import DraftDecisionModal from "./components/DraftDecisionModal";
 import GuidanceSessionModal from "./components/GuidanceSessionModal";
 import IfpWizard from "./components/IfpWizard";
@@ -445,15 +446,69 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── TOOLS VIEW ───────────────────────────────────────────────────────────────
+const TOOL_BUBBLES = [
+  {
+    id: "battle-prep",
+    icon: Swords,
+    title: "Battle Prep",
+    tagline: "Get scripted for your next court date.",
+    detail: "Walks you through what happened at your last hearing and what's coming next, pulling straight from your case history — so you walk in knowing exactly what to say.",
+  },
+  {
+    id: "voir-dire",
+    icon: Users,
+    title: "Voir Dire",
+    tagline: "Jury selection, simplified.",
+    detail: "A guide for picking your jury — who's in the room, what to ask them, and who to strike, for when you're doing a jury trial.",
+  },
+] as const;
+
 function ToolsView() {
+  const [openId, setOpenId] = useState<string | null>(null);
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px", textAlign: "center" }}>
       <div style={{ width: 64, height: 64, borderRadius: 32, background: `${ORANGE}16`, border: `1.5px solid ${ORANGE}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "40px auto 20px" }}>
         <Wrench size={28} color={ORANGE} />
       </div>
       <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 10, letterSpacing: -0.3 }}>Tools</div>
-      <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto" }}>
-        Courtroom tools for pro se litigants are coming here soon.
+      <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto 28px" }}>
+        Courtroom tools for pro se litigants, built right into your case.
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 360, margin: "0 auto", textAlign: "left" }}>
+        {TOOL_BUBBLES.map(tool => {
+          const open = openId === tool.id;
+          const Icon = tool.icon;
+          return (
+            <button
+              key={tool.id}
+              onClick={() => setOpenId(open ? null : tool.id)}
+              style={{
+                background: "#111", border: `1px solid ${open ? ORANGE + "55" : "#1e1e1e"}`,
+                borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left",
+                transition: "border-color 0.15s",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon size={17} color={ORANGE} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{tool.title}</div>
+                  <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>{tool.tagline}</div>
+                </div>
+                {open ? <ChevronUp size={15} color="#444" style={{ flexShrink: 0 }} /> : <ChevronDown size={15} color="#444" style={{ flexShrink: 0 }} />}
+              </div>
+              {open && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #1e1e1e", fontSize: 13, color: "#888", lineHeight: 1.6 }}>
+                  {tool.detail}
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#3a3a3a", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>Coming soon</div>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -3828,6 +3883,49 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const [showSupport, setShowSupport] = useState(false);
   const [showCreditHistory, setShowCreditHistory] = useState(false);
 
+  // Security — PIN status + passkey (Face ID / Touch ID) enrollment
+  const [secStatus, setSecStatus] = useState<{ hasPin: boolean; webauthnEnabled: boolean } | null>(null);
+  const [showEnablePasskeyPin, setShowEnablePasskeyPin] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    aiApi.security.status().then(s => setSecStatus(s)).catch(() => {});
+  }, []);
+
+  async function finishEnablingPasskey(pin: string) {
+    setShowEnablePasskeyPin(false);
+    if (!user?.id) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      const { challenge, credentialIds } = await aiApi.security.webauthnChallenge();
+      const credentialId = await createPasskey(user.id, challenge, credentialIds);
+      await aiApi.security.webauthnEnroll(credentialId);
+      cachePin(user.id, pin);
+      setSecStatus({ hasPin: true, webauthnEnabled: true });
+    } catch (e) {
+      setPasskeyError((e as Error).message || "Couldn't set up Face ID / Touch ID");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
+  async function disablePasskey() {
+    if (!user?.id) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      await aiApi.security.webauthnDisable();
+      clearCachedPin(user.id);
+      setSecStatus(s => s ? { ...s, webauthnEnabled: false } : s);
+    } catch (e) {
+      setPasskeyError((e as Error).message || "Couldn't turn off Face ID / Touch ID");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
   // Profile photo
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -4072,6 +4170,36 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         </div>
       </div>
 
+      {/* Security */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>SECURITY</div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          <button
+            onClick={() => {
+              setPasskeyError(null);
+              if (secStatus?.webauthnEnabled) disablePasskey();
+              else if (!isPasskeySupported()) setPasskeyError("Face ID / Touch ID isn't available on this device or browser.");
+              else setShowEnablePasskeyPin(true);
+            }}
+            disabled={passkeyBusy}
+            style={{ width: "100%", background: "none", border: "none", cursor: passkeyBusy ? "default" : "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", opacity: passkeyBusy ? 0.6 : 1 }}>
+            <Fingerprint size={16} color={secStatus?.webauthnEnabled ? ORANGE : "#666"} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Face ID / Touch ID</div>
+              <div style={{ fontSize: 12, color: "#555" }}>
+                {passkeyBusy ? "Working…" : secStatus?.webauthnEnabled ? "Enabled — tap to turn off" : "Unlock your PIN with a fingerprint or face scan"}
+              </div>
+            </div>
+            <div style={{ width: 38, height: 22, borderRadius: 11, background: secStatus?.webauthnEnabled ? ORANGE : "#2a2a2a", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 2, left: secStatus?.webauthnEnabled ? 18 : 2, transition: "left 0.15s" }} />
+            </div>
+          </button>
+          {passkeyError && (
+            <div style={{ padding: "0 16px 14px", fontSize: 12, color: "#ef4444" }}>{passkeyError}</div>
+          )}
+        </div>
+      </div>
+
       {/* Legal & Compliance */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -4230,14 +4358,25 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         title="Confirm account deletion"
         description="Enter your PIN to permanently delete your account and all associated data."
         confirmLabel="Delete everything"
+        userId={user?.id}
         onClose={() => setShowDeletePin(false)}
         onSuccess={(pin) => { setShowDeletePin(false); handleDeleteComplete(pin); }}
       />
       <ManageCasesModal
         open={showManageCases}
         cases={data.cases.map(c => ({ id: c.id, title: c.title }))}
+        userId={user?.id}
         onClose={() => setShowManageCases(false)}
         onDeleted={(ids) => onCasesDeleted(ids)}
+      />
+      <PinGateModal
+        open={showEnablePasskeyPin}
+        title="Confirm your PIN"
+        description="Enter your PIN once to enable Face ID / Touch ID unlock."
+        confirmLabel="Enable"
+        userId={user?.id}
+        onClose={() => setShowEnablePasskeyPin(false)}
+        onSuccess={finishEnablingPasskey}
       />
 
       {/* ── Creator button ─────────────────────────────────────────────── */}

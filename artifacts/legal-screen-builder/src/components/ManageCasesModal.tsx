@@ -8,11 +8,12 @@ const ORANGE = "#d9711f";
 export default function ManageCasesModal(props: {
   open: boolean;
   cases: Array<{ id: string; title: string }>;
+  userId?: string | null;
   onClose: () => void;
   onDeleted: (deletedIds: string[]) => void;
   onBuyCredits?: () => void;
 }): React.JSX.Element | null {
-  const { open, cases, onClose, onDeleted, onBuyCredits } = props;
+  const { open, cases, userId, onClose, onDeleted, onBuyCredits } = props;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
@@ -214,6 +215,7 @@ export default function ManageCasesModal(props: {
           title="Confirm deletion"
           description="Enter your PIN to permanently delete the selected cases."
           confirmLabel="Delete"
+          userId={userId}
           onClose={() => setPinOpen(false)}
           onSuccess={handlePinSuccess}
         />

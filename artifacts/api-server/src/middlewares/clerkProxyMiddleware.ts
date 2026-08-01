@@ -26,9 +26,19 @@ const CLERK_FAPI = "https://frontend-api.clerk.dev";
 export const CLERK_PROXY_PATH = "/api/__clerk";
 
 /**
- * Returns the first effective public hostname for the given request,
- * preferring x-forwarded-host over the Host header so callers behind a
- * proxy see the original client-facing host.
+ * Returns the effective public hostname for the given request.
+ *
+ * CLERK_PROXY_HOST, when set, wins outright — Clerk's dashboard has this
+ * instance's proxy registered against one fixed hostname
+ * (hyperlaw.site/api/__clerk), so deriving it from request headers at
+ * runtime is unnecessary risk: if Render's edge doesn't forward
+ * x-forwarded-host exactly as expected, the computed proxy URL silently
+ * stops matching what's registered and every Clerk request starts failing
+ * with "host_invalid" — which is exactly what happened in production.
+ *
+ * Falls back to sniffing x-forwarded-host / Host when CLERK_PROXY_HOST
+ * isn't set, for other environments (e.g. Render preview deploys) where
+ * the public host isn't known ahead of time.
  *
  * x-forwarded-host can take three shapes:
  *   - undefined (no proxy involved)
@@ -45,6 +55,9 @@ export const CLERK_PROXY_PATH = "/api/__clerk";
 export function getClerkProxyHost(req: {
   headers: IncomingHttpHeaders;
 }): string | undefined {
+  const fixedHost = process.env.CLERK_PROXY_HOST?.trim();
+  if (fixedHost) return fixedHost;
+
   const forwarded = req.headers["x-forwarded-host"];
   const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
   const firstHop = raw?.split(",")[0]?.trim();

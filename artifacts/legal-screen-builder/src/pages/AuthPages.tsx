@@ -28,7 +28,7 @@ function rememberUsername(value: string): void {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100dvh",
+  minHeight: "var(--app-100dvh, 100dvh)",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",

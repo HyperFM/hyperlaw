@@ -121,7 +121,7 @@ export default function Plans() {
   return (
     <div
       style={{
-        minHeight: "100dvh",
+        minHeight: "var(--app-100dvh, 100dvh)",
         background:
           "radial-gradient(ellipse 900px 500px at 50% -10%, rgba(244,93,1,0.14), transparent 60%), linear-gradient(180deg, #0a0908 0%, #0d0b09 100%)",
         padding: "48px 20px 80px",

@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // dvh isn't reliably correct on load on iOS — it can report a height
+      // that hasn't settled yet, which used to require a manual scroll to
+      // fix. window.innerHeight is always accurate at the moment it's read,
+      // so every full-screen view in this app uses this custom property
+      // instead of 100dvh directly. Runs before any CSS parses, so there's
+      // no flash — see the resize/orientationchange listeners further down
+      // for how it stays correct after load too.
+      document.documentElement.style.setProperty("--app-100dvh", window.innerHeight + "px");
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="HyperLaw" />
@@ -44,14 +54,7 @@
         top: 0;
         left: 0;
         width: 100%;
-        /* Explicit dvh instead of inset:0's implicit bottom:0 — iOS Safari
-           can resolve a fixed element's inset against a viewport snapshot
-           that hasn't settled on the address bar's final state yet, leaving
-           a gap at the bottom until a scroll forces a reflow. dvh is built
-           to track the live viewport instead, so this stays correct on load
-           without needing that scroll. */
-        height: 100vh;
-        height: 100dvh;
+        height: var(--app-100dvh, 100dvh);
         z-index: 9999;
         display: flex;
         align-items: center;
@@ -279,6 +282,20 @@
         var wires  = ['w1','w2','w3','w4'].map(function(c) {
           return splash.querySelector('.' + c);
         });
+
+        // Keeps --app-100dvh (set once synchronously up in <head>) correct
+        // after load too — iOS can report a height that hasn't settled yet
+        // on first paint, which used to require a manual scroll to fix.
+        // Every full-screen view in the app reads this same variable, not
+        // just the splash.
+        function syncAppHeight() {
+          document.documentElement.style.setProperty('--app-100dvh', window.innerHeight + 'px');
+        }
+        [50, 150, 300, 600, 1000].forEach(function (ms) {
+          setTimeout(syncAppHeight, ms);
+        });
+        window.addEventListener('resize', syncAppHeight);
+        window.addEventListener('orientationchange', syncAppHeight);
 
         function pulseIcon() {
           icon.classList.remove('pulse');

@@ -8,7 +8,7 @@ export default function WelcomePage() {
   return (
     <div
       style={{
-        minHeight: "100dvh",
+        minHeight: "var(--app-100dvh, 100dvh)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",

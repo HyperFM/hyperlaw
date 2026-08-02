@@ -10,6 +10,18 @@
     margin: 0;
     padding: 0;
   }
+  /* iOS Safari computes the dynamic viewport height before it's settled on
+     whether the address bar is showing, and won't correct that first guess
+     until a scroll/resize event forces a reflow — without html/body having
+     their own explicit height, the page's 100dvh content can visibly fall
+     short of the real bottom on load and only "snap" into place once the
+     user scrolls. Giving html/body a real height fixes that settle-on-load
+     gap; disabling vertical overscroll stops the rubber-band bounce from
+     re-opening the same gap during a swipe. */
+  html, body {
+    height: 100%;
+    overscroll-behavior-y: none;
+  }
   body {
     background: #161616;
     color: #fff;

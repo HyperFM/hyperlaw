@@ -191,15 +191,21 @@
         50%      { opacity: 1;   transform: translate(-50%,-50%) scale(1.06); }
       }
 
-      /* app icon */
+      /* app icon — starts fully hidden and only begins its reveal once JS
+         confirms the image has actually finished downloading (see script
+         below). On a slow connection, revealing it before that would show
+         whatever rows of the PNG have streamed in so far, which looks like
+         the logo is "cut in half". */
       #hl-splash .icon {
         position: relative;
         width: 150px; height: 150px;
         border-radius: 32px;
-        opacity: 0.12;
+        opacity: 0;
         transform: scale(0.5);
         filter: drop-shadow(0 0 6px rgba(255,138,31,0.25));
         transition: filter .35s ease;
+      }
+      #hl-splash .icon.ready {
         animation: zoomIn 6.6s cubic-bezier(.16,.6,.24,1) forwards 0.3s;
       }
       @keyframes zoomIn {
@@ -270,6 +276,14 @@
           icon.classList.remove('pulse');
           void icon.offsetWidth;
           icon.classList.add('pulse');
+        }
+
+        function revealIcon() { icon.classList.add('ready'); }
+        if (icon.complete && icon.naturalWidth > 0) {
+          revealIcon();
+        } else {
+          icon.addEventListener('load', revealIcon, { once: true });
+          icon.addEventListener('error', revealIcon, { once: true });
         }
 
         wires.forEach(function(wire, i) {

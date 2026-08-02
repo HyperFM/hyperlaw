@@ -1,6 +1,6 @@
 // ── Account security routes (PIN + WebAuthn enrollment) ────────────────────────
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import {
   getSecurityStatus, setPin, verifyPin, isValidPinFormat,
   issueWebauthnChallenge, enrollWebauthn, disableWebauthn,

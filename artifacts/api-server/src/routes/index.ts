@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import authRouter from "./auth";
+import webauthnLoginRouter from "./webauthnLogin";
 import healthRouter from "./health";
 import notificationsRouter from "./notifications";
 import feedbackRouter from "./feedback";
@@ -17,6 +19,8 @@ import exhibitRouter from "./exhibit";
 
 const router: IRouter = Router();
 
+router.use(authRouter);
+router.use(webauthnLoginRouter);
 router.use(healthRouter);
 router.use(notificationsRouter);
 router.use(feedbackRouter);

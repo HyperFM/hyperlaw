@@ -8,23 +8,21 @@
  * DELETE /knowledge/:id                              — admin only: delete
  */
 import { Router, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db, knowledgeLibraryTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { pool } from "@workspace/db";
 import { searchLibrary } from "../services/knowledgeLibrary.js";
-import { getClerkUserEmail } from "./feedback.js";
 
 const router = Router();
 
-const ADMIN_EMAIL = "hypermodula@gmail.com";
-
-/** Returns userId if the requester is the admin; otherwise writes 401/403 and returns null. */
+/** Returns userId if the requester is an admin (real isAdmin column, granted
+ *  only through the gated registration flow in routes/auth.ts); otherwise
+ *  writes 401/403 and returns null. */
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const info = await getClerkUserEmail(auth.userId);
-  if (info?.email !== ADMIN_EMAIL) { res.status(403).json({ error: "Forbidden" }); return null; }
+  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return null; }
   return auth.userId;
 }
 

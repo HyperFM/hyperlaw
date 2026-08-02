@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db, chatSessionsTable, messagesTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 

@@ -255,10 +255,15 @@ export interface VideoChunk {
   start: number;
   /** End time in seconds */
   end: number;
+  /** Short nickname — a quick, easy-to-scan name for this moment (e.g. "Officer arrives") */
+  name?: string;
   /** Short plain-language label set in Step 2 */
   label: string;
   /** Optional tag set in Step 2 */
   tag?: "consistency" | "contradiction" | "escalation" | "no_cause";
+  /** User-picked frame (data URL) for this moment's card thumbnail — overrides
+   *  the auto-picked opening frame. Only affects the card, never the timeline. */
+  thumbnailOverride?: string;
 }
 
 export interface StudioProject {

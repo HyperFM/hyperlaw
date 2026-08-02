@@ -4,16 +4,15 @@
 // analyze-document route so new AI features stay consistent.
 
 import { storage } from "../storage.js";
-import { getClerkUserEmail } from "../routes/feedback.js";
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 
-const ADMIN_EMAILS = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
-
-/** True when the user's Clerk email is on the admin allow-list. */
+/** True when the account's isAdmin column is set (granted only through the
+ *  gated admin-registration flow in routes/auth.ts) — the same real flag
+ *  every other admin-only route checks now, not an email-string match. */
 export async function isAdminUser(userId: string): Promise<boolean> {
-  const info = await getClerkUserEmail(userId).catch(() => null);
-  return ADMIN_EMAILS.has(info?.email ?? "");
+  const [user] = await db.select({ isAdmin: usersTable.isAdmin }).from(usersTable).where(eq(usersTable.id, userId));
+  return user?.isAdmin ?? false;
 }
 
 /** True when the user should not be charged credits. Billing is currently disabled — always waived. */

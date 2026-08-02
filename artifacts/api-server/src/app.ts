@@ -3,13 +3,7 @@ import fs from "node:fs";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import { clerkMiddleware } from "@clerk/express";
-import { publishableKeyFromHost } from "@clerk/shared/keys";
-import {
-  CLERK_PROXY_PATH,
-  clerkProxyMiddleware,
-  getClerkProxyHost,
-} from "./middlewares/clerkProxyMiddleware";
+import { sessionMiddleware, passport } from "./middlewares/passportConfig";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers.js";
@@ -102,20 +96,13 @@ app.use(
   }),
 );
 
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
-
 app.use(cors({ credentials: true, origin: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
+app.use(sessionMiddleware);
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use("/api", router);
 

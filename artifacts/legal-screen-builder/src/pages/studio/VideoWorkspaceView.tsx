@@ -3,7 +3,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -14,6 +14,25 @@ import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoB
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
+
+// Free in-browser dictation (Web Speech API) — Chrome/Android only, no cost.
+// Safari has no implementation at all, so this stays feature-detected and
+// falls back to just focusing the field (native OS dictation) everywhere else.
+type SpeechRecognitionLike = {
+  continuous: boolean; interimResults: boolean; lang: string;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+const SpeechRecognitionCtor: (new () => SpeechRecognitionLike) | null =
+  typeof window !== "undefined"
+    ? ((window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike })
+        .SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition ?? null)
+    : null;
+const speechSupported = !!SpeechRecognitionCtor;
+
 // Single source of truth for the studio project retention window — used for
 // both the video's local blob and the server-side markers/exhibit data, so
 // the two can never drift out of sync with each other.
@@ -111,8 +130,10 @@ function JurisdictionVerifyButton({ onVerify, disabled }: { onVerify: () => void
 function VideoTimeline({
   duration, currentTime, markers, onSeek,
   activeMarkerId, onSelectMarker,
-  chunks, onSplitChunk, onRemoveChunk,
+  chunks,
   thumbnails, thumbsLoading, step, zoom,
+  selectedChunkId, setSelectedChunkId,
+  healableBoundaries, onHealBoundary, isDraggingBandaid,
 }: {
   duration: number; currentTime: number;
   markers: ExhibitMarker[];
@@ -120,20 +141,49 @@ function VideoTimeline({
   activeMarkerId: string | null;
   onSelectMarker: (id: string) => void;
   chunks: VideoChunk[];
-  onSplitChunk: (id: string, at: number) => void;
-  onRemoveChunk: (id: string) => void;
   thumbnails: string[];
   thumbsLoading: boolean;
   step: number;
   zoom: number;
+  selectedChunkId: string | null;
+  setSelectedChunkId: React.Dispatch<React.SetStateAction<string | null>>;
+  healableBoundaries: { time: number; leftChunkId: string; kind: "merge" | "trail" }[];
+  onHealBoundary: (leftChunkId: string, kind: "merge" | "trail") => void;
+  isDraggingBandaid: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [draggingChunkId, setDraggingChunkId] = useState<string | null>(null);
   const dragState = useRef<{ active: boolean; startX: number; moved: boolean }>(
     { active: false, startX: 0, moved: false }
   );
+
+  // ── Unsplit — grab the Band-Aid and drop it directly on the split you want
+  // healed. One at a time, on purpose — no selection zone to fuss with. ──
+  const [unsplitDragOverTime, setUnsplitDragOverTime] = useState<number | null>(null);
+
+  // maxDist caps how far (in seconds) the nearest split is allowed to be from
+  // the drop/hover point — without this, dropping anywhere in unchunked
+  // footage would still snap to whatever split happens to exist elsewhere on
+  // the timeline, even if it's nowhere near where you actually dropped.
+  function nearestHealable(t: number, maxDist = Infinity): { time: number; leftChunkId: string; kind: "merge" | "trail" } | null {
+    let best: { time: number; leftChunkId: string; kind: "merge" | "trail" } | null = null;
+    let bestD = Infinity;
+    for (const b of healableBoundaries) {
+      const d = Math.abs(b.time - t);
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    if (best && bestD > maxDist) return null;
+    return best;
+  }
+
+  /** ~50px of slack, converted to seconds at the track's current zoom level. */
+  function unsplitTolerance(): number {
+    const el = trackRef.current;
+    if (!el || !duration) return 0;
+    const pxPerSec = el.getBoundingClientRect().width / duration;
+    return 50 / Math.max(pxPerSec, 0.0001);
+  }
 
   // Re-center the scroll position on the current playhead whenever zoom changes,
   // so zooming in/out doesn't yank the view to some other part of the timeline.
@@ -186,17 +236,15 @@ function VideoTimeline({
   const allSegs = [...chunkSegs, ...cutGaps].sort((a, b) => a.start - b.start);
 
   const NUM = thumbnails.length;
-  function segThumbs(start: number, end: number): string[] {
-    if (!NUM || !duration) return [];
+  // Each chunk shows exactly ONE thumbnail — its opening frame — rather than a
+  // filmstrip, so the whole segment reads as "this is what this moment looks
+  // like" instead of a scrolling series of frames.
+  function segStartThumb(start: number): string | null {
+    if (!NUM || !duration) return null;
     const dt = duration / Math.max(1, NUM - 1);
-    const inRange = thumbnails.filter((_, i) => {
-      const t = i * dt;
-      return t >= start - dt * 0.55 && t <= end + dt * 0.55;
-    });
-    if (inRange.length > 0) return inRange;
     let best = 0, bestD = Infinity;
-    thumbnails.forEach((_, i) => { const d = Math.abs(i * dt - (start + end) / 2); if (d < bestD) { bestD = d; best = i; } });
-    return [thumbnails[best]];
+    thumbnails.forEach((_, i) => { const d = Math.abs(i * dt - start); if (d < bestD) { bestD = d; best = i; } });
+    return thumbnails[best] ?? null;
   }
 
   const TAG_COLORS: Record<string, string> = {
@@ -214,12 +262,34 @@ function VideoTimeline({
             now spread across a wider — and thus more precise to click/drag — track. */}
         <div style={{ width: `${zoom * 100}%`, minWidth: "100%" }}>
       <div style={{ display: "flex", alignItems: "stretch" }}>
-        {/* ── Track ── */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
         <div ref={trackRef}
-          style={{ flex: 1, height: 72, borderRadius: 10, position: "relative",
-            cursor: "pointer", border: "1.5px solid #1e1e1e",
+          style={{ flexShrink: 0, height: 72, borderRadius: 10, position: "relative",
+            cursor: "pointer", border: `1.5px solid ${unsplitDragOverTime !== null ? ORANGE : "#1e1e1e"}`,
             overflow: "hidden", boxSizing: "border-box" }}
           onMouseDown={e => { if ((e.target as HTMLElement).closest("button")) return; startDrag(e.clientX); }}
+          onDragEnter={e => e.preventDefault()}
+          onDragOver={e => {
+            e.preventDefault();
+            if (!duration) return;
+            setUnsplitDragOverTime(pctFromX(e.clientX) * duration);
+          }}
+          onDragLeave={() => setUnsplitDragOverTime(null)}
+          onDrop={e => {
+            e.preventDefault();
+            setUnsplitDragOverTime(null);
+            // Only react to the Band-Aid itself — dragging a chunk segment
+            // (e.g. toward the trash can) was accidentally healing splits as
+            // a side effect, since this drop zone didn't check what was
+            // actually being dropped on it.
+            if (e.dataTransfer.getData("text/plain") !== "unsplit-bandaid") return;
+            // Compute the drop time directly from this event's own position —
+            // don't depend on dragover having already set state, in case it
+            // never fired before this drop for some reason.
+            const t = pctFromX(e.clientX) * duration;
+            const near = nearestHealable(t, unsplitTolerance());
+            if (near) onHealBoundary(near.leftChunkId, near.kind);
+          }}
           onTouchStart={e => {
             if ((e.target as HTMLElement).closest("button")) return;
             e.preventDefault();
@@ -230,8 +300,29 @@ function VideoTimeline({
           onTouchMove={e => { e.preventDefault(); moveDrag(e.touches[0].clientX); }}
           onTouchEnd={() => endDrag()}>
 
-          {/* Raw footage strip — shown before any chunks are marked */}
-          {allSegs.length === 0 && duration > 0 && (
+          {/* While dragging the Band-Aid over the track: every healable split
+              shows as a thin line; the one closest to the pointer — the one
+              that will actually heal if you drop now — just glows brighter
+              and thicker right on the line itself, no separate shape over it. */}
+          {unsplitDragOverTime !== null && duration > 0 && (() => {
+            const near = nearestHealable(unsplitDragOverTime, unsplitTolerance());
+            return healableBoundaries.map(b => {
+              const isNear = near?.leftChunkId === b.leftChunkId;
+              return (
+                <div key={b.leftChunkId} style={{ position: "absolute", top: isNear ? 0 : 4, bottom: isNear ? 0 : 4,
+                  left: `${(b.time / duration) * 100}%`, transform: "translateX(-50%)",
+                  width: isNear ? 4 : 2, background: isNear ? ORANGE : `${ORANGE}66`,
+                  boxShadow: isNear ? `0 0 10px ${ORANGE}` : "none",
+                  zIndex: 7, pointerEvents: "none", transition: "all 0.1s" }} />
+              );
+            });
+          })()}
+
+          {/* Raw footage strip — the base layer across the WHOLE track, always,
+              so any not-yet-chunked stretch of video still shows real frames.
+              Chunk segments (below) draw their own opening-frame thumbnail on
+              top of this wherever a chunk actually exists. */}
+          {duration > 0 && (
             <div style={{ position: "absolute", inset: 0 }}>
               {thumbnails.length > 0 ? (
                 /* Real frames — one img per captured thumbnail */
@@ -271,14 +362,14 @@ function VideoTimeline({
             const leftPct = (seg.start / duration) * 100;
             const widthPct = ((seg.end - seg.start) / duration) * 100;
             const isSelected = selectedChunkId === seg.id && !seg.isDeleted;
-            const thumbs = segThumbs(seg.start, seg.end);
+            const startThumb = segStartThumb(seg.start);
             const playedFrac = !seg.isDeleted && currentTime > seg.start
               ? Math.min(1, (Math.min(currentTime, seg.end) - seg.start) / (seg.end - seg.start))
               : 0;
             const tagColor = seg.tag ? TAG_COLORS[seg.tag] : null;
             return (
               <div key={seg.id}
-                draggable={!seg.isDeleted && step === 2}
+                draggable={!seg.isDeleted && !isDraggingBandaid}
                 onDragStart={e => {
                   e.stopPropagation(); e.dataTransfer.effectAllowed = "move";
                   e.dataTransfer.setData("text/plain", JSON.stringify({ chunkId: seg.id }));
@@ -292,8 +383,13 @@ function VideoTimeline({
                 }}
                 style={{ position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`,
                   top: 0, bottom: 0, boxSizing: "border-box",
-                  cursor: seg.isDeleted ? "default" : step === 2 ? "grab" : "pointer",
+                  cursor: seg.isDeleted ? "default" : "grab",
                   opacity: draggingChunkId === seg.id ? 0.35 : 1,
+                  // While a Band-Aid is being dragged, segments (and their selection
+                  // ring) must never intercept the hover/drop — otherwise dropping
+                  // right at a boundary can land on the segment instead of the
+                  // track underneath it, and the heal silently never fires.
+                  pointerEvents: isDraggingBandaid ? "none" : undefined,
                   transition: "opacity 0.12s" }}>
 
                 {seg.isDeleted ? (
@@ -301,14 +397,13 @@ function VideoTimeline({
                     borderLeft: "1px solid #1a1a1a", borderRight: "1px solid #1a1a1a" }} />
                 ) : (
                   <>
-                    {/* Thumbnail strip */}
-                    <div style={{ position: "absolute", inset: 0, display: "flex", overflow: "hidden" }}>
-                      {thumbs.map((src, ti) => (
-                        <img key={ti} src={src} alt="" draggable={false}
-                          style={{ flex: 1, height: "100%", objectFit: "cover", display: "block", minWidth: 0 }} />
-                      ))}
-                      {thumbs.length === 0 && (
-                        <div style={{ flex: 1, background: "repeating-linear-gradient(90deg,#111 0,#111 1px,#161616 1px,#161616 40px)" }} />
+                    {/* Single opening-frame thumbnail, stretched across the whole moment */}
+                    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+                      {startThumb ? (
+                        <img src={startThumb} alt="" draggable={false}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      ) : (
+                        <div style={{ width: "100%", height: "100%", background: "repeating-linear-gradient(90deg,#111 0,#111 1px,#161616 1px,#161616 40px)" }} />
                       )}
                     </div>
                     {/* Played scrim */}
@@ -328,28 +423,12 @@ function VideoTimeline({
                     )}
                     {/* Right divider */}
                     <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 1, background: "rgba(255,255,255,0.18)", zIndex: 2 }} />
-                    {/* Selected overlay — Split + Remove buttons */}
+                    {/* Selected overlay — thick orange ring only; Split and Remove both
+                        live in the toolbar now, off the segment, so nothing here can
+                        be fat-fingered by mistake. */}
                     {isSelected && (
-                      <div style={{ position: "absolute", inset: 0, border: "2px solid rgba(255,255,255,0.85)",
-                        boxSizing: "border-box", background: "rgba(255,255,255,0.07)", zIndex: 6 }}>
-                        <div style={{ position: "absolute", top: "50%", left: "50%",
-                          transform: "translate(-50%,-50%)", display: "flex", gap: 4 }}>
-                          <button onMouseDown={e => e.stopPropagation()}
-                            onClick={e => { e.stopPropagation(); onSplitChunk(seg.id, currentTime); setSelectedChunkId(null); }}
-                            style={{ background: "rgba(10,10,10,0.92)", border: "1px solid rgba(255,255,255,0.2)",
-                              borderRadius: 7, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3,
-                              cursor: "pointer", color: "#eee", fontSize: 9, fontWeight: 800, whiteSpace: "nowrap" }}>
-                            <Scissors size={9} /> Split
-                          </button>
-                          <button onMouseDown={e => e.stopPropagation()}
-                            onClick={e => { e.stopPropagation(); onRemoveChunk(seg.id); setSelectedChunkId(null); }}
-                            style={{ background: "rgba(10,10,10,0.92)", border: "1px solid rgba(239,68,68,0.35)",
-                              borderRadius: 7, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3,
-                              cursor: "pointer", color: "#ef4444", fontSize: 9, fontWeight: 800, whiteSpace: "nowrap" }}>
-                            <Trash2 size={9} /> Remove
-                          </button>
-                        </div>
-                      </div>
+                      <div style={{ position: "absolute", inset: 0, border: `3px solid ${ORANGE}`,
+                        boxSizing: "border-box", background: `${ORANGE}14`, boxShadow: `0 0 10px ${ORANGE}88, inset 0 0 8px ${ORANGE}33`, zIndex: 6 }} />
                     )}
                   </>
                 )}
@@ -391,6 +470,12 @@ function VideoTimeline({
               </div>
             );
           })}
+        </div>
+        {isDraggingBandaid && (
+          <div style={{ textAlign: "center", fontSize: 10, fontWeight: 800, color: ORANGE, letterSpacing: 0.3 }}>
+            Unsplit. Drag over a split to heal it.
+          </div>
+        )}
         </div>
       </div>
 
@@ -944,8 +1029,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (sp.expiresAt && sp.expiresAt < Date.now()) return [];
     return sp.markers ?? [];
   });
-  const [undoStack, setUndoStack] = useState<ExhibitMarker[][]>([]);
-  const [redoStack, setRedoStack] = useState<ExhibitMarker[][]>([]);
+  // Undo/redo covers both markers AND chunks together, so chunking/splitting/
+  // removing a moment is undoable too, not just marker-only edits (Exhibit step).
+  type UndoSnapshot = { markers: ExhibitMarker[]; chunks: VideoChunk[] };
+  const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
   const [viewingDraftId, setViewingDraftId] = useState<string | null>(null);
 
@@ -972,11 +1060,113 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // keeping the flow "chunk it, immediately say what happened, chunk the
   // next one" instead of a separate labeling pass afterward.
   const [lastChunkedId, setLastChunkedId] = useState<string | null>(null);
+  // Shared between the timeline segments and the Step 1 "MOMENT N" cards, so
+  // selecting either one rings the same chunk on the timeline.
+  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  const [trashDragOver, setTrashDragOver] = useState(false);
+  // Custom cursor-following ghost for the Band-Aid drag, instead of the
+  // browser's native drag-image snapshot — some browsers render rounded
+  // corners on that snapshot with an ugly black/square fringe around them.
+  const [unsplitGhostPos, setUnsplitGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const transparentDragImgRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    const img = new Image();
+    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7";
+    transparentDragImgRef.current = img;
+  }, []);
+  // Two chunks can only be merged if they're actually touching in time — if a
+  // moment in between was deleted (a video_cut gap), the two surrounding
+  // chunks are adjacent in the array but NOT adjacent on the timeline, and
+  // merging them would silently span across the deleted gap.
+  const CHUNK_ADJACENCY_EPS = 0.15;
+  function chunksAreAdjacent(a: VideoChunk, b: VideoChunk): boolean {
+    return Math.abs(b.start - a.end) < CHUNK_ADJACENCY_EPS;
+  }
+  // Chunk-to-chunk splits ("merge") plus one more kind of healable edge: the
+  // end of the LAST chunk, when there's still unchunked footage after it
+  // ("trail"). That edge looks exactly like a real split on the track — the
+  // labeled/thumbnailed moment just stops and plain filmstrip picks back up —
+  // so it needs to be draggable-healable too, even though there's no second
+  // chunk on the other side of it to merge into.
+  const healableBoundaries: { time: number; leftChunkId: string; kind: "merge" | "trail" }[] = chunks.slice(0, -1)
+    .map((c, i) => ({ time: c.end, leftChunkId: c.id, ok: chunksAreAdjacent(c, chunks[i + 1]) }))
+    .filter(b => b.ok)
+    .map(({ time, leftChunkId }) => ({ time, leftChunkId, kind: "merge" as const }));
+  if (chunks.length > 0) {
+    const last = chunks[chunks.length - 1];
+    if (last.end < duration - CHUNK_ADJACENCY_EPS) {
+      healableBoundaries.push({ time: last.end, leftChunkId: last.id, kind: "trail" });
+    }
+  }
   const labelInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   useEffect(() => {
     if (!lastChunkedId) return;
     labelInputRefs.current.get(lastChunkedId)?.focus();
   }, [lastChunkedId]);
+
+  // ── Free dictation (Web Speech API) for the label field, Chrome/Android only ──
+  const [listeningChunkId, setListeningChunkId] = useState<string | null>(null);
+  const [showDictationHelp, setShowDictationHelp] = useState(false);
+  const chunkRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  useEffect(() => () => chunkRecognitionRef.current?.stop(), []); // stop mic if the view unmounts mid-listen
+
+  // ── Moment-card frame picker — pick the exact frame for a moment's thumbnail,
+  // independent of the auto-picked opening frame the timeline uses ──────────
+  const [framePickerChunkId, setFramePickerChunkId] = useState<string | null>(null);
+  const [framePickerTime, setFramePickerTime] = useState(0);
+  const framePickerVideoRef = useRef<HTMLVideoElement>(null);
+  const framePickerChunk = chunks.find(c => c.id === framePickerChunkId) ?? null;
+
+  function openFramePicker(chunkId: string, start: number) {
+    setFramePickerChunkId(chunkId);
+    setFramePickerTime(start);
+  }
+
+  function captureFramePickerFrame() {
+    const vid = framePickerVideoRef.current;
+    if (!vid || !framePickerChunk) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(vid.videoWidth || 320, 480);
+    canvas.height = Math.min(vid.videoHeight || 180, 270);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    const updated = chunks.map(x => x.id === framePickerChunk.id ? { ...x, thumbnailOverride: dataUrl } : x);
+    setChunks(updated);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
+    setFramePickerChunkId(null);
+  }
+
+  function toggleDictation(chunkId: string) {
+    if (!SpeechRecognitionCtor) { labelInputRefs.current.get(chunkId)?.focus(); return; }
+    if (listeningChunkId === chunkId) { chunkRecognitionRef.current?.stop(); return; }
+    chunkRecognitionRef.current?.stop();
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    let finalText = chunks.find(c => c.id === chunkId)?.label ?? "";
+    recognition.onresult = e => {
+      let transcript = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) transcript += result[0].transcript;
+      }
+      if (!transcript.trim()) return;
+      finalText = (finalText ? finalText + " " : "") + transcript.trim();
+      const text = finalText;
+      const updated = chunks.map(x => x.id === chunkId ? { ...x, label: text } : x);
+      setChunks(updated);
+      triggerAutosave(markers, updated, organizedSlots, currentStep);
+    };
+    recognition.onerror = () => setListeningChunkId(null);
+    recognition.onend = () => setListeningChunkId(null);
+    chunkRecognitionRef.current = recognition;
+    setListeningChunkId(chunkId);
+    labelInputRefs.current.get(chunkId)?.focus();
+    recognition.start();
+  }
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
@@ -1066,11 +1256,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     };
   }
 
+  function pushUndoSnapshot() {
+    setUndoStack(s => [...s.slice(-20), { markers, chunks }]);
+    setRedoStack([]);
+  }
+
   function setMarkers(updated: ExhibitMarker[], pushUndo = true) {
-    if (pushUndo) {
-      setUndoStack(s => [...s.slice(-20), markers]);
-      setRedoStack([]);
-    }
+    if (pushUndo) pushUndoSnapshot();
     setMarkersRaw(updated);
     triggerAutosave(updated);
     triggerIndexedDBSave();
@@ -1159,19 +1351,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   function undo() {
     if (!undoStack.length) return;
     const prev = undoStack[undoStack.length - 1];
-    setRedoStack(s => [...s, markers]);
+    setRedoStack(s => [...s, { markers, chunks }]);
     setUndoStack(s => s.slice(0, -1));
-    setMarkersRaw(prev);
-    triggerAutosave(prev);
+    setMarkersRaw(prev.markers);
+    setChunks(prev.chunks);
+    triggerAutosave(prev.markers, prev.chunks);
   }
 
   function redo() {
     if (!redoStack.length) return;
     const next = redoStack[redoStack.length - 1];
-    setUndoStack(s => [...s, markers]);
+    setUndoStack(s => [...s, { markers, chunks }]);
     setRedoStack(s => s.slice(0, -1));
-    setMarkersRaw(next);
-    triggerAutosave(next);
+    setMarkersRaw(next.markers);
+    setChunks(next.chunks);
+    triggerAutosave(next.markers, next.chunks);
   }
 
   // ── Video controls ─────────────────────────────────────────────
@@ -1251,6 +1445,100 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (v) { v.currentTime = t; setCurrentTime(t); }
   }
 
+  /** Opening-frame thumbnail for a chunk starting at `start` — same lookup the
+   *  timeline uses, so a moment's card photo always matches its timeline clip. */
+  function chunkThumb(start: number): string | null {
+    if (!thumbnails.length || !duration) return null;
+    const dt = duration / Math.max(1, thumbnails.length - 1);
+    let best = 0, bestD = Infinity;
+    thumbnails.forEach((_, i) => { const d = Math.abs(i * dt - start); if (d < bestD) { bestD = d; best = i; } });
+    return thumbnails[best] ?? null;
+  }
+
+  /** One Chunk & Label moment card — shared by the "currently working on"
+   *  floating slot and the regular list below it, so they stay identical. */
+  function renderMomentCard(c: VideoChunk, displayIndex: number) {
+    const thumb = c.thumbnailOverride ?? chunkThumb(c.start);
+    const selected = selectedChunkId === c.id;
+    return (
+      <div key={c.id} style={{ background: "#0d0d0d",
+        border: `1px solid ${selected ? ORANGE : "#1e1e1e"}`,
+        boxShadow: selected ? `0 0 8px ${ORANGE}55` : "none",
+        borderRadius: 12, padding: "12px 14px", transition: "all 0.12s",
+        display: "flex", gap: 12 }}>
+        <button
+          onClick={() => openFramePicker(c.id, c.start)}
+          title="Tap to pick the exact frame"
+          style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", flexShrink: 0,
+            background: "#161616", border: "none", padding: 0, cursor: "pointer", position: "relative" }}>
+          {thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ImageIcon size={14} color="rgba(255,255,255,0.75)" />
+          </div>
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <button
+            onClick={() => setSelectedChunkId(v => v === c.id ? null : c.id)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontSize: 10, color: selected ? ORANGE : "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
+            MOMENT {displayIndex + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+          </button>
+          <input
+            type="text"
+            value={c.name ?? ""}
+            placeholder="Short name (e.g. 'Officer arrives')"
+            onChange={e => {
+              const updated = chunks.map(x => x.id === c.id ? { ...x, name: e.target.value } : x);
+              setChunks(updated);
+              triggerAutosave(markers, updated, organizedSlots, currentStep);
+            }}
+            style={{ width: "100%", background: "#111", border: "1px solid #252525",
+              borderRadius: 8, padding: "7px 12px", fontSize: 12, color: "#f0b87a",
+              fontWeight: 700, outline: "none", boxSizing: "border-box", marginBottom: 6 }}
+          />
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <input
+              ref={el => {
+                if (el) labelInputRefs.current.set(c.id, el);
+                else labelInputRefs.current.delete(c.id);
+              }}
+              type="text"
+              value={c.label}
+              placeholder="What happened here?"
+              onChange={e => {
+                const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
+                setChunks(updated);
+                triggerAutosave(markers, updated, organizedSlots, currentStep);
+              }}
+              style={{ width: "100%", background: "#111", border: `1px solid ${listeningChunkId === c.id ? "#ef4444" : "#252525"}`,
+                borderRadius: 8, padding: "9px 56px 9px 12px", fontSize: 13, color: "#ddd",
+                fontWeight: 600, outline: "none", boxSizing: "border-box" }}
+            />
+            <button
+              type="button"
+              onClick={() => toggleDictation(c.id)}
+              title={speechSupported ? "Tap to dictate" : "Tap, then press Control (or Fn) twice to dictate"}
+              style={{ position: "absolute", right: 26, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+              <Mic size={15} color={listeningChunkId === c.id ? "#ef4444" : ORANGE} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDictationHelp(true)}
+              title="Dictation help"
+              style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+              <HelpCircle size={13} color="#4a4038" />
+            </button>
+          </div>
+          {listeningChunkId === c.id && (
+            <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 700 }}>🔴 Listening…</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Mark Moment — bookmarks from lastMark to playhead as a chunk ──
   function markMoment() {
     if (!videoUrl || !duration) return;
@@ -1260,6 +1548,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const id = crypto.randomUUID();
     const newChunk: VideoChunk = { id, start: lastMark, end: t, label: "" };
     const updated = [...chunks, newChunk];
+    pushUndoSnapshot();
     setChunks(updated);
     setLastChunkedId(id);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
@@ -1273,8 +1562,57 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const b: VideoChunk = { id: crypto.randomUUID(), start: at, end: chunk.end, label: "", tag: chunk.tag };
     const idx = chunks.findIndex(c => c.id === id);
     const updated = [...chunks.slice(0, idx), a, b, ...chunks.slice(idx + 1)];
+    pushUndoSnapshot();
     setChunks(updated);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
+  }
+
+  // ── Unchunk — merges a chunk forward into the one ahead of it (not the one
+  // before it), so a mis-split moment can be undone permanently, unlike
+  // undo/redo which resets the moment you leave and come back to the app. ──
+  // Forward-only, always — never merges into the moment before it, even as a
+  // fallback. If there's nothing valid ahead (last chunk, or a deleted gap
+  // sits between this one and the next), unchunking that moment is simply
+  // unavailable — see the button visibility check below, which mirrors this.
+  function healBoundary(leftChunkId: string, kind: "merge" | "trail") {
+    if (kind === "trail") {
+      // The dragged-onto edge was the end of the last chunk, with unchunked
+      // footage after it — not a real second chunk to merge into. "Healing"
+      // it means dissolving this moment back into raw, unmarked footage, the
+      // same as if it had never been chunked — not creating a video_cut
+      // (that would mark it as deleted footage, which it isn't).
+      pushUndoSnapshot();
+      const result = chunks.filter(c => c.id !== leftChunkId);
+      setChunks(result);
+      setSelectedChunkId(null);
+      triggerAutosave(markers, result, organizedSlots, currentStep);
+      return;
+    }
+    const result: VideoChunk[] = [];
+    let i = 0;
+    while (i < chunks.length) {
+      const group = [chunks[i]];
+      if (chunks[i].id === leftChunkId && i + 1 < chunks.length) {
+        group.push(chunks[i + 1]);
+        i++;
+      }
+      if (group.length === 1) {
+        result.push(group[0]);
+      } else {
+        const last = group[group.length - 1];
+        result.push({
+          ...last,
+          start: group[0].start,
+          name: group.map(g => g.name).filter(Boolean).join(" / ") || undefined,
+          label: group.map(g => g.label).filter(Boolean).join(" ") || "",
+        });
+      }
+      i++;
+    }
+    pushUndoSnapshot();
+    setChunks(result);
+    setSelectedChunkId(null);
+    triggerAutosave(markers, result, organizedSlots, currentStep);
   }
 
   // ── Remove a chunk → creates a video_cut marker for export ────────
@@ -1289,6 +1627,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const newMarkers = [...markers, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
     const newChunks = chunks.filter(c => c.id !== id);
     const newSlots = organizedSlots.map(s => s === id ? null : s);
+    pushUndoSnapshot();
     setMarkersRaw(newMarkers);
     setChunks(newChunks);
     setOrganizedSlots(newSlots);
@@ -2472,15 +2811,86 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </button>
           )}
 
+          {/* Split + delete-by-drag for the selected moment — both tucked in the
+              toolbar (not on the segment itself) so neither can be fat-fingered. */}
+          {selectedChunkId && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 10 }}>
+              <button onClick={() => { splitChunk(selectedChunkId, currentTime); setSelectedChunkId(null); }}
+                title="Split the selected moment at the playhead"
+                style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 7, padding: "4px 8px",
+                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#ccc", fontSize: 10, fontWeight: 700 }}>
+                <Scissors size={11} /> Split
+              </button>
+              <span style={{ fontSize: 9, color: "#7a6a5c", fontWeight: 700, whiteSpace: "nowrap" }}>Drag to delete</span>
+              <div
+                onDragOver={e => { e.preventDefault(); setTrashDragOver(true); }}
+                onDragLeave={() => setTrashDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setTrashDragOver(false);
+                  try {
+                    const data = JSON.parse(e.dataTransfer.getData("text/plain")) as { chunkId?: string };
+                    if (data.chunkId) { removeChunk(data.chunkId); setSelectedChunkId(null); }
+                  } catch { /* ignore malformed payload */ }
+                }}
+                title="Drag a moment here to delete it"
+                style={{
+                  width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: trashDragOver ? "#ef4444" : "#2a1010", border: `1.5px solid ${trashDragOver ? "#ff8080" : "#5a2020"}`,
+                  boxShadow: trashDragOver ? "0 0 10px #ef444488" : "none", transition: "all 0.12s",
+                }}>
+                <Trash2 size={13} color={trashDragOver ? "#fff" : "#ef4444"} />
+              </div>
+            </div>
+          )}
+
+          {/* Unsplit — an actual little Band-Aid sitting in the toolbar. Grab it
+              and drag it straight onto the split you want healed; drop it there
+              and that one split merges. Do it again for another split. */}
+          <div
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.effectAllowed = "move";
+              // Distinct marker so the track can tell "the Band-Aid" apart from
+              // a chunk segment being dragged (e.g. toward the trash can) — the
+              // track's own drop zone must ignore anything that isn't this.
+              e.dataTransfer.setData("text/plain", "unsplit-bandaid");
+              if (transparentDragImgRef.current) e.dataTransfer.setDragImage(transparentDragImgRef.current, 0, 0);
+              setUnsplitGhostPos({ x: e.clientX, y: e.clientY });
+            }}
+            onDrag={e => {
+              if (e.clientX === 0 && e.clientY === 0) return; // browsers fire one bogus (0,0) event right before dragend
+              setUnsplitGhostPos({ x: e.clientX, y: e.clientY });
+            }}
+            onDragEnd={() => setUnsplitGhostPos(null)}
+            title="Unsplit — drag this onto a split to heal it"
+            style={{
+              width: 28, height: 12, borderRadius: 999, marginRight: 10, flexShrink: 0,
+              background: `linear-gradient(180deg, ${ORANGE}bb, #a85f22)`,
+              border: "1px solid #5c4630",
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab",
+              opacity: unsplitGhostPos ? 0.3 : 1,
+            }}>
+            <div style={{ width: 6, height: "60%", background: "#e8dcc8", border: "1px solid #b09872", borderRadius: 1.5, pointerEvents: "none" }} />
+          </div>
+          {unsplitGhostPos && (
+            <div style={{ position: "fixed", left: unsplitGhostPos.x, top: unsplitGhostPos.y, transform: "translate(-50%, -50%)",
+              width: 28, height: 12, borderRadius: 999, pointerEvents: "none", zIndex: 9999,
+              background: `linear-gradient(180deg, ${ORANGE}bb, #a85f22)`, border: "1px solid #5c4630",
+              display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: 6, height: "60%", background: "#e8dcc8", border: "1px solid #b09872", borderRadius: 1.5 }} />
+            </div>
+          )}
+
           {/* Zoom */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => setZoom(z => Math.max(1, z - 1))} disabled={zoom <= 1}
+            <button onClick={() => setZoom(z => Math.max(1, z - 3))} disabled={zoom <= 1}
               style={{ background: "none", border: "none", cursor: zoom > 1 ? "pointer" : "not-allowed", opacity: zoom > 1 ? 1 : 0.4 }}>
               <ZoomOut size={14} color="#666" />
             </button>
             <span style={{ fontSize: 10, color: "#555", fontWeight: 700, minWidth: 24, textAlign: "center" }}>{zoom}×</span>
-            <button onClick={() => setZoom(z => Math.min(8, z + 1))} disabled={zoom >= 8}
-              style={{ background: "none", border: "none", cursor: zoom < 8 ? "pointer" : "not-allowed", opacity: zoom < 8 ? 1 : 0.4 }}>
+            <button onClick={() => setZoom(z => Math.min(20, z + 3))} disabled={zoom >= 20}
+              style={{ background: "none", border: "none", cursor: zoom < 20 ? "pointer" : "not-allowed", opacity: zoom < 20 ? 1 : 0.4 }}>
               <ZoomIn size={14} color="#666" />
             </button>
           </div>
@@ -2503,14 +2913,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           activeMarkerId={activeMarkerId}
           onSelectMarker={id => { setActiveMarkerId(id); }}
           chunks={chunks}
-          onSplitChunk={splitChunk}
-          onRemoveChunk={removeChunk}
           thumbnails={thumbnails}
           thumbsLoading={thumbsLoading}
           step={currentStep}
           zoom={zoom}
+          selectedChunkId={selectedChunkId}
+          setSelectedChunkId={setSelectedChunkId}
+          healableBoundaries={healableBoundaries}
+          onHealBoundary={healBoundary}
+          isDraggingBandaid={!!unsplitGhostPos}
         />
 
+        {/* ── Currently working on — floats right under the track so the
+            moment a user just chunked is visible without scrolling past the
+            step nav and Chunk It button. Drops back into the list below once
+            it's labeled. ──────────────────────────────────────────── */}
+        {currentStep === 1 && videoUrl && (() => {
+          const active = chunks.find(c => c.id === lastChunkedId && !c.label);
+          if (!active) return null;
+          const activeIndex = chunks.findIndex(c => c.id === active.id);
+          return (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 6, textTransform: "uppercase" }}>
+                Currently working on
+              </div>
+              {renderMomentCard(active, activeIndex)}
+            </div>
+          );
+        })()}
 
         {/* ── Step Navigation ───────────────────────────────────────── */}
         {videoUrl && (
@@ -2564,68 +2994,79 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                {chunks.map((c, i) => (
-                  <div key={c.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e",
-                    borderRadius: 12, padding: "12px 14px" }}>
-                    <div style={{ fontSize: 10, color: "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
-                      MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                {chunks
+                  .map((c, i) => ({ c, originalIndex: i }))
+                  .filter(({ c }) => !(c.id === lastChunkedId && !c.label)) // shown floating above instead
+                  .sort((a, b) => Number(!!a.c.label) - Number(!!b.c.label))
+                  .map(({ c, originalIndex: i }) => renderMomentCard(c, i))}
+              </div>
+            )}
+
+            {showDictationHelp && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
+                onClick={() => setShowDictationHelp(false)}>
+                <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 22px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+                  <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
+                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>🎙️ Mic not working?</div>
+                  <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
+                    That's normal on some browsers — the dictate button only works in Chrome. Two easy options:
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                    <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, marginBottom: 4 }}>Switch to Chrome</div>
+                      <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5 }}>Open this page in Chrome and the mic button will work directly.</div>
                     </div>
-                    <div style={{ position: "relative", marginBottom: 8 }}>
-                      <input
-                        ref={el => {
-                          if (el) labelInputRefs.current.set(c.id, el);
-                          else labelInputRefs.current.delete(c.id);
-                        }}
-                        type="text"
-                        value={c.label}
-                        placeholder="What happened here? (tap your keyboard's mic to speak it)"
-                        onChange={e => {
-                          const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
-                          setChunks(updated);
-                          triggerAutosave(markers, updated, organizedSlots, currentStep);
-                        }}
-                        style={{ width: "100%", background: "#111", border: "1px solid #252525",
-                          borderRadius: 8, padding: "9px 36px 9px 12px", fontSize: 13, color: "#ddd",
-                          fontWeight: 600, outline: "none", boxSizing: "border-box" }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => labelInputRefs.current.get(c.id)?.focus()}
-                        title="Tap, then use your keyboard's dictation button to speak it"
-                        style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
-                          background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-                        <Mic size={15} color={ORANGE} />
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", gap: 5 }}>
-                      {(["consistency", "contradiction", "escalation", "no_cause"] as const).map(tag => {
-                        const tagColors: Record<string, string> = {
-                          consistency: "#22c55e", contradiction: "#ef4444",
-                          escalation: "#f59e0b", no_cause: "#8b5cf6",
-                        };
-                        const tagLabels: Record<string, string> = {
-                          consistency: "Consistent", contradiction: "Contradiction",
-                          escalation: "Escalation", no_cause: "No Cause Given",
-                        };
-                        const active = c.tag === tag;
-                        return (
-                          <button key={tag} onClick={() => {
-                            const updated = chunks.map(x => x.id === c.id ? { ...x, tag: active ? undefined : tag } : x);
-                            setChunks(updated);
-                            triggerAutosave(markers, updated, organizedSlots, currentStep);
-                          }}
-                            style={{ flex: 1, background: active ? tagColors[tag] + "22" : "#111",
-                              border: `1px solid ${active ? tagColors[tag] + "77" : "#1e1e1e"}`,
-                              borderRadius: 7, padding: "5px 3px", fontSize: 9, fontWeight: 800,
-                              color: active ? tagColors[tag] : "#3a3a3a", cursor: "pointer",
-                              textAlign: "center", lineHeight: 1.3 }}>
-                            {tagLabels[tag]}
-                          </button>
-                        );
-                      })}
+                    <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, marginBottom: 4 }}>Or use your phone</div>
+                      <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5 }}>Speak into your phone's Notes app, then copy the text and paste it in here — easy, and you don't have to stop what you're doing.</div>
                     </div>
                   </div>
-                ))}
+                  <button onClick={() => setShowDictationHelp(false)} style={{ width: "100%", padding: "13px", background: `linear-gradient(90deg, ${ORANGE}, #FF7A1A)`, border: "none", borderRadius: 12, color: "#0a0908", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                    Got it
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {framePickerChunk && videoUrl && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
+                onClick={() => setFramePickerChunkId(null)}>
+                <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+                  <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 16px" }} />
+                  <div style={{ fontSize: 15, fontWeight: 900, color: "#fff", marginBottom: 4 }}>Pick the frame</div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 14 }}>Drag to find the right moment, then capture it.</div>
+                  <video
+                    ref={framePickerVideoRef}
+                    src={videoUrl}
+                    muted
+                    playsInline
+                    onLoadedData={() => { if (framePickerVideoRef.current) framePickerVideoRef.current.currentTime = framePickerTime; }}
+                    style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", marginBottom: 14 }}
+                  />
+                  <input
+                    type="range"
+                    min={framePickerChunk.start}
+                    max={Math.max(framePickerChunk.end, framePickerChunk.start + 0.1)}
+                    step={0.03}
+                    value={framePickerTime}
+                    onChange={e => {
+                      const t = Number(e.target.value);
+                      setFramePickerTime(t);
+                      if (framePickerVideoRef.current) framePickerVideoRef.current.currentTime = t;
+                    }}
+                    style={{ width: "100%", marginBottom: 16, accentColor: ORANGE }}
+                  />
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setFramePickerChunkId(null)}
+                      style={{ flex: 1, padding: "13px", background: "none", border: "1px solid #2a2a2a", borderRadius: 12, color: "#888", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                    <button onClick={captureFramePickerFrame}
+                      style={{ flex: 2, padding: "13px", background: `linear-gradient(90deg, ${ORANGE}, #FF7A1A)`, border: "none", borderRadius: 12, color: "#0a0908", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                      Use This Frame
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

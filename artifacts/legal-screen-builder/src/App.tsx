@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useClerk, useUser } from "@clerk/react";
+import { useAuth, useLogout } from "./lib/auth";
 import {
   Home, Folder, Plus, User, ChevronRight, ChevronLeft,
   X, Edit3, Trash2, ArrowRight, Key, Clock, AlertCircle, BookOpen,
@@ -40,6 +40,7 @@ import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 import { CaseHealthBar } from "./components/CaseHealthBar";
 import { PartiesView } from "./pages/workflow/PartiesView";
 import { CourtSelectionView } from "./pages/workflow/CourtSelectionView";
+import { searchJurisdictions } from "./data/courts";
 import { StoryView } from "./pages/workflow/StoryView";
 import { TimelineView } from "./pages/workflow/TimelineView";
 import { CaseReviewView } from "./pages/workflow/CaseReviewView";
@@ -50,13 +51,15 @@ import ConfirmDeleteButton from "./components/ConfirmDeleteButton";
 import PinGateModal from "./components/PinGateModal";
 import ManageCasesModal from "./components/ManageCasesModal";
 import { isPasskeySupported, createPasskey, cachePin, clearCachedPin } from "./lib/webauthn";
+import {
+  registerLoginPasskey, listLoginPasskeys, removeLoginPasskey,
+  browserSupportsWebAuthn, type PasskeyListItem,
+} from "./lib/webauthnLogin";
 import DraftDecisionModal from "./components/DraftDecisionModal";
 import GuidanceSessionModal from "./components/GuidanceSessionModal";
 import IfpWizard from "./components/IfpWizard";
 import DefenseModal from "./components/DefenseModal";
 import CreditHistoryModal from "./components/CreditHistoryModal";
-
-const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -947,16 +950,10 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
 
-// Four-stage progress roadmap — replaces the old "Step X" badge system.
-const CARD_STAGES = ["Intake", "Story", "Evidence", "Case Activated"] as const;
-
-function getCaseStageIndex(stage: import("./types").WorkflowStage): number {
-  if (stage === "parties"  || stage === "court")    return 0; // Intake
-  if (stage === "story"    || stage === "timeline") return 1; // Story
-  if (stage === "assembly")                         return 2; // Evidence
-  if (stage === "learning" || stage === "documents") return 3; // Case Activated
-  return 3; // safe default for any future stages
-}
+// Four-stage progress roadmap on the case card — placeholder pending a real
+// intake-progress design (see memory); all four stages just read "Intake"
+// and render white until that's designed.
+const CARD_STAGES = ["Intake", "Intake", "Intake", "Intake"] as const;
 
 // ─── Per-case photo (localStorage; mirrors the profile-photo pattern) ─────────
 function casePhotoKey(caseId: string) { return `hl_case_photo_${caseId}`; }
@@ -1103,7 +1100,6 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
 }) {
   const photo = useCasePhoto(hlCase.id);
   const cardPhotoInputRef = useRef<HTMLInputElement>(null);
-  const activeIdx = getCaseStageIndex(hlCase.workflowStage);
 
   return (
     <div onClick={onOpen}
@@ -1115,16 +1111,16 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
       </div>
 
       {/* Photo + title row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
         <button onClick={e => { e.stopPropagation(); cardPhotoInputRef.current?.click(); }} title="Set a photo for this case"
-          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, position: "relative", borderRadius: 8, lineHeight: 0 }}>
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, position: "relative", borderRadius: 14, lineHeight: 0 }}>
           {photo
-            ? <img src={photo} alt="" style={{ width: 34, height: 34, borderRadius: 8, objectFit: "cover", border: `1px solid ${ORANGE}55`, display: "block" }} />
-            : <div style={{ width: 34, height: 34, borderRadius: 8, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={17} color={ORANGE} /></div>}
-          <div style={{ position: "absolute", right: -3, bottom: -3, width: 15, height: 15, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #100e0c" }}>
-            <Camera size={8} color="#000" />
+            ? <img src={photo} alt="" style={{ width: 68, height: 68, borderRadius: 14, objectFit: "cover", border: `1px solid ${ORANGE}55`, display: "block" }} />
+            : <div style={{ width: 68, height: 68, borderRadius: 14, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={30} color={ORANGE} /></div>}
+          <div style={{ position: "absolute", right: -3, bottom: -3, width: 22, height: 22, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #100e0c" }}>
+            <Camera size={11} color="#000" />
           </div>
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1133,22 +1129,16 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
         <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
       </div>
 
-      {/* Progress roadmap: Intake → Story → Evidence → Case Activated
-          Active stage = white; all others = HyperLaw orange. */}
+      {/* Intake progress roadmap — placeholder (all white, all "Intake") until
+          the real intake-progress steps are designed; see memory. */}
       <div style={{ display: "flex", alignItems: "center" }}>
         {CARD_STAGES.map((stage, i) => {
-          const isActive = i === activeIdx;
-          const clr = isActive ? "#fff" : ORANGE;
           const isLast = i === CARD_STAGES.length - 1;
-          const isActivatedBadge = isLast && isActive;
           return (
-            <React.Fragment key={stage}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
-                animation: isActivatedBadge ? "hlActivatedBlink 1.4s ease-in-out infinite" : "none",
-              }}>
-                <div style={{ width: 5, height: 5, borderRadius: "50%", background: clr }} />
-                <span style={{ fontSize: 9, fontWeight: 800, color: clr, letterSpacing: 0.2 }}>{stage}</span>
+            <React.Fragment key={i}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
+                <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: 0.2 }}>{stage}</span>
               </div>
               {!isLast && (
                 <div style={{ flex: 1, height: 1, background: `${ORANGE}33`, margin: "0 4px", minWidth: 6 }} />
@@ -1355,70 +1345,6 @@ const NEEDS_SOURCE: DocumentType[] = ["strengthen", "answer", "opposition", "def
 
 // ─── CASE DETAIL VIEW ─────────────────────────────────────────────────────────
 // ─── ASSEMBLY PROGRESS — milky-orange case-journey strip (Sections 1–3) ────────
-function AssemblyProgress({ hlCase, hasDrafts, onGoToPhase }: {
-  hlCase: HLCase;
-  hasDrafts: boolean;
-  onGoToPhase?: (stage: WorkflowStage) => void;
-}) {
-  // Four stages matching the Intake → Story → Evidence → Case Activated roadmap.
-  // These no longer gate progress — the case is always shown as fully active
-  // (100%, white, flashing), matching the "Case Activated" badge treatment on
-  // the home-screen card. Discover/Index analysis is optional, not required.
-  const steps: { label: string; done: boolean; stage?: WorkflowStage; scrollToDraft?: boolean }[] = [
-    { label: "Intake",         done: true, stage: "parties" },
-    { label: "Story",          done: true, stage: "story" },
-    { label: "Evidence",       done: true, stage: "timeline" },
-    { label: "Case Activated", done: true, scrollToDraft: true },
-  ];
-  const pct = 100;
-  const fullyActivated = true;
-
-  return (
-    <div style={{
-      background: "linear-gradient(180deg, #1b1613 0%, #120f0d 100%)",
-      border: `1px solid ${ORANGE}2e`, borderRadius: 16, padding: "15px 16px 14px", marginBottom: 22,
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: MILK_LABEL, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase" }}>Case Progress</span>
-        <span style={{ fontSize: 12, fontWeight: 900, color: pct === 100 ? "#4ade80" : ORANGE }}>{pct}%</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-        {steps.map((s) => {
-          const clickable = (!!s.stage && !!onGoToPhase) || !!s.scrollToDraft;
-          // Case is always shown fully active — every stage is white + blinking,
-          // matching the home-card "Case Activated" badge.
-          const isWhiteBadge = fullyActivated;
-          const handled = s.done;
-          return (
-            <button
-              key={s.label}
-              disabled={!clickable}
-              onClick={() => {
-                if (s.stage && onGoToPhase) onGoToPhase(s.stage);
-                else if (s.scrollToDraft) document.getElementById("draft-documents-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-              style={{
-                flex: 1, background: "none", border: "none", padding: 0, cursor: clickable ? "pointer" : "default",
-                display: "flex", flexDirection: "column", gap: 5,
-                animation: isWhiteBadge ? "hlActivatedBlink 1.4s ease-in-out infinite" : "none",
-              }}
-            >
-              <div style={{
-                height: 5, borderRadius: 3,
-                background: isWhiteBadge ? "linear-gradient(90deg, #fff, #fff)" : handled ? `linear-gradient(90deg, ${ORANGE}, #ffab5e)` : "#2a2019",
-                boxShadow: isWhiteBadge ? "0 0 8px rgba(255,255,255,0.55)" : handled ? `0 0 6px ${ORANGE}66` : "none",
-                transition: "all 0.3s",
-              }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, textAlign: "center", color: isWhiteBadge ? "#fff" : handled ? "#e8c9a8" : "#5a4a3d" }}>{s.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── VERIFY PANEL — pre-draft readiness + gap check (Section 3) ────────────────
 function VerifyPanel({ hlCase, hasFacts }: {
   hlCase: HLCase;
@@ -1516,6 +1442,23 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [jurisdiction, setJurisdiction] = useState(hlCase.jurisdiction ?? "");
   const [editingJurisdiction, setEditingJurisdiction] = useState(false);
+  const [jurisdictionFocused, setJurisdictionFocused] = useState(false);
+  const jurisdictionMatches = jurisdictionFocused ? searchJurisdictions(jurisdiction) : [];
+  const [locationSearchState, setLocationSearchState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [locationResults, setLocationResults] = useState<Array<{ name: string; level: string; note: string }>>([]);
+
+  async function searchByLocation() {
+    if (!jurisdiction.trim()) return;
+    setLocationSearchState("loading");
+    setLocationResults([]);
+    try {
+      const { results } = await aiApi.findCourthouse(jurisdiction.trim(), hlCase.id);
+      setLocationResults(results);
+      setLocationSearchState("done");
+    } catch {
+      setLocationSearchState("error");
+    }
+  }
   const [genDocs, setGenDocs] = useState<ServerGeneratedDoc[]>([]);
   const [genDocsLoading, setGenDocsLoading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
@@ -1699,37 +1642,42 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <TapBtn variant="orange" onClick={saveTitle} style={{ padding: "0 16px" }}><Check size={16} /></TapBtn>
           </div>
         ) : (
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 10 }}>
             <input ref={casePhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
               onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
             <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 11, position: "relative" }}>
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 16, position: "relative" }}>
               {casePhoto
-                ? <img src={casePhoto} alt="" style={{ width: 46, height: 46, borderRadius: 11, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
-                : <div style={{ width: 46, height: 46, borderRadius: 11, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={20} color={ORANGE} /></div>}
-              <div style={{ position: "absolute", right: -3, bottom: -3, width: 18, height: 18, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
-                <Camera size={9} color="#000" />
+                ? <img src={casePhoto} alt="" style={{ width: 92, height: 92, borderRadius: 16, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
+                : <div style={{ width: 92, height: 92, borderRadius: 16, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={38} color={ORANGE} /></div>}
+              <div style={{ position: "absolute", right: -3, bottom: -3, width: 26, height: 26, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
+                <Camera size={13} color="#000" />
               </div>
             </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
               <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.6, color: ORANGE, textTransform: "uppercase", opacity: 0.75, marginBottom: 3 }}>Assembly</div>
-              <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1.2 }}>{hlCase.title}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>{hlCase.title}</div>
+              {hlCase.jurisdiction && !editingJurisdiction && (
+                <button onClick={() => setEditingJurisdiction(true)}
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                  <MapPin size={11} color="#888" />
+                  <span style={{ fontSize: 12.5, color: "#eee", fontWeight: 600 }}>{hlCase.jurisdiction}</span>
+                </button>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <div style={{ color: "#444", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Clock size={10} color="#444" /> {formatDate(hlCase.createdAt)}
+                </div>
+                <button onClick={() => setShowStatusPicker(true)}
+                  style={{ background: `${STATUS_COLORS[hlCase.status]}18`, border: `1px solid ${STATUS_COLORS[hlCase.status]}44`, borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 700, color: STATUS_COLORS[hlCase.status], cursor: "pointer" }}>
+                  {STATUS_LABELS[hlCase.status]}
+                </button>
+              </div>
             </div>
             <button onClick={() => { setEditTitle(hlCase.title); setEditingTitle(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 6, marginTop: 2 }}><Edit3 size={15} /></button>
           </div>
         )}
-
-        {/* Status badge */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
-          <div style={{ color: "#444", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-            <Clock size={11} color="#444" /> {formatDate(hlCase.createdAt)}
-          </div>
-          <button onClick={() => setShowStatusPicker(true)}
-            style={{ background: `${STATUS_COLORS[hlCase.status]}22`, border: `1px solid ${STATUS_COLORS[hlCase.status]}55`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, color: STATUS_COLORS[hlCase.status], cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-            {STATUS_LABELS[hlCase.status]} ▾
-          </button>
-        </div>
 
         {/* Recent activity strip */}
         {recentHistory.length > 0 && (
@@ -1756,41 +1704,81 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         )}
 
-        {/* Case progress journey (Sections 1–3) */}
-        <AssemblyProgress hlCase={hlCase} hasDrafts={genDocs.length > 0} onGoToPhase={onGoToPhase} />
-
-        {/* Jurisdiction */}
-        <div style={{ marginBottom: 20 }}>
+        {/* Jurisdiction — editor when active; slim red warning only while unset
+            (once set, it's shown compactly under the title above instead) */}
+        {(editingJurisdiction || !hlCase.jurisdiction) && (
+        <div style={{ marginBottom: 20, position: "relative" }}>
           {editingJurisdiction ? (
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={jurisdiction}
-                onChange={e => setJurisdiction(e.target.value)}
-                placeholder="e.g. Kentucky, Federal — 6th Circuit"
-                autoFocus
-                onKeyDown={e => {
-                  if (e.key === "Enter") { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }
-                  if (e.key === "Escape") { setJurisdiction(hlCase.jurisdiction ?? ""); setEditingJurisdiction(false); }
-                }}
-                style={{ flex: 1, background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" }}
-              />
-              <TapBtn variant="orange" onClick={() => { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }} style={{ padding: "0 14px" }}><Check size={15} /></TapBtn>
-            </div>
+            <>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={jurisdiction}
+                  onChange={e => { setJurisdiction(e.target.value); setLocationSearchState("idle"); setLocationResults([]); }}
+                  onFocus={() => setJurisdictionFocused(true)}
+                  onBlur={() => setJurisdictionFocused(false)}
+                  placeholder="Search for your court — e.g. Kentucky, S.D.N.Y., Superior Court…"
+                  autoFocus
+                  onKeyDown={e => {
+                    if (e.key === "Enter") { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }
+                    if (e.key === "Escape") { setJurisdiction(hlCase.jurisdiction ?? ""); setEditingJurisdiction(false); }
+                  }}
+                  style={{ flex: 1, background: "#111", border: `1px solid ${ORANGE}`, borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                />
+                <TapBtn variant="orange" onClick={() => { onUpdateCase({ ...hlCase, jurisdiction: jurisdiction.trim() }); setEditingJurisdiction(false); }} style={{ padding: "0 14px" }}><Check size={15} /></TapBtn>
+              </div>
+              {(jurisdictionFocused || locationSearchState !== "idle") && jurisdiction.trim() && (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: "#161311", border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", zIndex: 20, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+                  {jurisdictionMatches.map(match => (
+                    <button
+                      key={match}
+                      onMouseDown={e => { e.preventDefault(); setJurisdiction(match); onUpdateCase({ ...hlCase, jurisdiction: match }); setEditingJurisdiction(false); }}
+                      style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: "1px solid #201c18", padding: "10px 14px", textAlign: "left", color: "#ccc", fontSize: 13, cursor: "pointer" }}
+                    >
+                      {match}
+                    </button>
+                  ))}
+                  {locationResults.map(r => (
+                    <button
+                      key={r.name}
+                      onMouseDown={e => { e.preventDefault(); setJurisdiction(r.name); onUpdateCase({ ...hlCase, jurisdiction: r.name }); setEditingJurisdiction(false); setLocationSearchState("idle"); setLocationResults([]); }}
+                      style={{ display: "block", width: "100%", background: "none", border: "none", borderBottom: "1px solid #201c18", padding: "10px 14px", textAlign: "left", cursor: "pointer" }}
+                    >
+                      <div style={{ color: "#ccc", fontSize: 13 }}>{r.name}</div>
+                      <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{r.note}</div>
+                    </button>
+                  ))}
+                  {locationSearchState === "loading" ? (
+                    <div style={{ padding: "10px 14px", fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 8 }}>
+                      <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite" }} /> Searching for courthouses…
+                    </div>
+                  ) : locationSearchState === "error" ? (
+                    <div style={{ padding: "10px 14px", fontSize: 12, color: "#ef4444" }}>Search failed — try again.</div>
+                  ) : locationSearchState === "done" && locationResults.length === 0 ? (
+                    <div style={{ padding: "10px 14px", fontSize: 12, color: "#555" }}>No courthouses found for that location.</div>
+                  ) : (
+                    <button
+                      onMouseDown={e => { e.preventDefault(); searchByLocation(); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", padding: "10px 14px", textAlign: "left", color: ORANGE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      <MapPin size={13} color={ORANGE} /> Search by location
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <button
               onClick={() => setEditingJurisdiction(true)}
-              style={{ background: "none", border: "1px dashed #1e1e1e", borderRadius: 10, padding: "8px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
+              style={{ background: "#210a0a", border: "1px solid #ef4444", borderRadius: 8, padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left" }}
             >
-              <MapPin size={13} color={hlCase.jurisdiction ? ORANGE : "#333"} />
-              <span style={{ fontSize: 13, color: hlCase.jurisdiction ? "#888" : "#333" }}>
-                {hlCase.jurisdiction || "Set jurisdiction — state or federal court"}
+              <AlertCircle size={13} color="#ff5c5c" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: "#ff6b6b", fontWeight: 800 }}>
+                Set jurisdiction first ❓
               </span>
-              {hlCase.jurisdiction && <span style={{ fontSize: 11, color: "#555", marginLeft: "auto" }}>Edit</span>}
             </button>
           )}
         </div>
+        )}
 
         {/* Index — small optional shortcut, same cloud icon/behavior as the bottom nav tab */}
         <button onClick={() => onOpenInTutor(hlCase)} title="Open this case in the Index"
@@ -2158,8 +2146,14 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         {/* Verify readiness before drafting (Section 3) */}
         <VerifyPanel hlCase={hlCase} hasFacts={hlCase.parties.length > 0 || hlCase.timeline.length > 0 || hlCase.story.trim().length > 0 || hlCase.notes.trim().length > 0 || !!hlCase.structuredCase} />
 
-        {/* Draft Documents (Sections 5, 6, 9, 10, 11) */}
-        <div id="draft-documents-section" style={{ marginBottom: 28 }}>
+        {/* Draft Documents (Sections 5, 6, 9, 10, 11) — locked (grayed out, unclickable) until jurisdiction is set */}
+        <div id="draft-documents-section" style={{ marginBottom: 28, position: "relative" }}>
+          {!hlCase.jurisdiction && (
+            <div style={{ fontSize: 11, color: "#ff6b6b", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}>
+              <AlertCircle size={12} color="#ff6b6b" /> Locked until jurisdiction is set
+            </div>
+          )}
+          <div style={{ opacity: hlCase.jurisdiction ? 1 : 0.35, pointerEvents: hlCase.jurisdiction ? "auto" : "none" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>DRAFT DOCUMENTS</div>
             {creditBalance !== undefined && (
@@ -2213,7 +2207,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                       : <FileText size={14} color={ORANGE} />}
                     <span style={{ fontWeight: 800, fontSize: 13, color: "#eee" }}>{label}</span>
                   </div>
-                  <span style={{ fontSize: 10, color: "#6a5c50" }}>Estimate shown first</span>
+                  <span style={{ fontSize: 10, color: "#6a5c50" }}>{dt === "complaint" ? "1 credit" : "Estimate shown first"}</span>
                 </button>
               );
             })}
@@ -2239,7 +2233,9 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               : <Sparkles size={16} color={ORANGE} />}
             <div style={{ textAlign: "left", flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 13, color: ORANGE }}>Strengthen a Document</div>
-              <div style={{ fontSize: 10, color: "#8a7566" }}>Paste an existing filing to sharpen it</div>
+              <div style={{ fontSize: 10, color: "#8a7566" }}>
+                Paste an existing filing to sharpen it · <span style={{ fontSize: 13, fontWeight: 900, color: ORANGE }}>0.25</span> credit
+              </div>
             </div>
           </button>
 
@@ -2302,6 +2298,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
               ))}
             </div>
           )}
+          </div>
 
           {generateError && (
             <div style={{ marginTop: 10, fontSize: 12, color: "#ef4444", background: "#1a0d0d", border: "1px solid #3a1a1a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3865,21 +3862,27 @@ function DocumentIntakeView({
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted, openPlansSignal }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
   onBuyCredits?: () => void;
   onAboutCreator: () => void;
   onCasesDeleted: (ids: string[]) => void;
+  /** Bumped by a parent to force-open the Plans overlay (e.g. from the upgrade gate). */
+  openPlansSignal?: number;
 }) {
-  const { signOut } = useClerk();
-  const { user } = useUser();
-  const displayName = user?.fullName || user?.firstName || user?.emailAddresses?.[0]?.emailAddress || "Your Profile";
-  const email = user?.emailAddresses?.[0]?.emailAddress || "";
-  const isAdmin = email === ADMIN_EMAIL;
+  const logout = useLogout();
+  const signOut = (opts: { redirectUrl: string }) => {
+    logout.mutate(undefined, { onSuccess: () => { window.location.href = opts.redirectUrl; } });
+  };
+  const { user } = useAuth();
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.email || "Your Profile";
+  const email = user?.email || "";
+  const isAdmin = user?.isAdmin ?? false;
 
   const [showPlans, setShowPlans] = useState(false);
+  useEffect(() => { if (openPlansSignal) setShowPlans(true); }, [openPlansSignal]);
   const [showSupport, setShowSupport] = useState(false);
   const [showCreditHistory, setShowCreditHistory] = useState(false);
 
@@ -3926,6 +3929,45 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
     }
   }
 
+  // Real login passkey — separate credential/toggle from the PIN-unlock one
+  // above. Enabling this lets Face ID / Touch ID sign into the account
+  // directly (a real WebAuthn ceremony, server-verified); it has nothing to
+  // do with whether PIN-unlock is also on. Either can be turned on or off
+  // independently.
+  const [loginPasskeys, setLoginPasskeys] = useState<PasskeyListItem[]>([]);
+  const [loginPasskeyBusy, setLoginPasskeyBusy] = useState(false);
+  const [loginPasskeyError, setLoginPasskeyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listLoginPasskeys().then(setLoginPasskeys).catch(() => {});
+  }, []);
+
+  async function enableLoginPasskey() {
+    setLoginPasskeyBusy(true);
+    setLoginPasskeyError(null);
+    try {
+      await registerLoginPasskey();
+      setLoginPasskeys(await listLoginPasskeys());
+    } catch (e) {
+      setLoginPasskeyError((e as Error).message || "Couldn't set up passkey sign-in");
+    } finally {
+      setLoginPasskeyBusy(false);
+    }
+  }
+
+  async function disableLoginPasskeys() {
+    setLoginPasskeyBusy(true);
+    setLoginPasskeyError(null);
+    try {
+      await Promise.all(loginPasskeys.map(p => removeLoginPasskey(p.id)));
+      setLoginPasskeys([]);
+    } catch (e) {
+      setLoginPasskeyError((e as Error).message || "Couldn't turn off passkey sign-in");
+    } finally {
+      setLoginPasskeyBusy(false);
+    }
+  }
+
   // Profile photo
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -3967,10 +4009,11 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   async function handleDeleteComplete(pin: string) {
     setDeleteDone(true);
     try {
-      // PIN-guarded server purge MUST succeed before we delete the Clerk user —
-      // a wrong PIN throws here and aborts, so the account is never orphaned.
+      // /user/delete purges every row (including the account itself) and ends
+      // the server-side session in one PIN-guarded call — a wrong PIN throws
+      // here and aborts, so the account is never left half-deleted.
       await aiApi.deleteUserData(pin);
-      await user?.delete();
+      await logout.mutateAsync();
     } catch (err) {
       const msg = ((err as Error)?.message ?? "").toLowerCase();
       alert(msg.includes("pin")
@@ -4185,7 +4228,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
             style={{ width: "100%", background: "none", border: "none", cursor: passkeyBusy ? "default" : "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", opacity: passkeyBusy ? 0.6 : 1 }}>
             <Fingerprint size={16} color={secStatus?.webauthnEnabled ? ORANGE : "#666"} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Face ID / Touch ID</div>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Unlock PIN with Face ID / Touch ID</div>
               <div style={{ fontSize: 12, color: "#555" }}>
                 {passkeyBusy ? "Working…" : secStatus?.webauthnEnabled ? "Enabled — tap to turn off" : "Unlock your PIN with a fingerprint or face scan"}
               </div>
@@ -4196,6 +4239,35 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           </button>
           {passkeyError && (
             <div style={{ padding: "0 16px 14px", fontSize: 12, color: "#ef4444" }}>{passkeyError}</div>
+          )}
+
+          <div style={{ borderTop: "1px solid #1e1e1e" }} />
+
+          {/* Separate toggle from the one above — this is a real, server-verified
+              WebAuthn credential that signs into the account directly, independent
+              of whether PIN-unlock passkey is also enabled. */}
+          <button
+            onClick={() => {
+              setLoginPasskeyError(null);
+              if (loginPasskeys.length > 0) disableLoginPasskeys();
+              else if (!browserSupportsWebAuthn()) setLoginPasskeyError("Passkeys aren't available on this device or browser.");
+              else enableLoginPasskey();
+            }}
+            disabled={loginPasskeyBusy}
+            style={{ width: "100%", background: "none", border: "none", cursor: loginPasskeyBusy ? "default" : "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", opacity: loginPasskeyBusy ? 0.6 : 1 }}>
+            <Fingerprint size={16} color={loginPasskeys.length > 0 ? ORANGE : "#666"} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Sign in with Face ID / Touch ID</div>
+              <div style={{ fontSize: 12, color: "#555" }}>
+                {loginPasskeyBusy ? "Working…" : loginPasskeys.length > 0 ? "Enabled — tap to turn off" : "Sign into your account without a password"}
+              </div>
+            </div>
+            <div style={{ width: 38, height: 22, borderRadius: 11, background: loginPasskeys.length > 0 ? ORANGE : "#2a2a2a", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 2, left: loginPasskeys.length > 0 ? 18 : 2, transition: "left 0.15s" }} />
+            </div>
+          </button>
+          {loginPasskeyError && (
+            <div style={{ padding: "0 16px 14px", fontSize: 12, color: "#ef4444" }}>{loginPasskeyError}</div>
           )}
         </div>
       </div>
@@ -4643,7 +4715,10 @@ function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChang
   }
 
   function renderIcon(item: NavItem) {
-    if (item.id === "tools")   return <Wrench     size={26} color={ORANGE} />;
+    if (item.id === "tools") {
+      const on = active === "tools";
+      return <Wrench size={26} color={ORANGE} fill={on ? "#fff" : "none"} />;
+    }
     if (item.id === "tutor")   return <IndexIcon   size={55} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={28} />;
@@ -4690,7 +4765,10 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
 
   function renderSideIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
-    if (item.id === "tools")   return <Wrench      size={18} color={ORANGE} />;
+    if (item.id === "tools") {
+      const on = active === "tools";
+      return <Wrench size={18} color={ORANGE} fill={on ? "#fff" : "none"} />;
+    }
     if (item.id === "tutor")   return <IndexIcon   size={28} />;
     if (item.id === "profile") return <ProfileIcon size={28} />;
     return <item.icon size={18} />;
@@ -4794,8 +4872,8 @@ type AppView =
 export default function App() {
   const w = useWindowWidth();
   const isMobile = w < 768;
-  const { user } = useUser();
-  const isAdmin = (user?.emailAddresses?.[0]?.emailAddress || "") === ADMIN_EMAIL;
+  const { user } = useAuth();
+  const isAdmin = user?.isAdmin ?? false;
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
@@ -4814,6 +4892,7 @@ export default function App() {
   const [planTier, setPlanTier] = useState<string>("free");
   const [showCreditShop, setShowCreditShop] = useState(false);
   const [showUpgradeGate, setShowUpgradeGate] = useState(false);
+  const [openPlansSignal, setOpenPlansSignal] = useState(0);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
   // ── Server sync refs ────────────────────────────────────────────────────────
@@ -4872,7 +4951,7 @@ export default function App() {
   // Server only fills in cases that don't exist locally, or adds structuredCase
   // (which is always server-generated and never exists in local-only state).
   useEffect(() => {
-    if (!user?.id) return; // wait for Clerk to finish loading before syncing
+    if (!user?.id) return; // wait for the session to finish loading before syncing
     api.cases.list().then(serverCases => {
       if (!serverCases.length) return;
       setDataRaw(prev => {
@@ -4945,7 +5024,7 @@ export default function App() {
   }, [data.cases, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!user?.id) return; // don't call before Clerk session is ready
+    if (!user?.id) return; // don't call before the session is ready
     fetchCreditBalance();
     // Handle Stripe checkout return URL params
     const params = new URLSearchParams(window.location.search);
@@ -4979,7 +5058,7 @@ export default function App() {
     setPreLinkedCaseId(null);
     if (cid) {
       const hlCase = d.cases.find(c => c.id === cid) ?? null;
-      if (hlCase) { setNavTab("builder"); setView({ type: "case_detail", hlCase }); }
+      if (hlCase) { setNavTab("home"); setView({ type: "case_detail", hlCase }); }
     } else {
       setNavTab("home");
       setView({ type: "incident_detail", incident });
@@ -4987,7 +5066,7 @@ export default function App() {
   }
 
   function handleCreateNewCase() {
-    if (data.cases.length >= 2) {
+    if (data.cases.length >= 1) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5013,7 +5092,7 @@ export default function App() {
 
   function handleContinueCase(hlCase: HLCase, stage: WorkflowStage) {
     const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
-    setNavTab("builder");
+    setNavTab("home");
     if (stage === "parties") setView({ type: "case_parties", caseId: fresh.id });
     else if (stage === "court") setView({ type: "case_court", caseId: fresh.id });
     else if (stage === "story") setView({ type: "case_story", caseId: fresh.id });
@@ -5025,7 +5104,7 @@ export default function App() {
 
   function handleConvertToCase(incident: Incident) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 2) {
+    if (data.cases.length >= 1) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5047,13 +5126,13 @@ export default function App() {
     const d1 = addCase(data, hlCase);
     const d2 = addIncidentToCase(d1, incident.id, hlCase.id);
     setData(d2);
-    setNavTab("builder");
+    setNavTab("home");
     setView({ type: "case_parties", caseId: hlCase.id });
   }
 
   async function handleUploadForNewCase(file: File) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 2) {
+    if (data.cases.length >= 1) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5086,7 +5165,7 @@ export default function App() {
       setData(addCase(data, newCase));
 
       // Step 3: Route to the intake wizard — NOT directly to case_detail
-      setNavTab("builder");
+      setNavTab("home");
       setView({ type: "document_intake", docId: result.docId, caseId: newCase.id, fileName: file.name });
     } catch (err: unknown) {
       setNewCaseUploadError((err as Error).message || "Upload failed. Please try again.");
@@ -5105,7 +5184,7 @@ export default function App() {
   function handleOpenCase(hlCase: HLCase) {
     const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
     setView({ type: "case_detail", hlCase: fresh });
-    setNavTab("builder");
+    setNavTab("home");
   }
 
   // Tutor tab's floating case bubble bar: pick a case to map in the Index
@@ -5347,6 +5426,7 @@ export default function App() {
           onBuyCredits={() => setShowCreditShop(true)}
           onAboutCreator={() => setView({ type: "about_creator" })}
           onCasesDeleted={ids => setData(ids.reduce((acc, id) => deleteCase(acc, id), data))}
+          openPlansSignal={openPlansSignal}
         />
       );
     }
@@ -5357,7 +5437,7 @@ export default function App() {
       }
       if (view.type === "studio_workspace") {
         const studioCase = data.cases.find(c => c.id === view.caseId);
-        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} />;
+        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} onCreateCase={handleCreateNewCase} />;
         return (
           <VideoWorkspaceView
             hlCase={studioCase}
@@ -5366,7 +5446,7 @@ export default function App() {
           />
         );
       }
-      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} />;
+      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} onCreateCase={handleCreateNewCase} />;
     }
 
     return (
@@ -5472,7 +5552,7 @@ export default function App() {
         />
       )}
 
-      {/* Upgrade gate — shown when free 2-case limit is hit */}
+      {/* Upgrade gate — shown when the free 1-case limit is hit */}
       {showUpgradeGate && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 500, display: "flex", alignItems: "flex-end" }}
           onClick={() => setShowUpgradeGate(false)}>
@@ -5485,17 +5565,17 @@ export default function App() {
               </div>
               <div>
                 <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 2 }}>Free Plan Limit Reached</div>
-                <div style={{ color: "#555", fontSize: 13 }}>You've used both free cases</div>
+                <div style={{ color: "#555", fontSize: 13 }}>You've used your free case</div>
               </div>
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
-              The free plan includes <strong style={{ color: "#ccc" }}>2 cases</strong>. Upgrade to Basic, Pro, or Apex for unlimited cases, priority AI processing, and advanced document generation.
+              The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation.
             </p>
             <p style={{ color: "#555", fontSize: 12, lineHeight: 1.5, margin: "0 0 24px" }}>
               💡 <strong style={{ color: "#666" }}>Tip:</strong> You can also delete an existing case to free up a slot.
             </p>
             <button
-              onClick={() => { setShowUpgradeGate(false); setNavTab("profile"); setView({ type: "home" }); }}
+              onClick={() => { setShowUpgradeGate(false); setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" }); }}
               style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
               View Plans &amp; Upgrade
             </button>

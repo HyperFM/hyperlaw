@@ -602,7 +602,7 @@ export const aiApi = {
 
   // ── User self-service ──────────────────────────────────────────────────────
 
-  /** Delete all user-owned server data — PIN-guarded (call before Clerk user.delete()) */
+  /** Delete all user-owned server data AND the account itself — PIN-guarded */
   deleteUserData(pin: string): Promise<{ ok: boolean }> {
     return aiFetch("/user/delete", { method: "POST", body: JSON.stringify({ pin }) });
   },
@@ -737,6 +737,12 @@ export const aiApi = {
     caseId?: string;
   }): Promise<IfpFindResult> {
     return aiFetch("/ai/ifp-find-form", { method: "POST", body: JSON.stringify(input) });
+  },
+
+  /** 1 CREDIT — web-search for real courthouse(s) serving a typed location, for the
+   *  jurisdiction search-by-location fallback (works beyond the built-in US court list). */
+  findCourthouse(location: string, caseId?: string): Promise<{ results: Array<{ name: string; level: string; note: string }> }> {
+    return aiFetch("/ai/find-courthouse", { method: "POST", body: JSON.stringify({ location, caseId }) });
   },
 
   /** 1 CREDIT — analyze an opposing party's filing from document(s) and/or photo(s) */

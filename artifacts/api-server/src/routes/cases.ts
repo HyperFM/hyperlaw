@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db } from "@workspace/db";
 import { casesTable, generatedDocumentsTable, uploadedDocumentsTable } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";

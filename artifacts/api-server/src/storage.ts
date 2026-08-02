@@ -9,12 +9,11 @@ export class Storage {
     return user ?? null;
   }
 
-  async ensureUser(id: string, email?: string) {
-    await db
-      .insert(usersTable)
-      .values({ id, email: email ?? null })
-      .onConflictDoNothing();
-  }
+  /** No-op: with self-hosted auth, a user row is always created up front by
+   *  /api/auth/register, so any userId reaching here already has a full row
+   *  (username/email/etc. are NOT NULL — there's no valid partial row to
+   *  lazily insert anymore, unlike the old Clerk-provisioned-on-first-touch flow). */
+  async ensureUser(_id: string, _email?: string) {}
 
   async updateUserStripeId(userId: string, stripeCustomerId: string) {
     await db

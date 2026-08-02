@@ -5,7 +5,7 @@ import {
   BookOpen, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
   DollarSign, FileText, Lock, Unlock, AlertCircle,
 } from "lucide-react";
-import { api, ClerkUser, ChatSession, ChatMessage } from "../lib/api";
+import { api, AdminUser, ChatSession, ChatMessage } from "../lib/api";
 import { aiApi, AiLog, AiStats, KnowledgeEntry, ErrorLog, IfpTemplate, formatMicroUsd, featureLabel } from "../lib/aiApi";
 import ConfirmDeleteButton from "./ConfirmDeleteButton";
 
@@ -43,14 +43,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const [view, setView] = useState<AdminView>("users");
 
   // ── Users / Chat state ───────────────────────────────────────────────────────
-  const [users, setUsers] = useState<ClerkUser[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [sessions, setSessions] = useState<Record<string, ChatSession>>({});
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [msgInput, setMsgInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sendingMsg, setSendingMsg] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<ClerkUser | null>(null);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // ── AI Inspector state ───────────────────────────────────────────────────────
@@ -147,8 +147,8 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       setAiPage(logsResp.page);
       if (stats && "totalCalls" in stats) setAiStats(stats as AiStats);
     } catch (err) {
-      // On 401 (auth race before Clerk propagates), reset the ref so the tab
-      // auto-retries on the next visit once the session is ready.
+      // On 401 (auth race before the session is ready), reset the ref so the
+      // tab auto-retries on the next visit.
       if ((err as { status?: number }).status === 401) {
         aiAutoLoadedRef.current = false;
       } else {
@@ -204,9 +204,9 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     catch (e) { setTplError((e as Error).message || "Delete failed"); }
   }
 
-  async function openChatWithUser(user: ClerkUser) {
-    const email = user.email_addresses?.[0]?.email_address ?? "";
-    const name = [user.first_name, user.last_name].filter(Boolean).join(" ");
+  async function openChatWithUser(user: AdminUser) {
+    const email = user.email;
+    const name = [user.firstName, user.lastName].filter(Boolean).join(" ");
     try {
       const session = sessions[user.id]
         ?? await api.admin.openChat(user.id, email, name);
@@ -238,16 +238,16 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     } catch {}
   }
 
-  function userDisplayName(u: ClerkUser) {
-    const name = [u.first_name, u.last_name].filter(Boolean).join(" ");
-    return name || u.email_addresses?.[0]?.email_address || u.id.slice(0, 12);
+  function userDisplayName(u: AdminUser) {
+    const name = [u.firstName, u.lastName].filter(Boolean).join(" ");
+    return name || u.email || u.id.slice(0, 12);
   }
 
   const filteredUsers = users.filter(u => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     const name = userDisplayName(u).toLowerCase();
-    const email = (u.email_addresses?.[0]?.email_address ?? "").toLowerCase();
+    const email = u.email.toLowerCase();
     return name.includes(q) || email.includes(q);
   });
 
@@ -514,7 +514,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
               <div style={{ padding: 24, textAlign: "center", color: "#555", fontSize: 13 }}>No results for "{searchQuery}"</div>
             ) : (
               filteredUsers.map(user => {
-                const email = user.email_addresses?.[0]?.email_address ?? "";
+                const email = user.email;
                 const name = userDisplayName(user);
                 const hasSession = !!sessions[user.id];
                 return (
@@ -537,7 +537,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
                       </div>
                       <div style={{ fontSize: 10, color: "#3a3a3a", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
                         <Calendar size={9} />
-                        {new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {new Date(user.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </div>
                     </div>
                     <button

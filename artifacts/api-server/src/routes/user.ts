@@ -3,10 +3,10 @@
  *  GET  /user/settings        — per-user preferences (welcome flag)
  *  POST /user/welcome-seen    — mark the one-time Welcome modal as seen
  *  GET  /user/credit-history  — chronological log of credit-charging events
- *  POST /user/delete          — PIN-guarded purge of ALL user data (call before Clerk user.delete())
+ *  POST /user/delete          — PIN-guarded purge of ALL user data, including the account itself
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import {
   db, usersTable, generatedDocumentsTable, aiLogsTable, aiAnalysisCacheTable,
   uploadedDocumentsTable, notificationsTable, chatSessionsTable, casesTable, userSecurityTable,
@@ -100,12 +100,12 @@ router.get("/user/credit-history", requireAuth, async (req: Request, res: Respon
   }
 });
 
-// POST /user/welcome-seen — mark the Welcome modal as seen (per-user, upsert)
+// POST /user/welcome-seen — mark the Welcome modal as seen (per-user)
 router.post("/user/welcome-seen", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = uid(req);
-  await db.insert(usersTable)
-    .values({ id: userId, hasSeenWelcome: true })
-    .onConflictDoUpdate({ target: usersTable.id, set: { hasSeenWelcome: true, updatedAt: new Date() } });
+  await db.update(usersTable)
+    .set({ hasSeenWelcome: true, updatedAt: new Date() })
+    .where(eq(usersTable.id, userId));
   res.json({ ok: true });
 });
 
@@ -129,7 +129,9 @@ router.post("/user/delete", requireAuth, async (req: Request, res: Response): Pr
       db.delete(userSecurityTable).where(eq(userSecurityTable.userId, userId)),
     ]);
     await db.delete(usersTable).where(eq(usersTable.id, userId));
-    res.status(200).json({ ok: true });
+    req.logout(() => {
+      res.status(200).json({ ok: true });
+    });
   } catch (err) {
     console.error("[user] delete error", err);
     res.status(500).json({ error: "Failed to purge user data" });

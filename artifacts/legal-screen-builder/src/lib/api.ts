@@ -54,13 +54,14 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export interface ClerkUser {
+export interface AdminUser {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email_addresses: { email_address: string }[];
-  created_at: number;
-  image_url: string | null;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string;
 }
 
 export const api = {
@@ -74,7 +75,7 @@ export const api = {
       apiFetch<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify({ message, type }) }),
   },
   admin: {
-    users: () => apiFetch<ClerkUser[]>("/admin/users"),
+    users: () => apiFetch<AdminUser[]>("/admin/users"),
     chatSessions: () => apiFetch<ChatSession[]>("/admin/chat-sessions"),
     openChat: (userId: string, userEmail: string, userName: string) =>
       apiFetch<ChatSession>(`/admin/chat/${userId}`, { method: "POST", body: JSON.stringify({ userEmail, userName }) }),

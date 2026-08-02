@@ -35,7 +35,15 @@ const storage = new Storage();
 async function seedUser(id: string, credits: number) {
   await db
     .insert(usersTable)
-    .values({ id, creditBalance: credits })
+    .values({
+      id,
+      creditBalance: credits,
+      username: `test_${id}`,
+      firstName: "Test",
+      lastName: "User",
+      phoneNumber: `+1555${id.slice(-7).padStart(7, "0")}`,
+      email: `test-${id}@example.com`,
+    })
     .onConflictDoNothing();
   // Ensure exact balance even if row existed from a previous test run
   await db

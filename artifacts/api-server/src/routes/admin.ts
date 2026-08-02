@@ -1,17 +1,17 @@
 import { Router, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db, chatSessionsTable, messagesTable, notificationsTable, usersTable, stripeProcessedSessionsTable, generatedDocumentsTable } from "@workspace/db";
 import { eq, desc, asc, sql } from "drizzle-orm";
-import { getClerkUserEmail } from "./feedback";
 
 const router = Router();
-const ADMIN_EMAIL = "hypermodula@gmail.com";
 
+// Admin status is the real isAdmin column (granted only through the gated
+// admin-registration flow in routes/auth.ts), not an email-string match —
+// req.user is already the full row via passport's deserializeUser.
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const info = await getClerkUserEmail(auth.userId);
-  if (info?.email !== ADMIN_EMAIL) { res.status(403).json({ error: "Forbidden" }); return null; }
+  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return null; }
   return auth.userId;
 }
 
@@ -19,13 +19,15 @@ router.get("/admin/users", async (req: Request, res: Response): Promise<void> =>
   const adminId = await requireAdmin(req, res);
   if (!adminId) return;
 
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) { res.status(500).json({ error: "No secret key" }); return; }
-
-  const r = await fetch("https://api.clerk.com/v1/users?limit=100&order_by=-created_at", {
-    headers: { Authorization: `Bearer ${secretKey}` },
-  });
-  const users = await r.json();
+  const users = await db
+    .select({
+      id: usersTable.id, username: usersTable.username, firstName: usersTable.firstName,
+      lastName: usersTable.lastName, email: usersTable.email, emailVerified: usersTable.emailVerified,
+      createdAt: usersTable.createdAt,
+    })
+    .from(usersTable)
+    .orderBy(desc(usersTable.createdAt))
+    .limit(100);
   res.json(users);
 });
 
@@ -108,7 +110,7 @@ router.get("/admin/platform-stats", async (req: Request, res: Response): Promise
   if (!adminId) return;
 
   try {
-    // Users registered in HyperLaw DB (may be < Clerk total if new users haven't used AI yet)
+    // Total registered users
     const [userCountRow] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(usersTable);

@@ -287,3 +287,22 @@ export function getCourts(state: string, level: "federal" | "state"): Court[] {
     ? (FEDERAL_COURTS[state] ?? [])
     : (STATE_COURTS[state] ?? []);
 }
+
+// ─── Flat jurisdiction list for search/autocomplete ────────────────────────────
+// Every federal district court + every state's general-jurisdiction trial
+// court, formatted as a single display string a user can search and pick.
+// This is not a full county-by-county courthouse directory (no dataset that
+// granular is available here) — it's every U.S. federal district and every
+// state's primary trial court, which covers the actual jurisdiction a case is
+// filed in even though it doesn't name the specific county courthouse.
+export const ALL_JURISDICTIONS: string[] = [
+  ...Object.values(FEDERAL_COURTS).flat().map(c => `${c.name}${c.shortName ? ` (${c.shortName})` : ""} — ${c.state}`),
+  ...Object.values(STATE_COURTS).flat().map(c => `${c.state} ${c.name}`),
+].sort((a, b) => a.localeCompare(b));
+
+/** Case-insensitive substring search over ALL_JURISDICTIONS, capped to `limit` results. */
+export function searchJurisdictions(query: string, limit = 8): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return ALL_JURISDICTIONS.filter(j => j.toLowerCase().includes(q)).slice(0, limit);
+}

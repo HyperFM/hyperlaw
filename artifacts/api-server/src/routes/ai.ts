@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { searchLibrary, formatLibraryContext } from "../services/knowledgeLibrary.js";
 import multer from "multer";
 import { aiService, MODEL } from "../services/ai.js";
@@ -23,7 +23,7 @@ import {
 } from "../services/credits.js";
 import { estimateForDocument, estimateForGuidance } from "../services/estimate.js";
 import { and, eq, sql, desc } from "drizzle-orm";
-import { getClerkUserEmail } from "./feedback.js";
+import { getUserEmail } from "./feedback.js";
 import { buildCaseContext } from "../services/caseContext.js";
 import { recordCaseEvent } from "../services/memorySummarizer.js";
 
@@ -478,7 +478,7 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
 
     // ── Checkpoint 5: Credit verification ─────────────────────────────────
     failStep = "credit-verification";
-    const userInfo = await getClerkUserEmail(userId).catch(() => null);
+    const userInfo = await getUserEmail(userId).catch(() => null);
     const isAdminUser = ADMIN_EMAILS.has(userInfo?.email ?? "");
 
     // Check Apex plan tier via Stripe (Apex = unlimited, no credit charge)
@@ -744,6 +744,38 @@ router.post("/ai/ifp-find-form", requireAuth, async (req: Request, res: Response
   } catch (err) {
     if (charge.charged) await refundOneCredit(userId);
     res.status(500).json({ error: (err as Error).message || "IFP form search failed" });
+  }
+});
+
+// ── POST /ai/find-courthouse ────────────────────────────────────────────────────
+// 1 CREDIT — Web-searches for real courthouse(s) serving a location the user
+// typed, for the jurisdiction search-by-location fallback.
+router.post("/ai/find-courthouse", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (!aiService.isConfigured()) {
+    res.status(503).json({ error: "AI not configured", code: "ai_not_configured" });
+    return;
+  }
+  const { location, caseId } = req.body as { location?: string; caseId?: string };
+  if (!location || !location.trim()) { res.status(400).json({ error: "location is required" }); return; }
+  const userId = getAuth(req)!.userId!;
+
+  const charge = await chargeOneCredit(userId);
+  if (!charge.ok) {
+    res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+    return;
+  }
+  try {
+    const r = await aiService.findCourthouses(location.trim());
+    void logAiCall({
+      userId, caseId: caseId ?? null, feature: "find_courthouse" as AiFeature,
+      model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
+      estimatedCostMicroUsd: r.meta.estimatedCostMicroUsd, responseTimeMs: r.meta.responseTimeMs,
+      cacheHit: false, promptTemplate: "find_courthouse",
+    });
+    res.json(r.data);
+  } catch (err) {
+    if (charge.charged) await refundOneCredit(userId);
+    res.status(500).json({ error: (err as Error).message || "Courthouse search failed" });
   }
 });
 

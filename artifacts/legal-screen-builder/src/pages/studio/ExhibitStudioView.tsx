@@ -8,9 +8,10 @@ interface Props {
   cases: HLCase[];
   onOpenStudio: (caseId: string) => void;
   onOpenScreenBuilder: () => void;
+  onCreateCase: () => void;
 }
 
-export default function ExhibitStudioView({ cases, onOpenStudio, onOpenScreenBuilder }: Props) {
+export default function ExhibitStudioView({ cases, onOpenStudio, onOpenScreenBuilder, onCreateCase }: Props) {
   const [showInfo, setShowInfo] = useState(false);
 
   const sorted = [...cases].sort((a, b) => b.createdAt - a.createdAt);
@@ -72,13 +73,25 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onOpenScreenBui
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 14, paddingTop: 40 }}>
           <Folder size={48} color="#1e1e1e" />
           <div style={{ fontSize: 16, fontWeight: 800, color: "#555" }}>No cases yet</div>
-          <div style={{ fontSize: 13, color: "#444", maxWidth: 260, lineHeight: 1.55 }}>
-            Create a case first, then return here to build exhibits from video evidence.
+          <div style={{ fontSize: 13, color: "#444", maxWidth: 260, lineHeight: 1.55, marginBottom: 6 }}>
+            Create a case first, then build exhibits from your video evidence.
           </div>
+          <button onClick={onCreateCase} style={{
+            background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none",
+            borderRadius: 12, padding: "12px 24px", color: "#000", fontSize: 14, fontWeight: 900,
+            cursor: "pointer",
+          }}>
+            New Case
+          </button>
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>SELECT A CASE</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>SELECT A CASE</div>
+            <button onClick={onCreateCase} style={{ background: "none", border: "none", color: ORANGE, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+              + New Case
+            </button>
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map(c => {
               const court = c.court;

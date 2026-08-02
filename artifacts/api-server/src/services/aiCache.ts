@@ -31,6 +31,7 @@ export type AiFeature =
   | "gap_detect"
   | "procedural_info"
   | "ifp_find_form"
+  | "find_courthouse"
   | "defense_analyze"
   | "draft_decision"
   | "guidance_session"

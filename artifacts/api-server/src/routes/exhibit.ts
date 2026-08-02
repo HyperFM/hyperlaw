@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { aiService, MODEL } from "../services/ai.js";
 import { db, casesTable, uploadedDocumentsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";

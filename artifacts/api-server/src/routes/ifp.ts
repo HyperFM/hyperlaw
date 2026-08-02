@@ -2,7 +2,7 @@
 // Admin-managed fee-waiver form templates keyed by jurisdiction, plus a single
 // generic Appendix A fallback used when no jurisdiction-specific form is found.
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db, ifpTemplatesTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { isAdminUser } from "../services/credits.js";

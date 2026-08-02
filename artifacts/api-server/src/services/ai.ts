@@ -793,6 +793,50 @@ Rules:
   }
 
   /**
+   * Courthouse locator — web-searches for real courthouse(s) serving a
+   * location the user typed (works for locations anywhere, not just the
+   * U.S.), for the jurisdiction search-by-location fallback when the app's
+   * built-in federal/state court list doesn't have what they need. Never
+   * fabricates a courthouse — degrades to an empty result list.
+   */
+  async findCourthouses(location: string): Promise<AiResult<{
+    results: Array<{ name: string; level: string; note: string }>;
+  }>> {
+    const prompt = `A self-represented (pro se) litigant is trying to identify the correct courthouse(s) for their case, based on this location they typed: "${location}"
+
+Use web search to find the actual court(s) with jurisdiction over that location — the local city/county trial court, the relevant state trial court, and/or the applicable U.S. federal district if the location is in the United States. For locations outside the U.S., find the equivalent local trial court for that country's system. Then return ONLY valid JSON as your final message (no other text) with this exact shape:
+{
+  "results": [ { "name": "Full official court name", "level": "state" | "federal" | "local" | "other", "note": "one short clarifying phrase, e.g. which county or city it covers" } ]
+}
+Rules:
+- List at most 5 results, most locally relevant first.
+- Only include real courts you found via search — never invent a courthouse name.
+- If you can't find anything credible for this location, return an empty results array.`;
+
+    const start = Date.now();
+    const response = await withRetry(() => this.client.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: SYSTEM_PROMPT,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }] as unknown as Anthropic.Tool[],
+      messages: [{ role: "user", content: prompt }],
+    }));
+
+    const texts: string[] = [];
+    for (const block of response.content) if (block.type === "text") texts.push(block.text);
+    const cleaned = texts.join("\n").replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const matches = cleaned.match(/\{[\s\S]*?\}(?=[^}]*$)/g) ?? cleaned.match(/\{[\s\S]*\}/g);
+    let data: { results: Array<{ name: string; level: string; note: string }> } | null = null;
+    if (matches && matches.length) {
+      try { data = JSON.parse(matches[matches.length - 1]); } catch { data = null; }
+    }
+    if (!data || typeof data !== "object" || !Array.isArray(data.results)) {
+      data = { results: [] };
+    }
+    return { data, meta: this.buildMeta(response.usage, Date.now() - start) };
+  }
+
+  /**
    * Defense-filing analyzer — extracts the opposing party's identity and the
    * substance of what they filed, from document text and/or photo(s). Vision-
    * capable. Used to draft a responsive motion.

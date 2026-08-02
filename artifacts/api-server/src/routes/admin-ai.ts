@@ -1,23 +1,20 @@
 /**
  * Admin AI Routes
- * Accessible only to the admin email defined in admin.ts
+ * Accessible only to accounts with isAdmin set (see routes/auth.ts registration flow)
  * Surfaces AI usage logs, cost stats, and cache analytics.
  */
 
 import { Router, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../services/auth.js";
 import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
-import { getClerkUserEmail } from "./feedback.js";
 
 const router = Router();
-const ADMIN_EMAIL = "hypermodula@gmail.com";
 
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const info = await getClerkUserEmail(auth.userId);
-  if (info?.email !== ADMIN_EMAIL) { res.status(403).json({ error: "Forbidden" }); return null; }
+  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return null; }
   return auth.userId;
 }
 

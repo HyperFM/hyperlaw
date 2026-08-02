@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { randomUUID } from "node:crypto";
 
 export const notificationsTable = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -211,8 +212,50 @@ export const guidanceSessionsTable = pgTable("guidance_sessions", {
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export const usersTable = pgTable("users", {
-  id: text("id").primaryKey(),                            // Clerk user ID
-  email: text("email"),
+  /** App-generated UUID string (was the Clerk user ID before self-hosted auth). */
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
+  username: text("username").notNull().unique(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  /** Required at the app layer for email/password registration (enforced by zod in
+   *  routes/auth.ts), but nullable here since Google/Apple sign-in never collects one.
+   *  Unique so a lost-phone signup can't create a duplicate account — recovery goes
+   *  through email instead, which doesn't change when a phone does. */
+  phoneNumber: text("phone_number").unique(),
+  email: text("email").notNull().unique(),
+  /** scrypt hash of the password, "salt:hash" hex — same convention as userSecurityTable.pinHash.
+   *  Null for accounts that only ever signed in via Google/Apple. */
+  passwordHash: text("password_hash"),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  emailVerificationToken: text("email_verification_token"),
+  emailVerificationExpiresAt: timestamp("email_verification_expires_at"),
+  passwordResetToken: text("password_reset_token"),
+  passwordResetExpiresAt: timestamp("password_reset_expires_at"),
+  googleId: text("google_id").unique(),
+  appleId: text("apple_id").unique(),
+  /** Fixed 3-question account recovery (no email required) — same scrypt hash
+   *  convention as passwordHash, but the raw answer is normalized (trimmed +
+   *  lowercased) before hashing so "Elm Street" and "elm street" both match.
+   *  Null for accounts created before this existed or via Google/Apple. */
+  securityAnswer1Hash: text("security_answer_1_hash"),
+  securityAnswer2Hash: text("security_answer_2_hash"),
+  securityAnswer3Hash: text("security_answer_3_hash"),
+  /** True only once granted through the gated admin-registration flow in
+   *  routes/auth.ts (requires the primary or secondary email to already be on
+   *  a hardcoded allowlist) — never settable by a plain profile edit. */
+  isAdmin: boolean("is_admin").notNull().default(false),
+  /** Admin accounts only: a second recovery-eligible email address. */
+  secondaryEmail: text("secondary_email"),
+  /** Admin accounts only: scrypt hash of the last 4 SSN digits, same
+   *  never-retrievable convention as every other hash on this table — this
+   *  is an extra identity check at signup, never displayed or logged in plain
+   *  form again after that request completes. */
+  ssnLast4Hash: text("ssn_last4_hash"),
+  /** Admin accounts only: a question THEY write (not from the fixed list),
+   *  plus its scrypt-hashed, normalized answer — same convention as
+   *  securityAnswer{1,2,3}Hash above. */
+  adminSecurityQuestion: text("admin_security_question"),
+  adminSecurityAnswerHash: text("admin_security_answer_hash"),
   stripeCustomerId: text("stripe_customer_id"),
   creditBalance: integer("credit_balance").notNull().default(0),
   /** True once the user has dismissed the one-time Welcome modal (per-user, not per-device). */
@@ -221,12 +264,25 @@ export const usersTable = pgTable("users", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ── Login sessions (connect-pg-simple) ──────────────────────────────────────
+// Column names/types match what connect-pg-simple itself expects exactly —
+// created here via the normal drizzle push instead of the library's own
+// createTableIfMissing, since that reads a table.sql file that doesn't survive
+// the esbuild bundle in dist/.
+export const sessionTable = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => ({
+  expireIdx: index("IDX_session_expire").on(table.expire),
+}));
+
 // ── Account Security (PIN + WebAuthn) ──────────────────────────────────────────
 // Guards destructive actions (case + account deletion). PIN is the server-verified
 // mandatory gate; WebAuthn platform-authenticator is an additive device check.
 
 export const userSecurityTable = pgTable("user_security", {
-  userId: text("user_id").primaryKey(),                   // Clerk user ID
+  userId: text("user_id").primaryKey(),                   // usersTable.id
   /** scrypt hash of the account PIN, stored as "salt:hash" hex. Null until the user sets a PIN. */
   pinHash: text("pin_hash"),
   /** Enrolled WebAuthn platform credentials: { id, publicKey, counter, transports }[] */
@@ -241,6 +297,28 @@ export const userSecurityTable = pgTable("user_security", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ── Passkey login credentials (real WebAuthn, separate from the PIN-unlock
+// convenience trigger above) ─────────────────────────────────────────────
+// Unlike userSecurityTable.webauthnCredentials (id-only, never cryptographically
+// verified — see services/security.ts), this stores real public keys and is
+// used to actually authenticate a login via @simplewebauthn/server. A user can
+// have both, neither, or either independently — passkey-for-PIN-unlock and
+// passkey-for-login are two separate toggles by design.
+export const loginCredentialsTable = pgTable("login_credentials", {
+  /** WebAuthn credential ID, base64url — globally unique per authenticator. */
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  /** Base64url-encoded COSE public key, used to verify future assertions. */
+  publicKey: text("public_key").notNull(),
+  /** Signature counter — must strictly increase each use; guards against cloned authenticators. */
+  counter: integer("counter").notNull().default(0),
+  transports: jsonb("transports").$type<string[]>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+}, (table) => ({
+  loginCredUserIdx: index("login_credentials_user_idx").on(table.userId),
+}));
 
 // ── IFP (In Forma Pauperis) Template Library ───────────────────────────────────
 // Admin-managed fee-waiver form templates keyed by jurisdiction. Used to fill the

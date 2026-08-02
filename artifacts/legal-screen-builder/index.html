@@ -301,6 +301,23 @@
         window.addEventListener('resize', syncAppHeight);
         window.addEventListener('orientationchange', syncAppHeight);
 
+        // Neither dvh nor -webkit-fill-available actually fixed the iOS
+        // "Add to Home Screen" bottom gap — only a real manual scroll does.
+        // So instead of trying to measure the correct height up front,
+        // trigger that same tiny scroll ourselves, which forces WebKit to
+        // recompute and settle on the real viewport, same as the manual fix.
+        function nudgeScroll() {
+          var y = window.scrollY;
+          window.scrollTo(0, y + 1);
+          requestAnimationFrame(function () {
+            window.scrollTo(0, y);
+            syncAppHeight();
+          });
+        }
+        [100, 300, 700].forEach(function (ms) {
+          setTimeout(nudgeScroll, ms);
+        });
+
         function pulseIcon() {
           icon.classList.remove('pulse');
           void icon.offsetWidth;

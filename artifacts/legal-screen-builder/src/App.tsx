@@ -54,6 +54,7 @@ import { isPasskeySupported, createPasskey, cachePin, clearCachedPin } from "./l
 import {
   registerLoginPasskey, listLoginPasskeys, removeLoginPasskey,
   browserSupportsWebAuthn, type PasskeyListItem,
+  rememberLoginPasskeySetUp, forgetLoginPasskeySetUp,
 } from "./lib/webauthnLogin";
 import DraftDecisionModal from "./components/DraftDecisionModal";
 import GuidanceSessionModal from "./components/GuidanceSessionModal";
@@ -3939,7 +3940,13 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const [loginPasskeyError, setLoginPasskeyError] = useState<string | null>(null);
 
   useEffect(() => {
-    listLoginPasskeys().then(setLoginPasskeys).catch(() => {});
+    listLoginPasskeys().then((list) => {
+      setLoginPasskeys(list);
+      // Self-heals the remembered flag if it ever drifted from reality —
+      // e.g. passkeys were removed from a different device/browser.
+      if (list.length > 0) rememberLoginPasskeySetUp();
+      else forgetLoginPasskeySetUp();
+    }).catch(() => {});
   }, []);
 
   async function enableLoginPasskey() {
@@ -3948,6 +3955,9 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
     try {
       await registerLoginPasskey();
       setLoginPasskeys(await listLoginPasskeys());
+      // Only now does the sign-in page's passkey option become visible on
+      // this device — see the comment in lib/webauthnLogin.ts for why.
+      rememberLoginPasskeySetUp();
     } catch (e) {
       setLoginPasskeyError((e as Error).message || "Couldn't set up passkey sign-in");
     } finally {
@@ -3961,6 +3971,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
     try {
       await Promise.all(loginPasskeys.map(p => removeLoginPasskey(p.id)));
       setLoginPasskeys([]);
+      forgetLoginPasskeySetUp();
     } catch (e) {
       setLoginPasskeyError((e as Error).message || "Couldn't turn off passkey sign-in");
     } finally {

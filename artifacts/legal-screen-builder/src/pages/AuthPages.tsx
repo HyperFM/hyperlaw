@@ -11,11 +11,21 @@ import {
   useLogin, useRegister, useResetPassword, useAuthProviders,
   useSecurityQuestions, useRecoverAccount, useRecoverAccountLookup, usePasskeyLogin,
 } from "../lib/auth";
-import { browserSupportsWebAuthn } from "../lib/webauthnLogin";
+import { browserSupportsWebAuthn, hasLoginPasskeySetUp } from "../lib/webauthnLogin";
 
 const ORANGE = "#d9711f";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Remembers the last username/email someone signed in with on this device,
+// so returning users see the field pre-filled instead of a blank form.
+const REMEMBERED_USERNAME_KEY = "hyperlaw_last_username";
+function getRememberedUsername(): string {
+  try { return localStorage.getItem(REMEMBERED_USERNAME_KEY) ?? ""; } catch { return ""; }
+}
+function rememberUsername(value: string): void {
+  try { localStorage.setItem(REMEMBERED_USERNAME_KEY, value); } catch { /* private browsing, etc. — safe to skip */ }
+}
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100dvh",
@@ -225,10 +235,22 @@ export function SignInPage() {
   const [, navigate] = useLocation();
   const login = useLogin();
   const passkeyLogin = usePasskeyLogin();
-  const { register, handleSubmit, formState: { errors } } = useForm<SignInValues>({ resolver: zodResolver(signInSchema) });
+  const showPasskeyOption = browserSupportsWebAuthn() && hasLoginPasskeySetUp();
+  const { register, handleSubmit, formState: { errors } } = useForm<SignInValues>({
+    resolver: zodResolver(signInSchema),
+    defaultValues: { usernameOrEmail: getRememberedUsername() },
+  });
 
   const onSubmit = (values: SignInValues) => {
-    login.mutate(values, { onSuccess: () => navigate(`${basePath}/`) });
+    login.mutate(values, {
+      onSuccess: () => { rememberUsername(values.usernameOrEmail); navigate(`${basePath}/`); },
+    });
+  };
+
+  const onPasskeyClick = () => {
+    passkeyLogin.mutate(undefined, {
+      onSuccess: (user) => { rememberUsername(user.username); navigate(`${basePath}/`); },
+    });
   };
 
   return (
@@ -237,24 +259,6 @@ export function SignInPage() {
         <AuthLogo />
         <h1 style={titleStyle}>Welcome back</h1>
         <p style={subtitleStyle}>Sign in to access your cases</p>
-        {browserSupportsWebAuthn() && (
-          <div style={{ marginBottom: 20 }}>
-            <button
-              type="button"
-              style={socialButtonStyle}
-              disabled={passkeyLogin.isPending}
-              onClick={() => passkeyLogin.mutate(undefined, { onSuccess: () => navigate(`${basePath}/`) })}
-            >
-              {passkeyLogin.isPending ? "Waiting for passkey…" : "Sign in with a passkey"}
-            </button>
-            {passkeyLogin.isError && <div style={{ ...errorStyle, marginTop: 6 }}>{passkeyLogin.error.message}</div>}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#4a4542", fontSize: 12, marginTop: 12 }}>
-              <div style={{ flex: 1, height: 1, background: "#2a2521" }} />
-              or
-              <div style={{ flex: 1, height: 1, background: "#2a2521" }} />
-            </div>
-          </div>
-        )}
         <SocialButtons />
         {login.isError && <div style={alertStyle}>{login.error.message}</div>}
         <form onSubmit={handleSubmit(onSubmit)}>
@@ -272,9 +276,26 @@ export function SignInPage() {
               Forgot password?
             </span>
           </div>
-          <button type="submit" style={buttonStyle} disabled={login.isPending}>
-            {login.isPending ? "Signing in…" : "Sign in"}
-          </button>
+          {showPasskeyOption ? (
+            <div style={{ display: "flex", gap: 10 }}>
+              <button type="submit" style={{ ...buttonStyle, flex: 1 }} disabled={login.isPending}>
+                {login.isPending ? "Signing in…" : "Sign in"}
+              </button>
+              <button
+                type="button"
+                style={{ ...socialButtonStyle, flex: 1, color: ORANGE, borderColor: ORANGE }}
+                disabled={passkeyLogin.isPending}
+                onClick={onPasskeyClick}
+              >
+                {passkeyLogin.isPending ? "Waiting…" : "Sign in with a passkey"}
+              </button>
+            </div>
+          ) : (
+            <button type="submit" style={buttonStyle} disabled={login.isPending}>
+              {login.isPending ? "Signing in…" : "Sign in"}
+            </button>
+          )}
+          {passkeyLogin.isError && <div style={{ ...errorStyle, marginTop: 8 }}>{passkeyLogin.error.message}</div>}
         </form>
         <div style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: "#666360" }}>
           Don't have an account?{" "}

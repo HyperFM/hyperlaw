@@ -60,6 +60,7 @@ import GuidanceSessionModal from "./components/GuidanceSessionModal";
 import IfpWizard from "./components/IfpWizard";
 import DefenseModal from "./components/DefenseModal";
 import CreditHistoryModal from "./components/CreditHistoryModal";
+import { FULL_HEIGHT } from "./lib/viewport";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -3598,7 +3599,7 @@ function DocumentIntakeView({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "var(--app-100dvh, 100dvh)", background: "#0a0a0a", position: "relative" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: FULL_HEIGHT, background: "#0a0a0a", position: "relative" }}>
       {/* ── Header ── */}
       <div style={{ padding: "16px 20px", borderBottom: "1px solid #151515", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -5465,7 +5466,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ height: "var(--app-100dvh, 100dvh)", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
+    <div style={{ height: FULL_HEIGHT, background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
       {/* Notification bell — fixed top-right (hidden on Tutor tab and Studio workspace, which has its own ⓘ button) */}
       {navTab !== "tutor" && !(navTab === "builder" && view.type === "studio_workspace") && (
         <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300 }}>

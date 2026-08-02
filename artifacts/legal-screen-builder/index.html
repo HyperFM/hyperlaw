@@ -55,6 +55,10 @@
         left: 0;
         width: 100%;
         height: var(--app-100dvh, 100dvh);
+        /* -webkit-fill-available is WebKit's fix for the standalone
+           "Add to Home Screen" bug where innerHeight/dvh under-report the
+           real viewport — unsupported browsers just ignore this line. */
+        height: -webkit-fill-available;
         z-index: 9999;
         display: flex;
         align-items: center;

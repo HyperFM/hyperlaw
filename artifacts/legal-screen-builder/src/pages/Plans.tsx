@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+import { FULL_HEIGHT } from "../lib/viewport";
 
 const ORANGE = "#F45D01";
 const ORANGE_HOT = "#FF7A1A";
@@ -121,7 +122,7 @@ export default function Plans() {
   return (
     <div
       style={{
-        minHeight: "var(--app-100dvh, 100dvh)",
+        minHeight: FULL_HEIGHT,
         background:
           "radial-gradient(ellipse 900px 500px at 50% -10%, rgba(244,93,1,0.14), transparent 60%), linear-gradient(180deg, #0a0908 0%, #0d0b09 100%)",
         padding: "48px 20px 80px",

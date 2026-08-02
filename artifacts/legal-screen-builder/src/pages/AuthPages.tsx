@@ -11,7 +11,7 @@ import {
   useLogin, useRegister, useResetPassword, useAuthProviders,
   useSecurityQuestions, useRecoverAccount, useRecoverAccountLookup, usePasskeyLogin,
 } from "../lib/auth";
-import { browserSupportsWebAuthn, hasLoginPasskeySetUp } from "../lib/webauthnLogin";
+import { browserSupportsWebAuthn } from "../lib/webauthnLogin";
 
 const ORANGE = "#d9711f";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -235,7 +235,7 @@ export function SignInPage() {
   const [, navigate] = useLocation();
   const login = useLogin();
   const passkeyLogin = usePasskeyLogin();
-  const showPasskeyOption = browserSupportsWebAuthn() && hasLoginPasskeySetUp();
+  const showPasskeyOption = browserSupportsWebAuthn();
   const { register, handleSubmit, formState: { errors } } = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
     defaultValues: { usernameOrEmail: getRememberedUsername() },

@@ -6,27 +6,6 @@ import { startRegistration, startAuthentication, browserSupportsWebAuthn } from 
 
 export { browserSupportsWebAuthn };
 
-// WebAuthn can't be asked "does a passkey exist for this device?" ahead of
-// time — that's deliberately impossible for privacy reasons (see the W3C
-// spec's privacy-considerations section, which is exactly what's linked in
-// the raw NotAllowedError browsers throw). So instead we remember, per
-// browser, whether *this* device ever successfully set one up via Settings —
-// only then does the sign-in page offer the passkey option at all, which
-// keeps someone who's never set one up from ever hitting that error.
-const REMEMBERED_PASSKEY_KEY = "hyperlaw_login_passkey_set_up";
-
-export function hasLoginPasskeySetUp(): boolean {
-  try { return localStorage.getItem(REMEMBERED_PASSKEY_KEY) === "1"; } catch { return false; }
-}
-
-export function rememberLoginPasskeySetUp(): void {
-  try { localStorage.setItem(REMEMBERED_PASSKEY_KEY, "1"); } catch { /* private browsing, etc. — safe to skip */ }
-}
-
-export function forgetLoginPasskeySetUp(): void {
-  try { localStorage.removeItem(REMEMBERED_PASSKEY_KEY); } catch { /* private browsing, etc. — safe to skip */ }
-}
-
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     method: "POST",

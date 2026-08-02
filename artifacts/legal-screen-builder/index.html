@@ -284,13 +284,21 @@
           return splash.querySelector('.' + c);
         });
 
-        // Safety net for real orientation/size changes after load — the
-        // initial value (set synchronously up in <head>, from clientHeight)
-        // is already correct, this just keeps it correct if things change.
+        // A manual scroll was still fixing a small remaining gap — meaning
+        // clientHeight itself still changes shortly after the initial read,
+        // just by less than before. window's resize event isn't firing for
+        // that specific change, so ResizeObserver is used instead: it
+        // watches the element's actual rendered size directly and fires
+        // whenever it changes for any reason, including internal layout
+        // engine adjustments that don't dispatch a plain resize event.
         function syncAppHeight() {
           document.documentElement.style.setProperty('--app-100dvh', document.documentElement.clientHeight + 'px');
         }
-        window.addEventListener('resize', syncAppHeight);
+        if (window.ResizeObserver) {
+          new ResizeObserver(syncAppHeight).observe(document.documentElement);
+        } else {
+          window.addEventListener('resize', syncAppHeight);
+        }
         window.addEventListener('orientationchange', syncAppHeight);
 
         function pulseIcon() {

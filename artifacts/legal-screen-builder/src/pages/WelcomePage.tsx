@@ -1,13 +1,59 @@
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { FULL_HEIGHT } from "../lib/viewport";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export default function WelcomePage() {
-  const [, navigate] = useLocation();
+// TEMPORARY — remove once the last bit of the mobile bottom-gap bug is
+// diagnosed. Reads the resting-state numbers, not mid-scroll, so this shows
+// exactly what the fixed, unchanging remaining gap actually is.
+function ViewportDebugHUD({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+  const [lines, setLines] = useState<string[]>([]);
+
+  useEffect(() => {
+    function measure() {
+      const el = containerRef.current;
+      const rect = el ? el.getBoundingClientRect() : null;
+      const cs = document.documentElement.style.getPropertyValue("--app-100dvh");
+      const containerCS = el ? getComputedStyle(el) : null;
+      setLines([
+        `innerHeight: ${window.innerHeight}`,
+        `documentElement.clientHeight: ${document.documentElement.clientHeight}`,
+        `--app-100dvh var: ${cs}`,
+        `container computed height: ${containerCS ? containerCS.height : "n/a"}`,
+        `container computed minHeight: ${containerCS ? containerCS.minHeight : "n/a"}`,
+        `container bottom (rect): ${rect ? rect.bottom.toFixed(1) : "n/a"}`,
+        `GAP (innerHeight - container bottom): ${rect ? (window.innerHeight - rect.bottom).toFixed(1) : "n/a"}`,
+        `devicePixelRatio: ${window.devicePixelRatio}`,
+      ]);
+    }
+    measure();
+    const t = setTimeout(measure, 1500);
+    return () => clearTimeout(t);
+  }, [containerRef]);
 
   return (
     <div
+      style={{
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 999999,
+        background: "rgba(0,0,0,0.92)", color: "#39ff6a",
+        fontFamily: "Menlo, monospace", fontSize: 10.5, lineHeight: 1.6,
+        padding: "6px 10px", pointerEvents: "none",
+        borderBottom: "2px solid #39ff6a", textAlign: "left",
+      }}
+    >
+      {lines.map((line) => <div key={line}>{line}</div>)}
+    </div>
+  );
+}
+
+export default function WelcomePage() {
+  const [, navigate] = useLocation();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div
+      ref={containerRef}
       style={{
         minHeight: FULL_HEIGHT,
         display: "flex",
@@ -22,6 +68,7 @@ export default function WelcomePage() {
         textAlign: "center",
       }}
     >
+      <ViewportDebugHUD containerRef={containerRef} />
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
         <span style={{ color: "#F45D01", fontWeight: 900, fontSize: 32, letterSpacing: "-0.02em" }}>HYPER</span>

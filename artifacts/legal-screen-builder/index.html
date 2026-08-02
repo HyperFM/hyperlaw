@@ -3,16 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <script>
-      // On iOS "Add to Home Screen" standalone launches, window.innerHeight
-      // (and dvh, which tracks the same value) starts out wrong — over-
-      // reporting the real height by roughly the status bar's height — and
-      // only self-corrects a moment later. documentElement.clientHeight does
-      // NOT have this lag; confirmed correct from the very first reading on
-      // a real device. Every full-screen view uses this variable instead of
-      // 100dvh directly — see src/lib/viewport.ts.
-      document.documentElement.style.setProperty("--app-100dvh", document.documentElement.clientHeight + "px");
-    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="HyperLaw" />
@@ -52,10 +42,6 @@
       #hl-splash {
         position: fixed;
         inset: 0;
-        /* clientHeight (the --app-100dvh source) excludes the home-indicator
-           safe area — add it back so the background paints all the way to
-           the true screen edge. */
-        height: calc(var(--app-100dvh, 100dvh) + env(safe-area-inset-bottom));
         z-index: 9999;
         display: flex;
         align-items: center;
@@ -283,23 +269,6 @@
         var wires  = ['w1','w2','w3','w4'].map(function(c) {
           return splash.querySelector('.' + c);
         });
-
-        // A manual scroll was still fixing a small remaining gap — meaning
-        // clientHeight itself still changes shortly after the initial read,
-        // just by less than before. window's resize event isn't firing for
-        // that specific change, so ResizeObserver is used instead: it
-        // watches the element's actual rendered size directly and fires
-        // whenever it changes for any reason, including internal layout
-        // engine adjustments that don't dispatch a plain resize event.
-        function syncAppHeight() {
-          document.documentElement.style.setProperty('--app-100dvh', document.documentElement.clientHeight + 'px');
-        }
-        if (window.ResizeObserver) {
-          new ResizeObserver(syncAppHeight).observe(document.documentElement);
-        } else {
-          window.addEventListener('resize', syncAppHeight);
-        }
-        window.addEventListener('orientationchange', syncAppHeight);
 
         function pulseIcon() {
           icon.classList.remove('pulse');

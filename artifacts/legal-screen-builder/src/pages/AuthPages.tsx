@@ -12,6 +12,7 @@ import {
   useSecurityQuestions, useRecoverAccount, useRecoverAccountLookup, usePasskeyLogin,
 } from "../lib/auth";
 import { browserSupportsWebAuthn } from "../lib/webauthnLogin";
+import { FULL_HEIGHT } from "../lib/viewport";
 
 const ORANGE = "#d9711f";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -28,7 +29,7 @@ function rememberUsername(value: string): void {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100dvh",
+  minHeight: FULL_HEIGHT,
   display: "flex",
   flexDirection: "column",
   alignItems: "center",

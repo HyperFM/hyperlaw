@@ -4,7 +4,6 @@ import {
   Route,
   Router as WouterRouter,
   Redirect,
-  useLocation,
 } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
@@ -12,7 +11,6 @@ import WelcomePage from "./pages/WelcomePage";
 import Plans from "./pages/Plans";
 import { SignInPage, SignUpPage, ForgotPasswordPage, ResetPasswordPage, VerifyEmailPage } from "./pages/AuthPages";
 import { useAuth } from "./lib/auth";
-import { useViewportNudge } from "./lib/viewport";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -20,16 +18,11 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function HomeRedirect() {
   const { user, isLoading } = useAuth();
-  // The moment loading resolves and real content first replaces the splash
-  // is exactly when the iOS "Add to Home Screen" bottom-gap bug shows up.
-  useViewportNudge([isLoading, user]);
   if (isLoading) return null;
   return user ? <App /> : <WelcomePage />;
 }
 
 function AuthedApp() {
-  const [location] = useLocation();
-  useViewportNudge([location]);
   return (
     <QueryClientProvider client={queryClient}>
       <Switch>

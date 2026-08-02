@@ -3,16 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <script>
-      // dvh isn't reliably correct on load on iOS — it can report a height
-      // that hasn't settled yet, which used to require a manual scroll to
-      // fix. window.innerHeight is always accurate at the moment it's read,
-      // so every full-screen view in this app uses this custom property
-      // instead of 100dvh directly. Runs before any CSS parses, so there's
-      // no flash — see the resize/orientationchange listeners further down
-      // for how it stays correct after load too.
-      document.documentElement.style.setProperty("--app-100dvh", window.innerHeight + "px");
-    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="HyperLaw" />
@@ -30,10 +20,6 @@
     <meta name="twitter:image" content="/hyperlaw-icon.png" />
     <link rel="icon" type="image/png" href="/hyperlaw-icon.png" />
     <link rel="apple-touch-icon" href="/hyperlaw-icon.png" />
-    <!-- Prioritizes fetching the splash icon as early as possible, so on a
-         slow connection it's more likely to have fully arrived by the time
-         the splash animation reveals it. -->
-    <link rel="preload" as="image" href="/hyperlaw-icon.png" fetchpriority="high" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -51,14 +37,7 @@
 
       #hl-splash {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: var(--app-100dvh, 100dvh);
-        /* -webkit-fill-available is WebKit's fix for the standalone
-           "Add to Home Screen" bug where innerHeight/dvh under-report the
-           real viewport — unsupported browsers just ignore this line. */
-        height: -webkit-fill-available;
+        inset: 0;
         z-index: 9999;
         display: flex;
         align-items: center;
@@ -285,37 +264,6 @@
         var icon   = document.getElementById('splashIcon');
         var wires  = ['w1','w2','w3','w4'].map(function(c) {
           return splash.querySelector('.' + c);
-        });
-
-        // Keeps --app-100dvh (set once synchronously up in <head>) correct
-        // after load too — iOS can report a height that hasn't settled yet
-        // on first paint, which used to require a manual scroll to fix.
-        // Every full-screen view in the app reads this same variable, not
-        // just the splash.
-        function syncAppHeight() {
-          document.documentElement.style.setProperty('--app-100dvh', window.innerHeight + 'px');
-        }
-        [50, 150, 300, 600, 1000].forEach(function (ms) {
-          setTimeout(syncAppHeight, ms);
-        });
-        window.addEventListener('resize', syncAppHeight);
-        window.addEventListener('orientationchange', syncAppHeight);
-
-        // Neither dvh nor -webkit-fill-available actually fixed the iOS
-        // "Add to Home Screen" bottom gap — only a real manual scroll does.
-        // So instead of trying to measure the correct height up front,
-        // trigger that same tiny scroll ourselves, which forces WebKit to
-        // recompute and settle on the real viewport, same as the manual fix.
-        function nudgeScroll() {
-          var y = window.scrollY;
-          window.scrollTo(0, y + 1);
-          requestAnimationFrame(function () {
-            window.scrollTo(0, y);
-            syncAppHeight();
-          });
-        }
-        [100, 300, 700].forEach(function (ms) {
-          setTimeout(nudgeScroll, ms);
         });
 
         function pulseIcon() {

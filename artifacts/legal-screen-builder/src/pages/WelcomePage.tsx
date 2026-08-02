@@ -1,5 +1,4 @@
 import { useLocation } from "wouter";
-import { FULL_HEIGHT } from "../lib/viewport";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -9,7 +8,7 @@ export default function WelcomePage() {
   return (
     <div
       style={{
-        minHeight: FULL_HEIGHT,
+        minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",

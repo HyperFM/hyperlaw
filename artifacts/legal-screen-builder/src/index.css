@@ -10,12 +10,6 @@
     margin: 0;
     padding: 0;
   }
-  /* Base of the -webkit-fill-available cascade — see src/lib/viewport.ts for
-     why this is needed on iOS "Add to Home Screen" standalone apps. */
-  html, body {
-    height: 100%;
-    height: -webkit-fill-available;
-  }
   body {
     background: #161616;
     color: #fff;

@@ -1,12 +1,74 @@
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export default function WelcomePage() {
-  const [, navigate] = useLocation();
+// TEMPORARY — remove once the mobile bottom-gap bug is actually diagnosed.
+// Measures the real numbers directly on-device instead of guessing from a
+// screenshot: how many px short of the true viewport bottom the page's own
+// content falls, plus the raw values everything else has been guessing at.
+function ViewportDebugHUD({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+  const [lines, setLines] = useState<string[]>([]);
+
+  useEffect(() => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;bottom:0;height:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+    document.body.appendChild(probe);
+
+    function measure() {
+      const el = containerRef.current;
+      const rect = el ? el.getBoundingClientRect() : null;
+      const safeBottom = getComputedStyle(probe).paddingBottom;
+      const nav = navigator as Navigator & { standalone?: boolean };
+      setLines([
+        `innerHeight: ${window.innerHeight}`,
+        `visualViewport.height: ${window.visualViewport ? Math.round(window.visualViewport.height) : "n/a"}`,
+        `documentElement.clientHeight: ${document.documentElement.clientHeight}`,
+        `container bottom: ${rect ? Math.round(rect.bottom) : "n/a"}`,
+        `GAP (innerHeight - container bottom): ${rect ? Math.round(window.innerHeight - rect.bottom) : "n/a"}`,
+        `safe-area-inset-bottom: ${safeBottom}`,
+        `devicePixelRatio: ${window.devicePixelRatio}`,
+        `navigator.standalone: ${String(nav.standalone ?? "n/a")}`,
+        `display-mode standalone: ${window.matchMedia("(display-mode: standalone)").matches}`,
+      ]);
+    }
+
+    measure();
+    const interval = setInterval(measure, 500);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    window.addEventListener("scroll", measure);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+      window.removeEventListener("scroll", measure);
+      probe.remove();
+    };
+  }, [containerRef]);
 
   return (
     <div
+      style={{
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 999999,
+        background: "rgba(0,0,0,0.92)", color: "#39ff6a",
+        fontFamily: "Menlo, monospace", fontSize: 10.5, lineHeight: 1.6,
+        padding: "6px 10px", pointerEvents: "none",
+        borderBottom: "2px solid #39ff6a", textAlign: "left",
+      }}
+    >
+      {lines.map((line) => <div key={line}>{line}</div>)}
+    </div>
+  );
+}
+
+export default function WelcomePage() {
+  const [, navigate] = useLocation();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div
+      ref={containerRef}
       style={{
         minHeight: "100dvh",
         display: "flex",
@@ -21,6 +83,7 @@ export default function WelcomePage() {
         textAlign: "center",
       }}
     >
+      <ViewportDebugHUD containerRef={containerRef} />
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
         <span style={{ color: "#F45D01", fontWeight: 900, fontSize: 32, letterSpacing: "-0.02em" }}>HYPER</span>

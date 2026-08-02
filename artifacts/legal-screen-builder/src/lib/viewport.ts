@@ -6,4 +6,12 @@
 // from the very first reading. --app-100dvh (set in index.html, from
 // clientHeight) is the reliable value every full-screen view should use
 // instead of 100dvh directly.
-export const FULL_HEIGHT = "var(--app-100dvh, 100dvh)";
+//
+// clientHeight itself excludes the home-indicator reserved strip at the
+// bottom (confirmed on-device: safe-area-inset-bottom measured at 34px,
+// matching the consistent small gap every screen was still showing) — the
+// background should still paint all the way to the true screen edge there,
+// even though interactive controls need their own padding to stay clear of
+// it. env() is live CSS, not a JS measurement, so it doesn't have any of the
+// timing issues everything else here has run into.
+export const FULL_HEIGHT = "calc(var(--app-100dvh, 100dvh) + env(safe-area-inset-bottom))";

@@ -52,7 +52,10 @@
       #hl-splash {
         position: fixed;
         inset: 0;
-        height: var(--app-100dvh, 100dvh);
+        /* clientHeight (the --app-100dvh source) excludes the home-indicator
+           safe area — add it back so the background paints all the way to
+           the true screen edge. */
+        height: calc(var(--app-100dvh, 100dvh) + env(safe-area-inset-bottom));
         z-index: 9999;
         display: flex;
         align-items: center;

@@ -3113,7 +3113,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, color: "#555", marginBottom: 12, lineHeight: 1.6 }}>
               {chunks.length === 0
-                ? "Watch the video and chunk it into sections or moments — tap the button each time you want to mark the end of a section, then say what happened."
+                ? "Watch the video and chunk it into moments — tap the button each time you want to mark the end of one, then briefly label it and say what happened. Keep it short for now; you'll come back through each moment afterward to really sit with it and tell the full story."
                 : `${chunks.length} moment${chunks.length !== 1 ? "s" : ""} chunked and labeled below.`}
             </div>
             <button

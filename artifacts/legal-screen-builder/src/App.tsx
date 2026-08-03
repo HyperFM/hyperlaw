@@ -25,7 +25,6 @@ import { assignNickname } from "./lib/nicknames";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
-import ScreenBuilderView from "./pages/studio/ScreenBuilderView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
@@ -483,6 +482,11 @@ const TOOLS_MARQUEE_SET_WIDTH = TOOL_BUBBLES.length * (TOOLS_MARQUEE_BUBBLE_SIZE
 // scroll offset — with only a handful of tools, 2 copies runs out of
 // content before one full loop, leaving a visible gap.
 const TOOLS_MARQUEE_REPEATS = 8;
+// The glow "chases" down the strip — each bubble's flash is delayed a bit
+// more than the last, in reverse index order so the light visibly travels
+// against the strip's own scroll direction rather than drifting with it.
+const TOOLS_MARQUEE_GLOW_STAGGER = 0.35;
+const TOOLS_MARQUEE_GLOW_CYCLE = 10 * TOOLS_MARQUEE_GLOW_STAGGER;
 
 function ToolsView() {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -499,8 +503,16 @@ function ToolsView() {
           100% { transform: translateX(-${TOOLS_MARQUEE_SET_WIDTH}px); }
         }
         @keyframes hlToolsBubbleGlow {
-          0%, 100% { opacity: 0.04; }
-          50%       { opacity: 0.16; }
+          0%   { opacity: 0; }
+          8%   { opacity: 0.9; }
+          20%  { opacity: 0; }
+          100% { opacity: 0; }
+        }
+        @keyframes hlToolsBubbleShadow {
+          0%   { box-shadow: 0 0 0 0 ${ORANGE}00; border-color: ${ORANGE}33; }
+          8%   { box-shadow: 0 0 14px 2px ${ORANGE}66; border-color: ${ORANGE}aa; }
+          20%  { box-shadow: 0 0 0 0 ${ORANGE}00; border-color: ${ORANGE}33; }
+          100% { box-shadow: 0 0 0 0 ${ORANGE}00; border-color: ${ORANGE}33; }
         }
       `;
       document.head.appendChild(s);
@@ -510,26 +522,24 @@ function ToolsView() {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px", textAlign: "center" }}>
 
-      {/* Sliding tool-icon marquee — the actual tools, every other one glowing */}
+      {/* Sliding tool-icon marquee — the actual tools, with a glow that chases down the strip */}
       <div style={{ overflow: "hidden", margin: "36px auto 24px", width: "100%" }}>
         <div style={{ display: "flex", gap: TOOLS_MARQUEE_GAP, width: "max-content", animation: `hlToolsMarquee ${TOOLS_MARQUEE_REPEATS * 7}s linear infinite` }}>
           {Array.from({ length: TOOLS_MARQUEE_REPEATS }, () => TOOL_BUBBLES).flat().map((tool, i) => {
-            const glow = i % 2 === 0;
             const Icon = tool.icon;
+            const glowDelay = `${i * TOOLS_MARQUEE_GLOW_STAGGER}s`;
             return (
               <div
                 key={`${tool.id}-${i}`}
                 style={{
                   flexShrink: 0, position: "relative", overflow: "hidden",
                   width: TOOLS_MARQUEE_BUBBLE_SIZE, height: TOOLS_MARQUEE_BUBBLE_SIZE, borderRadius: TOOLS_MARQUEE_BUBBLE_SIZE / 2, display: "flex", alignItems: "center", justifyContent: "center",
-                  border: `1.5px solid ${ORANGE}${glow ? "77" : "33"}`,
-                  boxShadow: glow ? `0 0 14px 2px ${ORANGE}40` : "none",
+                  border: `1.5px solid ${ORANGE}33`,
                   background: `${ORANGE}16`,
+                  animation: `hlToolsBubbleShadow ${TOOLS_MARQUEE_GLOW_CYCLE}s ease-in-out ${glowDelay} infinite`,
                 }}
               >
-                {glow && (
-                  <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "hlToolsBubbleGlow 3.4s ease-in-out infinite" }} />
-                )}
+                <div style={{ position: "absolute", inset: 0, background: "#fff", opacity: 0, animation: `hlToolsBubbleGlow ${TOOLS_MARQUEE_GLOW_CYCLE}s ease-in-out ${glowDelay} infinite` }} />
                 <Icon size={22} color={ORANGE} style={{ position: "relative" }} />
               </div>
             );
@@ -5012,7 +5022,6 @@ type AppView =
   | { type: "tutor"; incident?: Incident; hlCase?: HLCase }
   | { type: "studio" }
   | { type: "studio_workspace"; caseId: string }
-  | { type: "screen_builder" }
   | { type: "about_creator" }
   | { type: "document_intake"; docId: string; caseId: string; fileName: string };
 
@@ -5579,12 +5588,9 @@ export default function App() {
     }
 
     if (navTab === "builder") {
-      if (view.type === "screen_builder") {
-        return <ScreenBuilderView onBack={() => setView({ type: "studio" })} />;
-      }
       if (view.type === "studio_workspace") {
         const studioCase = data.cases.find(c => c.id === view.caseId);
-        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} onCreateCase={handleCreateNewCase} />;
+        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} />;
         return (
           <VideoWorkspaceView
             hlCase={studioCase}
@@ -5593,7 +5599,7 @@ export default function App() {
           />
         );
       }
-      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onOpenScreenBuilder={() => setView({ type: "screen_builder" })} onCreateCase={handleCreateNewCase} />;
+      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} />;
     }
 
     return (

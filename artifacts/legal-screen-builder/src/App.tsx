@@ -476,6 +476,14 @@ const TOOL_BUBBLES = [
   },
 ] as const;
 
+const TOOLS_MARQUEE_BUBBLE_SIZE = 56;
+const TOOLS_MARQUEE_GAP = 16;
+const TOOLS_MARQUEE_SET_WIDTH = TOOL_BUBBLES.length * (TOOLS_MARQUEE_BUBBLE_SIZE + TOOLS_MARQUEE_GAP);
+// Enough copies that the strip is always wider than the viewport at any
+// scroll offset — with only a handful of tools, 2 copies runs out of
+// content before one full loop, leaving a visible gap.
+const TOOLS_MARQUEE_REPEATS = 8;
+
 function ToolsView() {
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -488,7 +496,7 @@ function ToolsView() {
       s.textContent = `
         @keyframes hlToolsMarquee {
           0%   { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+          100% { transform: translateX(-${TOOLS_MARQUEE_SET_WIDTH}px); }
         }
         @keyframes hlToolsBubbleGlow {
           0%, 100% { opacity: 0.04; }
@@ -504,8 +512,8 @@ function ToolsView() {
 
       {/* Sliding tool-icon marquee — the actual tools, every other one glowing */}
       <div style={{ overflow: "hidden", margin: "36px auto 24px", width: "100%" }}>
-        <div style={{ display: "flex", gap: 16, width: "max-content", animation: "hlToolsMarquee 20s linear infinite" }}>
-          {[...TOOL_BUBBLES, ...TOOL_BUBBLES].map((tool, i) => {
+        <div style={{ display: "flex", gap: TOOLS_MARQUEE_GAP, width: "max-content", animation: `hlToolsMarquee ${TOOLS_MARQUEE_REPEATS * 7}s linear infinite` }}>
+          {Array.from({ length: TOOLS_MARQUEE_REPEATS }, () => TOOL_BUBBLES).flat().map((tool, i) => {
             const glow = i % 2 === 0;
             const Icon = tool.icon;
             return (
@@ -513,7 +521,7 @@ function ToolsView() {
                 key={`${tool.id}-${i}`}
                 style={{
                   flexShrink: 0, position: "relative", overflow: "hidden",
-                  width: 56, height: 56, borderRadius: 28, display: "flex", alignItems: "center", justifyContent: "center",
+                  width: TOOLS_MARQUEE_BUBBLE_SIZE, height: TOOLS_MARQUEE_BUBBLE_SIZE, borderRadius: TOOLS_MARQUEE_BUBBLE_SIZE / 2, display: "flex", alignItems: "center", justifyContent: "center",
                   border: `1.5px solid ${ORANGE}${glow ? "77" : "33"}`,
                   boxShadow: glow ? `0 0 14px 2px ${ORANGE}40` : "none",
                   background: `${ORANGE}16`,

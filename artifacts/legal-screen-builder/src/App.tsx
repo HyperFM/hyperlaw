@@ -6,7 +6,8 @@ import {
   Settings, Star, Brain, Sliders, History, Archive, Copy, Check,
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
-  Camera, LifeBuoy, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
+  Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
+  HeartPlus, Phone,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -2678,6 +2679,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     if (initialCase) return { kind: "case", item: initialCase };
     return null;
   });
+  const [showCrisisSupport, setShowCrisisSupport] = useState(false);
   // Case selection now happens only via the floating case bubble bar (bottom of
   // the screen) — no in-screen picker anymore. When the bar hands us a new case
   // (via the initialCase prop changing) while this view is already mounted,
@@ -2864,22 +2866,105 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         )}
       </div>
 
-      {/* ── Static crisis-support line (988) — always visible in the Index ─── */}
-      <a
-        href="tel:988"
+      {/* ── Crisis-support heart button — small, bottom-right of the Index ─── */}
+      <button
+        onClick={() => setShowCrisisSupport(true)}
+        aria-label="Feeling overwhelmed? Tap for support"
+        title="Feeling overwhelmed?"
         style={{
-          flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 14px", borderBottom: "1px solid #111",
-          background: "#0c0b09", textDecoration: "none",
+          position: "absolute",
+          // The bottom tab bar is a separate position:fixed element (~58px
+          // tall) layered on top at zIndex 100 — this needs enough offset
+          // to clear it, not just safe-area-inset-bottom.
+          bottom: "calc(78px + env(safe-area-inset-bottom))",
+          right: 18,
+          zIndex: 20,
+          width: 52, height: 52,
+          borderRadius: "50%",
+          border: "none",
+          background: `linear-gradient(145deg, ${ORANGE}, #b5540f)`,
+          boxShadow: "0 6px 16px -4px rgba(217,113,31,0.6), 0 2px 4px rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          cursor: "pointer",
         }}
       >
-        <LifeBuoy size={13} color="#8a7448" style={{ flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, color: "#6d6a63", lineHeight: 1.4 }}>
-          In crisis? Call or text{" "}
-          <span style={{ color: "#d9a05b", fontWeight: 800 }}>988</span>
-          {" "}— Suicide &amp; Crisis Lifeline · 24/7, free &amp; confidential
-        </span>
-      </a>
+        <HeartPlus size={24} color="#0a0908" strokeWidth={2.25} />
+      </button>
+
+      {showCrisisSupport && (
+        <div
+          onClick={() => setShowCrisisSupport(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(0,0,0,0.68)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "24px 12px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "104%",
+              maxWidth: 380,
+              background: "linear-gradient(160deg, #1c1210 0%, #140d0b 60%, #1a0f0d 100%)",
+              border: "1px solid rgba(217,113,31,0.35)",
+              borderRadius: 36,
+              padding: "30px 26px 26px",
+              boxShadow: "0 24px 60px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(217,113,31,0.08), inset 0 1px 0 rgba(255,255,255,0.05)",
+              textAlign: "center",
+              position: "relative",
+            }}
+          >
+            <button
+              onClick={() => setShowCrisisSupport(false)}
+              aria-label="Close"
+              style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", color: "#5a534c", cursor: "pointer", padding: 6 }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{
+              width: 60, height: 60, borderRadius: "50%", margin: "0 auto 16px",
+              background: `linear-gradient(145deg, ${ORANGE}, #b5540f)`,
+              boxShadow: "0 8px 20px -6px rgba(217,113,31,0.65)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <HeartPlus size={28} color="#0a0908" strokeWidth={2.25} />
+            </div>
+
+            <h3 style={{ fontSize: 19, fontWeight: 800, color: "#f4efe8", margin: "0 0 12px" }}>
+              Overwhelmed?
+            </h3>
+            <p style={{ fontSize: 13.5, lineHeight: 1.7, color: "#b8ada2", margin: "0 0 10px" }}>
+              You're not alone in this. Whatever's weighing on you right now — legal or otherwise — reach out to someone. If it feels like there's no one, trust me, I get it. That's exactly why this is here.
+            </p>
+            <p style={{ fontSize: 13.5, lineHeight: 1.7, color: "#b8ada2", margin: "0 0 22px" }}>
+              It won't always feel this heavy. It gets easier, one moment at a time, no matter what happens next.
+            </p>
+
+            <a
+              href="tel:988"
+              onClick={() => setShowCrisisSupport(false)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`,
+                color: "#0a0908", fontWeight: 800, fontSize: 14,
+                borderRadius: 14, padding: "13px", textDecoration: "none",
+                marginBottom: 14,
+              }}
+            >
+              <Phone size={16} />
+              Call or Text 988 — Always Available
+            </a>
+            <span
+              onClick={() => setShowCrisisSupport(false)}
+              style={{ fontSize: 12.5, color: "#6d6a63", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+            >
+              Not right now
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Cloud canvas ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "28px 18px 140px" }}>

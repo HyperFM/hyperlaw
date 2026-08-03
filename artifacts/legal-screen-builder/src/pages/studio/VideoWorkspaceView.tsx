@@ -8,7 +8,7 @@ import {
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
-import { ExhibitGeneratorPanel } from "./exhibits";
+import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob, clearVideoBlob, saveThumbnails } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
@@ -959,6 +959,21 @@ function CutScreenBuilderModal({
 
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
 function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDone: () => void }) {
+  if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
+    const vw = typeof window !== "undefined" ? window.innerWidth : 390;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 844;
+    const scale = Math.min(vw / 1920, vh / 1080);
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <ExhibitRenderer content={marker.exhibitScreen.content} scale={scale} />
+        <button onClick={onDone}
+          style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
+          Skip
+        </button>
+      </div>
+    );
+  }
+
   const si = marker.screenInsert;
   if (!si) return null;
   const isLight = si.bgColor === "#f0f0f0";
@@ -1055,6 +1070,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     return saved && saved.length >= 10 ? saved : Array(10).fill(null);
   });
   const [aiOrganizing, setAiOrganizing] = useState(false);
+  const [aiOrganizeReason, setAiOrganizeReason] = useState<string | null>(null);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -1191,6 +1207,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewOverlayMarkerId, setPreviewOverlayMarkerId] = useState<string | null>(null);
   const previewTriggeredRef = useRef<Set<string>>(new Set());
+  // Sequenced preview — when the user has organized moments in Step 2, Preview
+  // plays clip → exhibit → clip in THAT order instead of raw chronological
+  // order. previewSeqIndex is the position within previewSequence currently
+  // playing; null means "no organized order, fall back to chronological."
+  const [previewSeqIndex, setPreviewSeqIndex] = useState<number | null>(null);
+  const sequencedHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Jurisdiction verification ──────────────────────────────────
   const [verifying, setVerifying] = useState(false);
@@ -1445,6 +1467,65 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (v) { v.currentTime = t; setCurrentTime(t); }
   }
 
+  // ── Sequenced preview (Organize step's order → Exhibit → Clip → Exhibit → Clip) ──
+  // Chunks in the order the user (or the AI) organized them in Step 2, skipping
+  // any empty slots or ids that no longer resolve to a chunk. Empty when the
+  // user hasn't organized anything yet — Preview then falls back to playing
+  // the raw video chronologically, same as before this feature existed.
+  const previewSequence: VideoChunk[] = organizedSlots
+    .filter((id): id is string => !!id)
+    .map(id => chunks.find(c => c.id === id))
+    .filter((c): c is VideoChunk => !!c);
+
+  function exhibitMarkerForChunk(chunkId: string): ExhibitMarker | undefined {
+    return markers.find(m => m.type === "exhibit_screen" && m.chunkId === chunkId);
+  }
+
+  function playChunkClip(index: number) {
+    const chunk = previewSequence[index];
+    if (!chunk) return;
+    seek(chunk.start);
+    const v = videoRef.current;
+    if (v) v.play().catch(() => {});
+    setIsPlaying(true);
+  }
+
+  /** Show step `index`'s attached exhibit first (if any), then play its clip. */
+  function playSequencedStep(index: number) {
+    setPreviewSeqIndex(index);
+    const chunk = previewSequence[index];
+    if (!chunk) return;
+    const exhibit = exhibitMarkerForChunk(chunk.id);
+    if (exhibit) {
+      const v = videoRef.current;
+      if (v) v.pause();
+      setIsPlaying(false);
+      setPreviewOverlayMarkerId(exhibit.id);
+      if (sequencedHoldTimerRef.current) clearTimeout(sequencedHoldTimerRef.current);
+      sequencedHoldTimerRef.current = setTimeout(() => {
+        setPreviewOverlayMarkerId(null);
+        playChunkClip(index);
+      }, (exhibit.holdSec ?? 8) * 1000);
+    } else {
+      playChunkClip(index);
+    }
+  }
+
+  /** Advance from step `fromIndex` to the next one, or end the sequence. */
+  function advanceSequencedPreview(fromIndex: number) {
+    const nextIndex = fromIndex + 1;
+    if (nextIndex >= previewSequence.length) {
+      setPreviewSeqIndex(null);
+      setPreviewOverlayMarkerId(null);
+      setIsPreviewMode(false);
+      const v = videoRef.current;
+      if (v) v.pause();
+      setIsPlaying(false);
+      return;
+    }
+    playSequencedStep(nextIndex);
+  }
+
   /** Opening-frame thumbnail for a chunk starting at `start` — same lookup the
    *  timeline uses, so a moment's card photo always matches its timeline clip. */
   function chunkThumb(start: number): string | null {
@@ -1638,8 +1719,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   async function handleAIOrganize() {
     if (aiOrganizing || chunks.length === 0) return;
     setAiOrganizing(true);
+    setAiOrganizeReason(null);
     try {
-      const { order } = await aiApi.organizeVideoChunks({
+      const { order, reason } = await aiApi.organizeVideoChunks({
         chunks: chunks.map(c => ({ id: c.id, start: c.start, end: c.end, label: c.label, tag: c.tag })),
         caseTitle: hlCase.title,
         parties: hlCase.parties.map(p => ({ firstName: p.firstName, lastName: p.lastName, type: p.type })),
@@ -1649,6 +1731,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       });
       const newSlots = [...order, null, null];
       setOrganizedSlots(newSlots);
+      setAiOrganizeReason(reason || null);
       triggerAutosave(markers, chunks, newSlots, currentStep);
       showInsertToast("AI organized your moments — drag any of them to adjust.");
     } catch (err) {
@@ -1672,9 +1755,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Preview mode — fire screen overlay at cut markers ──────────
+  // Chronological fallback for when nothing has been organized in Step 2
+  // (previewSeqIndex stays null) — plays the raw video in its own order and
+  // pauses at each screen_cut / exhibit_screen marker's own timestamp. Once
+  // a sequence exists, playSequencedStep/advanceSequencedPreview drive
+  // playback instead and this effect steps aside entirely.
   useEffect(() => {
-    if (!isPreviewMode || !isPlaying) return;
-    const cuts = markers.filter(m => m.type === "screen_cut").sort((a, b) => a.timestamp - b.timestamp);
+    if (!isPreviewMode || !isPlaying || previewSeqIndex !== null) return;
+    const cuts = markers
+      .filter(m => m.type === "screen_cut" || m.type === "exhibit_screen")
+      .sort((a, b) => a.timestamp - b.timestamp);
     for (const cut of cuts) {
       // Trigger within a 0.3s window of the cut point (timeupdate fires ~4x/s)
       if (Math.abs(currentTime - cut.timestamp) < 0.35 && !previewTriggeredRef.current.has(cut.id)) {
@@ -1692,7 +1782,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         break;
       }
     }
-  }, [currentTime, isPreviewMode, isPlaying, markers]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentTime, isPreviewMode, isPlaying, previewSeqIndex, markers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset triggered set when preview mode exits or video position rewinds
   useEffect(() => {
@@ -1708,6 +1798,30 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       })
     );
   }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sequenced preview — detect reaching the current step's clip end ────
+  useEffect(() => {
+    if (previewSeqIndex === null || !isPlaying) return;
+    const chunk = previewSequence[previewSeqIndex];
+    if (!chunk) return;
+    if (currentTime >= chunk.end - 0.05) {
+      const v = videoRef.current;
+      if (v) v.pause();
+      setIsPlaying(false);
+      advanceSequencedPreview(previewSeqIndex);
+    }
+  }, [currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clean up any pending exhibit-hold timer on unmount or when preview exits
+  useEffect(() => {
+    if (!isPreviewMode && sequencedHoldTimerRef.current) {
+      clearTimeout(sequencedHoldTimerRef.current);
+      sequencedHoldTimerRef.current = null;
+    }
+    return () => {
+      if (sequencedHoldTimerRef.current) clearTimeout(sequencedHoldTimerRef.current);
+    };
+  }, [isPreviewMode]);
 
   // Safety valve: if the video never fires loadedmetadata/canplay (e.g. unsupported
   // codec on iOS), clear the loading overlay after 12 s so the user isn't stuck.
@@ -2231,9 +2345,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   function insertExhibitScreenMarker(data: ExhibitScreenData) {
     const id = crypto.randomUUID();
     const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
+    // Attach to whichever moment the playhead is inside of, so the exhibit
+    // travels with that moment when Step 2 reorders it — not just whichever
+    // chunk happened to be last selected (the playhead may have moved since).
+    const owningChunk = chunks.find(c => currentTime >= c.start && currentTime <= c.end);
     const newMarker: ExhibitMarker = {
       id,
       timestamp: currentTime,
+      chunkId: owningChunk?.id,
       label: `AI Screen ${screenNum}`,
       dictation: "", whyItMatters: "",
       status: "ready",
@@ -2633,7 +2752,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onLoadedData={() => setVideoLoading(false)}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
-            onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setIsPreviewMode(false); } }}
+            onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
             onError={e => {
               const v = e.currentTarget;
               const code = v.error?.code;
@@ -2789,11 +2908,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ flex: 1 }} />
 
           {/* Preview mode toggle */}
-          {videoUrl && markers.some(m => m.type === "screen_cut") && (
+          {videoUrl && markers.some(m => m.type === "screen_cut" || m.type === "exhibit_screen") && (
             <button
               onClick={() => {
                 if (isPreviewMode) {
+                  if (sequencedHoldTimerRef.current) clearTimeout(sequencedHoldTimerRef.current);
+                  setPreviewSeqIndex(null);
+                  setPreviewOverlayMarkerId(null);
                   setIsPreviewMode(false);
+                } else if (previewSequence.length > 0) {
+                  // Organized order exists — play it as Exhibit → Clip → Exhibit → Clip
+                  // instead of the raw video's own chronological order.
+                  setIsPreviewMode(true);
+                  playSequencedStep(0);
                 } else {
                   previewTriggeredRef.current = new Set();
                   seek(0);
@@ -2804,7 +2931,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                   }, 150);
                 }
               }}
-              title={isPreviewMode ? "Exit preview" : "Preview with screen cuts"}
+              title={isPreviewMode ? "Exit preview" : previewSequence.length > 0 ? "Preview in your organized order" : "Preview with screen cuts"}
               style={{ background: isPreviewMode ? ORANGE : "#111", border: `1px solid ${isPreviewMode ? ORANGE : "#222"}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: isPreviewMode ? "#000" : "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
               {isPreviewMode ? <StopCircle size={12} /> : <PlayCircle size={12} />}
               {isPreviewMode ? "Stop Preview" : "Preview"}
@@ -3113,6 +3240,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                     <span style={{ color: "#3a6a3a" }}>💡 You have a consistent moment — consider opening with it.</span>
                   )}
                 </div>
+                {aiOrganizeReason && (
+                  <div style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}22`, borderRadius: 10,
+                    padding: "10px 12px", marginBottom: 12, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <Wand2 size={13} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.55 }}>{aiOrganizeReason}</div>
+                  </div>
+                )}
                 <div style={{ overflowX: "auto", paddingBottom: 4 }}>
                   <div style={{ display: "flex", gap: 6, minWidth: "max-content" }}>
                     {organizedSlots.map((chunkId, i) => {
@@ -3280,9 +3414,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         <PreviewScreenOverlay
           marker={previewOverlayMarker}
           onDone={() => {
-            setPreviewOverlayMarkerId(null);
-            const v = videoRef.current;
-            if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+            if (previewSeqIndex !== null) {
+              // Sequenced mode — manual "Skip" jumps straight to this step's clip.
+              if (sequencedHoldTimerRef.current) { clearTimeout(sequencedHoldTimerRef.current); sequencedHoldTimerRef.current = null; }
+              setPreviewOverlayMarkerId(null);
+              playChunkClip(previewSeqIndex);
+            } else {
+              setPreviewOverlayMarkerId(null);
+              const v = videoRef.current;
+              if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+            }
           }}
         />
       )}

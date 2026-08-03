@@ -214,6 +214,8 @@ export interface ExhibitMarker {
   id: string;
   /** Seconds from start of video */
   timestamp: number;
+  /** The moment (VideoChunk.id) this marker belongs to, when it was created from within one — lets exhibits travel with their moment when the Organize step reorders it. */
+  chunkId?: string;
   label: string;
   dictation: string;
   whyItMatters: string;

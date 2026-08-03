@@ -455,7 +455,7 @@ export const aiApi = {
     story?: string;
     claims?: string[];
     caseId?: string;
-  }): Promise<{ order: string[] }> {
+  }): Promise<{ order: string[]; reason: string }> {
     return aiFetch("/ai/organize-video-chunks", {
       method: "POST",
       body: JSON.stringify(input),

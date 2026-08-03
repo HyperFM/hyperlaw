@@ -1347,7 +1347,7 @@ CRITICAL: Base everything ONLY on the provided case information. Do not fabricat
     parties?: Array<{ firstName: string; lastName: string; type: string }>;
     story?: string;
     claims?: string[];
-  }): Promise<AiResult<{ order: string[] }>> {
+  }): Promise<AiResult<{ order: string[]; reason: string }>> {
     const chunkIds = input.chunks.map(c => c.id);
 
     const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
@@ -1374,11 +1374,12 @@ ${chunksBlock}
 === INSTRUCTIONS ===
 - Contrasting or contradicting moments should sit next to each other so the juxtaposition is obvious (e.g. a moment showing a stated policy immediately followed by a moment showing it being violated).
 - Escalation-tagged moments should generally build toward the strongest one.
-- Consistent/reinforcing moments that support the same point should be grouped together.
+- Consistent/reinforcing moments that support the same point should be grouped together — and when there's a clearly credibility-establishing or good-faith "consistency" moment, prefer opening with it, so the audience trusts the narrator before anything contested is shown.
+- "no_cause" moments (an official gave a non-answer or circular justification instead of an actual reason) are almost always MORE persuasive clustered back-to-back than scattered — even if they happened at very different points in the raw footage. Seeing five separate instances of "asked for a reason, got a non-answer" in a row makes the pattern undeniable; seeing them scattered among other moments lets each one read as an isolated, forgivable incident. Actively look for this pattern across all no_cause-tagged chunks and group them together unless doing so would break a stronger contradiction/escalation pairing.
 - Use the case context to judge what matters, but base the order only on the chunks listed above — never invent a moment that isn't in the list.
 
 Return ONLY this JSON, nothing else:
-{ "order": ["<chunk id>", "<chunk id>", ...] }
+{ "order": ["<chunk id>", "<chunk id>", ...], "reason": "One or two sentences explaining the ordering choices a lay person would understand — call out specifically if/why any moments were grouped together." }
 
 The "order" array must contain every chunk id listed above exactly once — no fewer, no more, no duplicates, no invented ids.`;
 
@@ -1390,8 +1391,9 @@ The "order" array must contain every chunk id listed above exactly once — no f
       messages: [{ role: "user", content: prompt }],
     }));
 
-    const parsed = this.parseJsonResponse<{ order?: unknown }>(response);
+    const parsed = this.parseJsonResponse<{ order?: unknown; reason?: unknown }>(response);
     const rawOrder = Array.isArray(parsed.order) ? parsed.order.filter((id): id is string => typeof id === "string") : [];
+    const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : "";
 
     // Defensive repair: guarantee the returned order is exactly the input
     // chunk ids (no fewer, no more, no duplicates) regardless of what the
@@ -1408,7 +1410,7 @@ The "order" array must contain every chunk id listed above exactly once — no f
     }
 
     return {
-      data: { order: cleanedOrder },
+      data: { order: cleanedOrder, reason },
       meta: this.buildMeta(response.usage, Date.now() - start),
     };
   }

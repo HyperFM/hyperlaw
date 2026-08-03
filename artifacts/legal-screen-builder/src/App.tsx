@@ -450,6 +450,10 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── TOOLS VIEW ───────────────────────────────────────────────────────────────
+// Decorative sliding marquee above the "Tools" heading — six concept pills,
+// duplicated once so the strip can loop seamlessly, drifting left forever.
+const TOOLS_MARQUEE_LABELS = ["Battle Prep", "Voir Dire", "Motions", "Objections", "Evidence Prep", "Closing Arguments"];
+
 const TOOL_BUBBLES = [
   {
     id: "battle-prep",
@@ -470,11 +474,55 @@ const TOOL_BUBBLES = [
 function ToolsView() {
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // Inject the marquee/glow keyframes once
+  (() => {
+    const id = "hl-tools-marquee-kf";
+    if (typeof document !== "undefined" && !document.getElementById(id)) {
+      const s = document.createElement("style");
+      s.id = id;
+      s.textContent = `
+        @keyframes hlToolsMarquee {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @keyframes hlToolsBubbleGlow {
+          0%, 100% { opacity: 0.04; }
+          50%       { opacity: 0.16; }
+        }
+      `;
+      document.head.appendChild(s);
+    }
+  })();
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px", textAlign: "center" }}>
-      <div style={{ width: 64, height: 64, borderRadius: 32, background: `${ORANGE}16`, border: `1.5px solid ${ORANGE}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "40px auto 20px" }}>
-        <Wrench size={28} color={ORANGE} />
+
+      {/* Sliding tool-concept marquee — six pills, every other one glowing */}
+      <div style={{ overflow: "hidden", margin: "36px auto 24px", width: "100%" }}>
+        <div style={{ display: "flex", gap: 12, width: "max-content", animation: "hlToolsMarquee 24s linear infinite" }}>
+          {[...TOOLS_MARQUEE_LABELS, ...TOOLS_MARQUEE_LABELS].map((label, i) => {
+            const glow = i % 2 === 0;
+            return (
+              <div
+                key={`${label}-${i}`}
+                style={{
+                  flexShrink: 0, position: "relative", overflow: "hidden",
+                  padding: "10px 20px", borderRadius: 24,
+                  border: `1.5px solid ${ORANGE}${glow ? "77" : "33"}`,
+                  boxShadow: glow ? `0 0 14px 2px ${ORANGE}40` : "none",
+                  fontSize: 13, fontWeight: 700, color: glow ? "#f4efe8" : "#877252",
+                }}
+              >
+                {glow && (
+                  <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "hlToolsBubbleGlow 3.4s ease-in-out infinite" }} />
+                )}
+                <span style={{ position: "relative" }}>{label}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
       <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 10, letterSpacing: -0.3 }}>Tools</div>
       <div style={{ color: "#555", fontSize: 15, lineHeight: 1.65, maxWidth: 320, margin: "0 auto 28px" }}>
         Courtroom tools for pro se litigants, built right into your case.

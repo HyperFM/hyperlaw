@@ -1458,8 +1458,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (isPlaying) { v.pause(); setIsPlaying(false); }
-    else { v.play().catch(() => {}); setIsPlaying(true); }
+    // Don't set isPlaying here — the video element's own onPlay/onPause
+    // events (below) are the source of truth. Setting it optimistically
+    // meant that if play() rejected (still buffering, not enough data yet),
+    // the button would show "Pause" while the video was actually paused —
+    // every subsequent press then just toggled between two wrong states.
+    if (isPlaying) { v.pause(); }
+    else { v.play().catch(() => {}); }
   }
 
   function seek(t: number) {
@@ -1843,12 +1848,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   //   • Results are also cached to IndexedDB (see cachedThumbsRef below) so
   //     this whole seek-by-seek pass only ever has to run once per video,
   //     not every time the case is reopened.
-  const THUMB_N = 80; // was 20 — at max zoom (8x) that's ~10 distinct frames
-  // visible at once instead of ~2.5, so zooming in stops repeating the same
-  // frame across a long stretch. Still Phase 1 (fixed count, not truly
-  // dynamic per pixels-per-second) but a real, bounded improvement — and
-  // now that it's cached, the one-time extraction cost is paid once ever
-  // per video, not once per session.
+  // Each frame is captured one at a time (seek → wait for presentation →
+  // draw → stability-check) — that loop is deliberately sequential and
+  // slow-but-correct (see the iOS frame-presentation notes below), so total
+  // load time scales directly with this count. 80 gave great zoom density
+  // but made first load noticeably slow, especially on mobile — 40 roughly
+  // halves it while still giving ~5 distinct frames at max (8x) zoom instead
+  // of the original ~2.5 at THUMB_N=20.
+  const THUMB_N = 40;
 
   useEffect(() => {
     // If a previous session already generated (and cached) this exact

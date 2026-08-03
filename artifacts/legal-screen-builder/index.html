@@ -2,7 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // Only lock zoom inside the native app shell (Capacitor) — regular
+      // mobile-browser visitors to the website keep normal pinch-zoom, which
+      // some people genuinely rely on for readability. Inside the native
+      // wrapper, though, unlocked zoom is exactly what makes it feel like
+      // "a web page" instead of an app: pinch-zoom, and iOS's auto-zoom on
+      // focusing any input under 16px, both come from an unlocked viewport
+      // scale. Checked a few times since Capacitor's bridge can attach
+      // slightly after this script runs.
+      (function () {
+        function isNativeApp() {
+          return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        }
+        function lockViewportIfNative() {
+          if (!isNativeApp()) return;
+          var vp = document.getElementById("viewport-meta");
+          if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover");
+        }
+        lockViewportIfNative();
+        document.addEventListener("DOMContentLoaded", lockViewportIfNative);
+        setTimeout(lockViewportIfNative, 50);
+        setTimeout(lockViewportIfNative, 300);
+      })();
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="HyperLaw" />
@@ -195,15 +219,24 @@
         50%      { opacity: 1;   transform: translate(-50%,-50%) scale(1.06); }
       }
 
-      /* app icon */
+      /* app icon — stays fully hidden (not partially rendered) until JS
+         confirms the image has completely finished downloading and
+         decoding (see .ready below). Otherwise, on a slow connection, the
+         raster image streams in top-to-bottom while the fade/scale
+         animation is *also* running on top of that partial image at the
+         same time — two separate effects colliding into one messy one.
+         Gating them means the fade only ever starts once there's a
+         complete, solid image to fade in. */
       #hl-splash .icon {
         position: relative;
         width: 150px; height: 150px;
         border-radius: 32px;
-        opacity: 0.12;
+        opacity: 0;
         transform: scale(0.5);
         filter: drop-shadow(0 0 6px rgba(255,138,31,0.25));
         transition: filter .35s ease;
+      }
+      #hl-splash .icon.ready {
         animation: zoomIn 6.6s cubic-bezier(.16,.6,.24,1) forwards 0.3s;
       }
       @keyframes zoomIn {
@@ -270,26 +303,16 @@
           return splash.querySelector('.' + c);
         });
 
-        // The layout itself is correct — confirmed a manual pull-down locks
-        // it perfectly and it stays correct afterward. So this doesn't
-        // change any height calculation at all; it just needs to trigger
-        // the same native recalculation a real scroll gesture does,
-        // automatically. A temporary spacer guarantees there's genuine
-        // scrollable distance to move through (rather than a no-op scrollTo
-        // on a page with nothing to scroll), and the longer delay before
-        // reversing it gives the recalculation time to actually commit
-        // before undoing the scroll.
-        function nudgeViewportSettle() {
-          var spacer = document.createElement('div');
-          spacer.style.cssText = 'height:80px;pointer-events:none;';
-          document.body.appendChild(spacer);
-          window.scrollTo(0, 80);
-          setTimeout(function () {
-            window.scrollTo(0, 0);
-            setTimeout(function () { spacer.remove(); }, 200);
-          }, 150);
+        // Icon stays hidden until its image data has completely finished
+        // downloading and decoding — see the .icon / .icon.ready CSS above
+        // for why. Only then does its fade/scale reveal start.
+        function revealIcon() { icon.classList.add('ready'); }
+        if (icon.complete && icon.naturalWidth > 0) {
+          revealIcon();
+        } else {
+          icon.addEventListener('load', revealIcon, { once: true });
+          icon.addEventListener('error', revealIcon, { once: true });
         }
-        setTimeout(nudgeViewportSettle, 200);
 
         function pulseIcon() {
           icon.classList.remove('pulse');

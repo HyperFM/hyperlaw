@@ -15,6 +15,13 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: "always",
+    // Disables the WebView's own outer scroll/bounce — without this the
+    // whole app can be dragged up and down like a web page (rubber-band
+    // bounce revealing white past the content edges), which is exactly the
+    // "acting like a web viewer" feeling. Each screen already manages its
+    // own height/scrolling internally via CSS, so this only removes the
+    // outer container's own scroll, not scrolling within individual views.
+    scrollEnabled: false,
   },
 };
 

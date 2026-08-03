@@ -3036,7 +3036,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
                 }}>{label}</div>
               ))}
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 8 }}>Your experience, organized</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 8 }}>Your experience, integrated</div>
             <div style={{ color: "#2a2a2a", fontSize: 13, lineHeight: 1.7, maxWidth: 280, margin: "0 auto" }}>
               I'm here to help you turn even the hardest parts of what happened into something clear. Select a case or incident above, and every key concept will surface — floating, colour-coded, and organized for you to see and reference.
             </div>

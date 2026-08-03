@@ -10,14 +10,21 @@
       // wrapper, though, unlocked zoom is exactly what makes it feel like
       // "a web page" instead of an app: pinch-zoom, and iOS's auto-zoom on
       // focusing any input under 16px, both come from an unlocked viewport
-      // scale. Checked a few times since Capacitor's bridge can attach
-      // slightly after this script runs.
+      // scale.
+      //
+      // Signing out does a full window.location.href navigation (not just a
+      // client-side route change), so Capacitor's bridge has to reattach
+      // from scratch on every sign-in screen load, not just on the app's
+      // very first cold launch — and how long that takes isn't constant.
+      // A few fixed-delay checks could all run before the bridge was ready,
+      // silently never applying the lock for that session. Polling
+      // continuously until it's actually detected (instead of giving up
+      // after a few tries) is the only way to not depend on that timing.
       (function () {
         function isNativeApp() {
           return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
         }
-        function lockViewportIfNative() {
-          if (!isNativeApp()) return;
+        function applyNativeLock() {
           var vp = document.getElementById("viewport-meta");
           if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover");
           // user-scalable=no alone doesn't reliably stop iOS's separate
@@ -25,10 +32,12 @@
           // that in CSS instead, only inside the native app (see index.css).
           document.documentElement.classList.add("native-app");
         }
-        lockViewportIfNative();
-        document.addEventListener("DOMContentLoaded", lockViewportIfNative);
-        setTimeout(lockViewportIfNative, 50);
-        setTimeout(lockViewportIfNative, 300);
+        function pollForNative(attemptsLeft) {
+          if (isNativeApp()) { applyNativeLock(); return; }
+          if (attemptsLeft <= 0) return;
+          setTimeout(function () { pollForNative(attemptsLeft - 1); }, 100);
+        }
+        pollForNative(100); // up to 10s — comfortably past any realistic bridge-attach delay
       })();
     </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />

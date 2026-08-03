@@ -957,6 +957,44 @@ function CutScreenBuilderModal({
   );
 }
 
+// ── Preparing-video message — cycles through on-brand lines while thumbnail
+// extraction runs, crossfading between them instead of sitting static. ───────
+const PREPARING_MESSAGES = [
+  "Patience is key.",
+  "Just wait — the strong cases always are.",
+  "Building your evidence, frame by frame.",
+  "Every case worth winning takes a little prep.",
+  "Justice doesn't rush. Neither will this.",
+  "Almost there — hang tight.",
+];
+
+function PreparingVideoMessage() {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const cycle = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx(i => (i + 1) % PREPARING_MESSAGES.length);
+        setVisible(true);
+      }, 350);
+    }, 2800);
+    return () => clearInterval(cycle);
+  }, []);
+
+  return (
+    <span style={{
+      fontSize: 12, color: "#888", fontWeight: 600,
+      opacity: visible ? 1 : 0,
+      transition: "opacity 0.35s ease",
+      display: "inline-block",
+    }}>
+      {PREPARING_MESSAGES[idx]}
+    </span>
+  );
+}
+
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
 function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDone: () => void }) {
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
@@ -2912,7 +2950,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               : isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
           </button>
           <div style={{ fontSize: 14, fontWeight: 800, color: videoUrl ? "#fff" : "#444", letterSpacing: 0.5, minWidth: 80, flexShrink: 0 }}>
-            {thumbsLoading ? <span style={{ fontSize: 12, color: "#888", fontWeight: 600 }}>Preparing video…</span> : (
+            {thumbsLoading ? <PreparingVideoMessage /> : (
               <>
                 {formatTime(currentTime)}
                 <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(duration) : "--:--"}</span>

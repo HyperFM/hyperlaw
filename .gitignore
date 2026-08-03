@@ -52,3 +52,14 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# iOS (Capacitor/Xcode) — local build output and machine-specific state only;
+# the Xcode project itself (ios/App/App.xcodeproj, Info.plist, etc.) is tracked.
+artifacts/legal-screen-builder/ios/App/build/
+artifacts/legal-screen-builder/ios/App/Pods/
+artifacts/legal-screen-builder/ios/App/App.xcodeproj/xcuserdata/
+artifacts/legal-screen-builder/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+artifacts/legal-screen-builder/ios/App/App.xcworkspace/xcuserdata/
+artifacts/legal-screen-builder/ios/DerivedData/
+*.xcarchive
+*.ipa

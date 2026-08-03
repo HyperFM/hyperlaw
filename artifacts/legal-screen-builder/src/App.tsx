@@ -725,7 +725,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
               <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>
                 {activeCases.length === 1 ? "Continue Your Case" : "Your Cases"}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
                 {activeCases.map(c => (
                   <PrimaryCaseCard
                     key={c.id}
@@ -883,11 +883,11 @@ function CaseBubbleBar({ cases, onOpenCase }: {
   cases: HLCase[];
   onOpenCase: (c: HLCase) => void;
 }) {
+  // One bubble on screen at a time — swipe to switch, instead of a scrollable
+  // row of several. loop so swiping past the last case wraps to the first.
   const [emblaRef, emblaApi] = useEmblaCarousel({
-    loop: false,
-    align: "center",
-    containScroll: "trimSnaps",
-    dragFree: true,
+    loop: cases.length > 1,
+    align: "start",
   });
   const [selected, setSelected] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -905,56 +905,35 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
   if (cases.length === 0) return null;
 
-  const single = cases.length === 1;
+  const BUBBLE_W = 84;
 
   return (
     <div style={{
       position: "fixed",
-      bottom: `calc(70px + env(safe-area-inset-bottom))`,
-      left: 0, right: 0,
-      zIndex: 90,
-      display: "flex",
-      justifyContent: "center",
+      // The bottom tab bar is a separate position:fixed element (~58px tall)
+      // at zIndex 100 — 78px clearance plus a higher zIndex here keeps the
+      // case name from ever rendering behind it.
+      bottom: `calc(78px + env(safe-area-inset-bottom))`,
+      left: 18,
+      zIndex: 110,
+      width: BUBBLE_W,
       pointerEvents: "none",
       transform: `translateY(${visible ? 0 : 24}px)`,
       opacity: visible ? 1 : 0,
       transition: "transform 0.4s cubic-bezier(.22,.9,.32,1), opacity 0.32s ease",
     }}>
-      <div style={{
-        background: "rgba(9,8,7,0.93)",
-        backdropFilter: "blur(24px)",
-        WebkitBackdropFilter: "blur(24px)",
-        border: "1px solid rgba(217,113,31,0.2)",
-        borderRadius: 28,
-        padding: "10px 8px 10px",
-        boxShadow: [
-          "0 -2px 24px rgba(0,0,0,0.55)",
-          "0 12px 48px rgba(0,0,0,0.85)",
-          "inset 0 1px 0 rgba(255,255,255,0.04)",
-        ].join(", "),
-        maxWidth: "calc(100vw - 28px)",
-        width: single ? "auto" : "calc(100vw - 28px)",
-        pointerEvents: "all",
-        overflow: "hidden",
-      }}>
-
-        {/* Swipeable bubble row */}
+      <div style={{ pointerEvents: "all" }}>
+        {/* Swipeable — one bubble at a time, no panel behind it */}
         <div ref={emblaRef} style={{ overflow: "hidden" }}>
-          <div style={{
-            display: "flex",
-            gap: 8,
-            paddingLeft: 4, paddingRight: 4,
-            justifyContent: single ? "center" : undefined,
-          }}>
+          <div style={{ display: "flex" }}>
             {cases.map((c, i) => {
-              const isSel = i === selected;
               const photo = getCasePhoto(c.id);
               return (
                 <button
                   key={c.id}
-                  onClick={() => { emblaApi?.scrollTo(i); onOpenCase(c); }}
+                  onClick={() => onOpenCase(c)}
                   style={{
-                    flex: `0 0 ${single ? 96 : (photo ? 60 : 76)}px`,
+                    flex: `0 0 ${BUBBLE_W}px`,
                     borderRadius: 16,
                     border: "none",
                     background: "none",
@@ -962,23 +941,18 @@ function CaseBubbleBar({ cases, onOpenCase }: {
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
-                    justifyContent: photo ? "flex-start" : "center",
-                    gap: 5,
+                    gap: 6,
                     padding: "4px 2px",
-                    transition: "transform 0.25s cubic-bezier(.22,.9,.32,1)",
                     WebkitTapHighlightColor: "transparent",
-                    transform: isSel ? "scale(1.06)" : "scale(0.94)",
-                    position: "relative",
                   }}
                 >
                   {/* Photo — only shown once the user has actually added one */}
                   {photo && (
                     <div style={{
-                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
-                      border: `1.5px solid ${isSel ? ORANGE : `${ORANGE}2a`}`,
+                      width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
+                      border: `1.5px solid ${ORANGE}`,
                       overflow: "hidden",
-                      boxShadow: isSel ? `0 0 14px ${ORANGE}55` : "none",
-                      transition: "box-shadow 0.25s, border-color 0.25s",
+                      boxShadow: `0 0 14px ${ORANGE}55, 0 4px 14px rgba(0,0,0,0.5)`,
                     }}>
                       <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     </div>
@@ -986,12 +960,11 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
                   {/* Case name — single slim line, no icon fallback */}
                   <div style={{
-                    fontSize: 9, fontWeight: 800, letterSpacing: 0.1,
-                    color: isSel ? "#fff" : "#666",
+                    fontSize: 10, fontWeight: 800, letterSpacing: 0.1,
+                    color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)",
                     textAlign: "center", lineHeight: 1.2, width: "100%",
                     overflow: "hidden", textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
-                    transition: "color 0.25s",
                   }}>
                     {c.title}
                   </div>
@@ -1003,13 +976,14 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
         {/* Indicator dots */}
         {cases.length > 1 && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 8 }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 6 }}>
             {cases.map((_, i) => (
               <button key={i} onClick={() => emblaApi?.scrollTo(i)}
                 style={{
-                  width: i === selected ? 18 : 5, height: 4, borderRadius: 2,
+                  width: i === selected ? 14 : 5, height: 4, borderRadius: 2,
                   border: "none", padding: 0, cursor: "pointer",
-                  background: i === selected ? ORANGE : "#232323",
+                  background: i === selected ? ORANGE : "#3a3a3a",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.6)",
                   transition: "width 0.22s ease, background 0.22s",
                   WebkitTapHighlightColor: "transparent",
                 }} />
@@ -1022,11 +996,6 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 }
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
-
-// Four-stage progress roadmap on the case card — placeholder pending a real
-// intake-progress design (see memory); all four stages just read "Intake"
-// and render white until that's designed.
-const CARD_STAGES = ["Intake", "Intake", "Intake", "Intake"] as const;
 
 // ─── Per-case photo (localStorage; mirrors the profile-photo pattern) ─────────
 function casePhotoKey(caseId: string) { return `hl_case_photo_${caseId}`; }
@@ -1166,6 +1135,8 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
   return { ...hlCase, ...patch };
 }
 
+// App-icon style: a square photo (or camera placeholder until one's set) with
+// the case name underneath — no card background/border wrapping it anymore.
 function PrimaryCaseCard({ hlCase, onOpen }: {
   hlCase: HLCase;
   onOpen: () => void;
@@ -1175,50 +1146,31 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
   const cardPhotoInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div onClick={onOpen}
-      style={{ background: "linear-gradient(180deg, #161311 0%, #100e0c 100%)", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "13px 14px", cursor: "pointer" }}>
-
-      {/* Date / court */}
-      <div style={{ fontSize: 10.5, color: "#7a6a5c", fontWeight: 600, marginBottom: 9 }}>
-        {formatDate(hlCase.createdAt)}{hlCase.court ? ` · ${hlCase.court.shortName ?? hlCase.court.name}` : ""}
-      </div>
-
-      {/* Photo + title row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
-        <button onClick={e => { e.stopPropagation(); cardPhotoInputRef.current?.click(); }} title="Set a photo for this case"
-          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, position: "relative", borderRadius: 14, lineHeight: 0 }}>
-          {photo
-            ? <img src={photo} alt="" style={{ width: 68, height: 68, borderRadius: 14, objectFit: "cover", border: `1px solid ${ORANGE}55`, display: "block" }} />
-            : <div style={{ width: 68, height: 68, borderRadius: 14, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={30} color={ORANGE} /></div>}
-          <div style={{ position: "absolute", right: -3, bottom: -3, width: 22, height: 22, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #100e0c" }}>
-            <Camera size={11} color="#000" />
-          </div>
-        </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, color: "#fff" }}>{hlCase.title}</div>
-        </div>
-        <ChevronRight size={16} color="#5a4c40" style={{ flexShrink: 0 }} />
-      </div>
-
-      {/* Intake progress roadmap — placeholder (all white, all "Intake") until
-          the real intake-progress steps are designed; see memory. */}
-      <div style={{ display: "flex", alignItems: "center" }}>
-        {CARD_STAGES.map((stage, i) => {
-          const isLast = i === CARD_STAGES.length - 1;
-          return (
-            <React.Fragment key={i}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
-                <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: 0.2 }}>{stage}</span>
-              </div>
-              {!isLast && (
-                <div style={{ flex: 1, height: 1, background: `${ORANGE}33`, margin: "0 4px", minWidth: 6 }} />
-              )}
-            </React.Fragment>
-          );
-        })}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
+      {/* No photo yet → the camera icon IS the "add a photo" button. Once set,
+          tapping opens the case, same as tapping any app icon. */}
+      <button
+        onClick={photo ? onOpen : () => cardPhotoInputRef.current?.click()}
+        title={photo ? hlCase.title : "Add a photo for this case"}
+        style={{
+          width: "100%", aspectRatio: "1", borderRadius: 20, flexShrink: 0,
+          background: photo ? "#100e0c" : `${ORANGE}14`,
+          border: `1px solid ${ORANGE}33`,
+          padding: 0, cursor: "pointer", overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+        {photo
+          ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          : <Camera size={28} color={ORANGE} />}
+      </button>
+      <div onClick={onOpen} style={{
+        cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#fff",
+        textAlign: "center", width: "100%", lineHeight: 1.3,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {hlCase.title}
       </div>
     </div>
   );

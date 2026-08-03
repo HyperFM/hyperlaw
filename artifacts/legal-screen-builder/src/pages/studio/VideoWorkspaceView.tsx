@@ -2904,13 +2904,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
         {/* ── Controls ──────────────────────────────────────────────── */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-          <button onClick={togglePlay} disabled={!videoUrl}
-            style={{ width: 42, height: 42, borderRadius: 21, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
-            {isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
+          <button onClick={togglePlay} disabled={!videoUrl || thumbsLoading}
+            title={thumbsLoading ? "Preparing your video…" : undefined}
+            style={{ width: 42, height: 42, borderRadius: 21, background: videoUrl && !thumbsLoading ? ORANGE : "#1a1a1a", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl && !thumbsLoading ? "pointer" : "not-allowed", flexShrink: 0 }}>
+            {thumbsLoading
+              ? <Loader2 size={16} color="#555" className="animate-spin" />
+              : isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
           </button>
           <div style={{ fontSize: 14, fontWeight: 800, color: videoUrl ? "#fff" : "#444", letterSpacing: 0.5, minWidth: 80, flexShrink: 0 }}>
-            {formatTime(currentTime)}
-            <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(duration) : "--:--"}</span>
+            {thumbsLoading ? <span style={{ fontSize: 12, color: "#888", fontWeight: 600 }}>Preparing video…</span> : (
+              <>
+                {formatTime(currentTime)}
+                <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(duration) : "--:--"}</span>
+              </>
+            )}
           </div>
           <div style={{ flex: 1 }} />
 

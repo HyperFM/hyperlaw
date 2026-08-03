@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone,
+  HeartPlus, Phone, Baby,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -468,6 +468,13 @@ const TOOL_BUBBLES = [
     title: "Voir Dire",
     tagline: "Jury selection, simplified.",
     detail: "A guide for picking your jury — who's in the room, what to ask them, and who to strike, for when you're doing a jury trial.",
+  },
+  {
+    id: "family-court",
+    icon: Baby,
+    title: "Family Court",
+    tagline: "Divorce, custody, and support — organized.",
+    detail: "Divorce & dissolution (asset division, spousal support, settlement agreements) · Child custody & visitation (parenting plans, custody schedules, best-interest-of-child documentation) · Child support calculations · Protective orders.",
   },
 ] as const;
 

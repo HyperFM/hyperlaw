@@ -54,6 +54,19 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface FeedbackItem {
+  id: string;
+  userId: string | null;
+  userEmail: string | null;
+  userName: string | null;
+  message: string;
+  type: string;
+  read: boolean;
+  adminReply: string | null;
+  repliedAt: string | null;
+  createdAt: string;
+}
+
 export interface AdminUser {
   id: string;
   username: string;
@@ -73,6 +86,13 @@ export const api = {
   feedback: {
     submit: (message: string, type = "general") =>
       apiFetch<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify({ message, type }) }),
+    /** Admin-only — every submission, across all categories. */
+    listAll: () => apiFetch<FeedbackItem[]>("/feedback"),
+    /** Admin-only — unread count per category, e.g. { improvement: 2, support: 1 }. */
+    unreadCounts: () => apiFetch<Record<string, number>>("/feedback/unread-counts"),
+    markRead: (id: string) => apiFetch<FeedbackItem>(`/feedback/${id}/read`, { method: "POST" }),
+    reply: (id: string, reply: string) =>
+      apiFetch<FeedbackItem>(`/feedback/${id}/reply`, { method: "POST", body: JSON.stringify({ reply }) }),
   },
   admin: {
     users: () => apiFetch<AdminUser[]>("/admin/users"),

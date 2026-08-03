@@ -40,6 +40,12 @@ export const feedbackTable = pgTable("feedback", {
   userName: text("user_name"),
   message: text("message").notNull(),
   type: text("type").notNull().default("general"),
+  // Admin inbox state — read/adminReply/repliedAt let the admin view track
+  // what's been seen and respond to a specific submission in place, rather
+  // than feedback being a one-way form with no reply path.
+  read: boolean("read").notNull().default(false),
+  adminReply: text("admin_reply"),
+  repliedAt: timestamp("replied_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

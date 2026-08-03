@@ -20,6 +20,17 @@
     font-family: Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+  /* iOS auto-zooms on focusing any input under 16px, regardless of the
+     viewport's user-scalable/maximum-scale setting — locking the viewport
+     alone doesn't stop it. Forcing 16px here (only inside the native app —
+     see index.html — not the website, where 14px is the deliberate design)
+     is the actual fix; !important is required since it needs to beat the
+     inline fontSize:14 styles used across the auth forms. */
+  html.native-app input,
+  html.native-app textarea,
+  html.native-app select {
+    font-size: 16px !important;
+  }
 }
 
 @keyframes spin {

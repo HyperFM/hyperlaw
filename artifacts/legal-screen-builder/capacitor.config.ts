@@ -14,7 +14,14 @@ const config: CapacitorConfig = {
     cleartext: false,
   },
   ios: {
-    contentInset: "always",
+    // "always" made the WebView dynamically recalculate safe-area insets
+    // as things settle after launch — a native-side timing race that
+    // matches the intermittent "splash lifts up a little, but not every
+    // time" symptom. The app's own CSS already handles safe-area padding
+    // throughout (env(safe-area-inset-*) is used extensively), so "never"
+    // hands that job entirely to CSS instead of also having the native
+    // layer adjust things dynamically on top of it.
+    contentInset: "never",
     // Disables the WebView's own outer scroll/bounce — without this the
     // whole app can be dragged up and down like a web page (rubber-band
     // bounce revealing white past the content edges), which is exactly the

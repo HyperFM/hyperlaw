@@ -450,10 +450,8 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
 }
 
 // ─── TOOLS VIEW ───────────────────────────────────────────────────────────────
-// Decorative sliding marquee above the "Tools" heading — six concept pills,
-// duplicated once so the strip can loop seamlessly, drifting left forever.
-const TOOLS_MARQUEE_LABELS = ["Battle Prep", "Voir Dire", "Motions", "Objections", "Evidence Prep", "Closing Arguments"];
-
+// Decorative sliding marquee above the "Tools" heading — the tool icons
+// below, duplicated once so the strip can loop seamlessly, drifting left forever.
 const TOOL_BUBBLES = [
   {
     id: "battle-prep",
@@ -504,26 +502,27 @@ function ToolsView() {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px", textAlign: "center" }}>
 
-      {/* Sliding tool-concept marquee — six pills, every other one glowing */}
+      {/* Sliding tool-icon marquee — the actual tools, every other one glowing */}
       <div style={{ overflow: "hidden", margin: "36px auto 24px", width: "100%" }}>
-        <div style={{ display: "flex", gap: 12, width: "max-content", animation: "hlToolsMarquee 24s linear infinite" }}>
-          {[...TOOLS_MARQUEE_LABELS, ...TOOLS_MARQUEE_LABELS].map((label, i) => {
+        <div style={{ display: "flex", gap: 16, width: "max-content", animation: "hlToolsMarquee 20s linear infinite" }}>
+          {[...TOOL_BUBBLES, ...TOOL_BUBBLES].map((tool, i) => {
             const glow = i % 2 === 0;
+            const Icon = tool.icon;
             return (
               <div
-                key={`${label}-${i}`}
+                key={`${tool.id}-${i}`}
                 style={{
                   flexShrink: 0, position: "relative", overflow: "hidden",
-                  padding: "10px 20px", borderRadius: 24,
+                  width: 56, height: 56, borderRadius: 28, display: "flex", alignItems: "center", justifyContent: "center",
                   border: `1.5px solid ${ORANGE}${glow ? "77" : "33"}`,
                   boxShadow: glow ? `0 0 14px 2px ${ORANGE}40` : "none",
-                  fontSize: 13, fontWeight: 700, color: glow ? "#f4efe8" : "#877252",
+                  background: `${ORANGE}16`,
                 }}
               >
                 {glow && (
                   <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "hlToolsBubbleGlow 3.4s ease-in-out infinite" }} />
                 )}
-                <span style={{ position: "relative" }}>{label}</span>
+                <Icon size={22} color={ORANGE} style={{ position: "relative" }} />
               </div>
             );
           })}

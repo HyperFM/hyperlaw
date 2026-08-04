@@ -2882,12 +2882,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               currentTimeRef.current = e.currentTarget.currentTime;
             }}
             onDurationChange={e => {
-              const d = e.currentTarget.duration;
+              const v = e.currentTarget;
+              const d = v.duration;
+              if (!isFinite(d)) {
+                // Some MP4s (recorded/exported without a proper duration atom
+                // in their metadata) report Infinity here and never fire
+                // durationchange again with a real number — which silently
+                // stalled the server upload forever, since it waits for a
+                // finite duration before it ever fires. Seeking near the end
+                // forces the browser to scan and resolve the real duration;
+                // durationchange re-fires afterward with the correct value.
+                v.currentTime = 1e101;
+                return;
+              }
+              if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above
               setDuration(d);
               snapshotRef.current.videoDurationSec = d;
               triggerAutosave(markers);
               const pending = pendingVideoUploadRef.current;
-              if (pending && isFinite(d) && d > 0) {
+              if (pending && d > 0) {
                 pendingVideoUploadRef.current = null;
                 uploadVideoToServer(pending, d);
               }

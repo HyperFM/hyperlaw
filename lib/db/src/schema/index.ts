@@ -175,6 +175,13 @@ export const casesTable = pgTable("cases", {
    *  — deliberately its own column, not inside caseData, since the client
    *  fully overwrites caseData on every autosave. */
   studioVideoKey: text("studio_video_key"),
+  /** Downscaled (256px) JPEG data URL for this case's photo, shown on the
+   *  barrel/home screen. Its own column, not inside caseData, for the same
+   *  reason as studioVideoKey — caseData is fully overwritten by the client
+   *  on every autosave, so anything server-authoritative needs to live
+   *  outside it. Small (a few KB), so a text column is fine — no need for
+   *  Supabase Storage the way the (much larger) studio video needs it. */
+  casePhotoDataUrl: text("case_photo_data_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({

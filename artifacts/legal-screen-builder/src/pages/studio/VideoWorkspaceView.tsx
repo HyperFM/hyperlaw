@@ -1524,14 +1524,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
   }
 
-  // Opens the given (off-screen) file input, deferred one frame past any
-  // in-flight blur/keyboard-dismiss animation. Presenting a native iOS file
-  // picker while another UI transition (keyboard closing, mic UI leaving)
-  // is still animating is a known WKWebView quirk that can make the picker
-  // sheet flash open and immediately dismiss itself, sometimes repeatedly.
+  // Opens the given (off-screen) file input. MUST fire synchronously inside
+  // the original tap handler — iOS WKWebView only honors input.click() as a
+  // real file-picker trigger when it's part of the actual user-gesture call
+  // stack (this file already has a similar note on video.load()). An earlier
+  // version of this function deferred the click via requestAnimationFrame to
+  // dodge a suspected animation-timing race, which instead made the picker
+  // present outside the trusted gesture and flicker open/closed continuously
+  // on every attempt — worse than the original rare glitch it was meant to fix.
   function openFilePicker(ref: React.RefObject<HTMLInputElement | null>) {
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    requestAnimationFrame(() => { requestAnimationFrame(() => ref.current?.click()); });
+    ref.current?.click();
   }
 
   function togglePlay() {

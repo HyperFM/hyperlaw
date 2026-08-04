@@ -48,6 +48,7 @@ export interface ServerCase {
   workflowStage: string;
   caseData: Record<string, unknown>;
   structuredCase: Record<string, unknown> | null;
+  casePhotoDataUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -157,6 +158,12 @@ export const api = {
     /** Delete a case from the server */
     delete: (id: string) =>
       apiFetch<{ ok: boolean }>(`/cases/${id}`, { method: "DELETE" }),
+    /** Save the barrel-screen case photo (small downscaled JPEG data URL) */
+    savePhoto: (id: string, dataUrl: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${id}/photo`, {
+        method: "PUT",
+        body: JSON.stringify({ dataUrl }),
+      }),
   },
   studioProject: {
     /** Refresh the 30-day retention timer for a case's studio project */

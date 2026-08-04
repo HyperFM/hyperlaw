@@ -591,7 +591,7 @@ function ToolsView() {
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError }: {
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError, onUpdateCase }: {
   data: AppData;
   onOpenIncident: (i: Incident) => void;
   onOpenCase: (c: HLCase) => void;
@@ -601,6 +601,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   onUploadForNewCase?: (file: File) => void;
   uploadError?: string | null;
   onClearUploadError?: () => void;
+  onUpdateCase: (c: HLCase) => void;
 }) {
   const uploadNewRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -718,7 +719,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
           {activeCases.length > 5 ? (
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Your Cases</div>
-              <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} />
+              <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} onUpdateCase={onUpdateCase} />
             </div>
           ) : activeCases.length > 0 && (
             <div style={{ marginBottom: 28 }}>
@@ -732,6 +733,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
                     hlCase={c}
                     onOpen={() => onOpenCase(c)}
                     onContinue={(stage) => onContinueCase(c, stage)}
+                    onUpdateCase={onUpdateCase}
                   />
                 ))}
               </div>
@@ -815,10 +817,11 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
 }
 
 // ── Circular case slider (home screen) — swipe / loop through active cases ────
-function CaseSlider({ cases, onOpenCase, onContinueCase }: {
+function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase }: {
   cases: HLCase[];
   onOpenCase: (c: HLCase) => void;
   onContinueCase: (c: HLCase, stage: WorkflowStage) => void;
+  onUpdateCase: (c: HLCase) => void;
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: cases.length > 1, align: "center" });
   const [selected, setSelected] = useState(0);
@@ -841,6 +844,7 @@ function CaseSlider({ cases, onOpenCase, onContinueCase }: {
                 hlCase={c}
                 onOpen={() => onOpenCase(c)}
                 onContinue={(stage) => onContinueCase(c, stage)}
+                onUpdateCase={onUpdateCase}
               />
             </div>
           ))}
@@ -927,7 +931,7 @@ function CaseBubbleBar({ cases, onOpenCase }: {
         <div ref={emblaRef} style={{ overflow: "hidden" }}>
           <div style={{ display: "flex" }}>
             {cases.map((c, i) => {
-              const photo = getCasePhoto(c.id);
+              const photo = c.photoDataUrl;
               return (
                 <button
                   key={c.id}
@@ -997,23 +1001,15 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
 
-// ─── Per-case photo (localStorage; mirrors the profile-photo pattern) ─────────
-function casePhotoKey(caseId: string) { return `hl_case_photo_${caseId}`; }
-function getCasePhoto(caseId: string): string | null {
-  try { return localStorage.getItem(casePhotoKey(caseId)); } catch { return null; }
-}
-function useCasePhoto(caseId: string): string | null {
-  const [photo, setPhoto] = useState<string | null>(() => getCasePhoto(caseId));
-  useEffect(() => {
-    setPhoto(getCasePhoto(caseId));
-    const handler = () => setPhoto(getCasePhoto(caseId));
-    window.addEventListener("casePhotoChanged", handler);
-    return () => window.removeEventListener("casePhotoChanged", handler);
-  }, [caseId]);
-  return photo;
-}
-// Downscale (max 256px, JPEG) then persist to localStorage; broadcasts "casePhotoChanged".
-function saveCasePhoto(caseId: string, file: File, inputEl?: HTMLInputElement | null) {
+// ─── Per-case photo — server-persisted (casesTable.casePhotoDataUrl), same
+// reasoning as the studio video: a photo living only in this device's
+// localStorage is gone for good the moment storage gets evicted (WKWebView
+// does this under memory pressure) or the app is reinstalled — matches
+// reports of a case photo vanishing from the barrel screen with no way back.
+// Downscale (max 256px, JPEG) client-side — the result is only a few KB, so
+// it's cheap to hand to the caller, who updates local state via onUpdateCase
+// AND pushes it to the server via api.cases.savePhoto.
+function saveCasePhoto(caseId: string, file: File, onSaved: (dataUrl: string) => void, inputEl?: HTMLInputElement | null) {
   if (inputEl) inputEl.value = "";
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -1028,16 +1024,12 @@ function saveCasePhoto(caseId: string, file: File, inputEl?: HTMLInputElement | 
       const ctx = canvas.getContext("2d");
       let dataUrl = src;
       if (ctx) { ctx.drawImage(img, 0, 0, w, h); dataUrl = canvas.toDataURL("image/jpeg", 0.82); }
-      try {
-        localStorage.setItem(casePhotoKey(caseId), dataUrl);
-        window.dispatchEvent(new Event("casePhotoChanged"));
-      } catch {
-        alert("Photo is too large to save. Please choose a smaller image.");
-      }
+      onSaved(dataUrl);
     };
     img.onerror = () => alert("That image could not be loaded. Try a different file.");
     img.src = src;
   };
+  reader.onerror = () => alert("Could not read that file.");
   reader.readAsDataURL(file);
 }
 
@@ -1137,18 +1129,25 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
 
 // App-icon style: a square photo (or camera placeholder until one's set) with
 // the case name underneath — no card background/border wrapping it anymore.
-function PrimaryCaseCard({ hlCase, onOpen }: {
+function PrimaryCaseCard({ hlCase, onOpen, onUpdateCase }: {
   hlCase: HLCase;
   onOpen: () => void;
   onContinue: (stage: WorkflowStage) => void; // kept for call-site compat (unused)
+  onUpdateCase: (c: HLCase) => void;
 }) {
-  const photo = useCasePhoto(hlCase.id);
+  const photo = hlCase.photoDataUrl;
   const cardPhotoInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
       <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
-        onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) saveCasePhoto(hlCase.id, f, dataUrl => {
+            onUpdateCase({ ...hlCase, photoDataUrl: dataUrl });
+            api.cases.savePhoto(hlCase.id, dataUrl).catch(() => {});
+          }, e.currentTarget);
+        }} />
       {/* No photo yet → the camera icon IS the "add a photo" button. Once set,
           tapping opens the case, same as tapping any app icon. */}
       <button
@@ -1461,7 +1460,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ fileName: string; analysis: CaseMemory } | null>(null);
   const [showConfirmedFlash, setShowConfirmedFlash] = useState(false);
-  const casePhoto = useCasePhoto(hlCase.id);
+  const casePhoto = hlCase.photoDataUrl;
   const casePhotoInputRef = useRef<HTMLInputElement>(null);
   const [showCaseDocConfirm, setShowCaseDocConfirm] = useState(false);
   const [pendingCaseExport, setPendingCaseExport] = useState<(() => void) | null>(null);
@@ -1675,7 +1674,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
         ) : (
           <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 10 }}>
             <input ref={casePhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) saveCasePhoto(hlCase.id, f, e.currentTarget); }} />
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) saveCasePhoto(hlCase.id, f, dataUrl => {
+                  onUpdateCase({ ...hlCase, photoDataUrl: dataUrl });
+                  api.cases.savePhoto(hlCase.id, dataUrl).catch(() => {});
+                }, e.currentTarget);
+              }} />
             <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
               style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 16, position: "relative" }}>
               {casePhoto
@@ -5084,6 +5089,9 @@ export default function App() {
             if (sc.structuredCase && !caseData.structuredCase) {
               caseData.structuredCase = sc.structuredCase as unknown as HLCase["structuredCase"];
             }
+            // casePhotoDataUrl lives in its own DB column, not caseData (same
+            // reasoning as studioVideoKey) — pull it in explicitly.
+            if (sc.casePhotoDataUrl) caseData.photoDataUrl = sc.casePhotoDataUrl;
             localMap.set(sc.id, caseData);
             changed = true;
           } else {
@@ -5099,6 +5107,10 @@ export default function App() {
             if (local.parties.length === 0 && serverCase?.parties?.length) patch.parties = serverCase.parties;
             if (local.timeline.length === 0 && serverCase?.timeline?.length) patch.timeline = serverCase.timeline;
             if (!local.jurisdiction?.trim() && serverCase?.jurisdiction?.trim()) patch.jurisdiction = serverCase.jurisdiction;
+            // Restores a photo that vanished locally (storage eviction, reinstall,
+            // new device) from the server's authoritative copy. Doesn't overwrite
+            // a photo the user just picked locally — local wins whenever present.
+            if (!local.photoDataUrl && sc.casePhotoDataUrl) patch.photoDataUrl = sc.casePhotoDataUrl;
             if (Object.keys(patch).length > 0) {
               localMap.set(sc.id, { ...local, ...patch });
               changed = true;
@@ -5576,6 +5588,7 @@ export default function App() {
         onUploadForNewCase={handleUploadForNewCase}
         uploadError={newCaseUploadError}
         onClearUploadError={() => setNewCaseUploadError(null)}
+        onUpdateCase={c => setData(updateCase(data, c))}
       />
     );
   }

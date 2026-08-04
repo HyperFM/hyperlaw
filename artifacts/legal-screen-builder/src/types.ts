@@ -329,6 +329,11 @@ export interface HLCase {
   createdAt: number;
   /** Legacy: free-text jurisdiction — kept for backward compat */
   jurisdiction?: string;
+  /** Downscaled (256px) JPEG data URL shown on the barrel/home screen.
+   *  Server-persisted via its own casesTable column (casePhotoDataUrl) —
+   *  see api.cases.savePhoto — not just localStorage, so it survives a
+   *  reinstall or another device. */
+  photoDataUrl?: string;
   // ── New workflow fields ──────────────────────────────────────────────────────
   parties: Party[];
   court: Court | null;

@@ -109,6 +109,30 @@ router.patch("/cases/:id/structured", async (req: Request, res: Response): Promi
   res.json({ ok: true });
 });
 
+// ── PUT /cases/:id/photo — save the barrel-screen case photo ───────────────────
+// Small (a few KB) downscaled JPEG data URL — client already resizes to 256px
+// before sending. Its own column (not caseData) for the same reason as the
+// studio video: caseData is fully overwritten by the client on every autosave.
+const CASE_PHOTO_MAX_CHARS = 400_000; // generous headroom over a 256px JPEG data URL
+router.put("/cases/:id/photo", async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { dataUrl } = req.body as { dataUrl?: string };
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+    res.status(400).json({ error: "Missing or invalid dataUrl" });
+    return;
+  }
+  if (dataUrl.length > CASE_PHOTO_MAX_CHARS) { res.status(413).json({ error: "Photo too large" }); return; }
+
+  await db
+    .update(casesTable)
+    .set({ casePhotoDataUrl: dataUrl, updatedAt: new Date() })
+    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
+
+  res.json({ ok: true });
+});
+
 // ── POST /cases/:id/studio-project/keep-alive — reset 30-day TTL ───────────────
 router.post("/cases/:id/studio-project/keep-alive", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);

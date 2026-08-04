@@ -1530,7 +1530,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     seek(chunk.start);
     const v = videoRef.current;
     if (v) v.play().catch(() => {});
-    setIsPlaying(true);
+    // isPlaying is left to the video element's own onPlay event — setting it
+    // here regardless of whether play() actually succeeds is what caused the
+    // play button to get stuck showing "Pause" while nothing was playing.
   }
 
   /** Show step `index`'s attached exhibit first (if any), then play its clip. */
@@ -1820,7 +1822,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         setTimeout(() => {
           setPreviewOverlayMarkerId(null);
           const vid = videoRef.current;
-          if (vid) { vid.play().catch(() => {}); setIsPlaying(true); }
+          if (vid) vid.play().catch(() => {});
         }, hold);
         break;
       }
@@ -2780,7 +2782,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <video
             ref={videoRef as React.RefObject<HTMLVideoElement>}
             playsInline
-            preload="metadata"
+            // "auto" instead of "metadata" — the source is a local blob, not
+            // a network fetch, so there's no bandwidth cost to buffering it
+            // ahead of time, and it means play() doesn't have to kick off
+            // buffering from a cold start on every press.
+            preload="auto"
             style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
             onTimeUpdate={e => {
               setCurrentTime(e.currentTarget.currentTime);
@@ -2979,7 +2985,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                   setIsPreviewMode(true);
                   setTimeout(() => {
                     const v = videoRef.current;
-                    if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+                    if (v) v.play().catch(() => {});
                   }, 150);
                 }
               }}
@@ -3474,7 +3480,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             } else {
               setPreviewOverlayMarkerId(null);
               const v = videoRef.current;
-              if (v) { v.play().catch(() => {}); setIsPlaying(true); }
+              if (v) v.play().catch(() => {});
             }
           }}
         />

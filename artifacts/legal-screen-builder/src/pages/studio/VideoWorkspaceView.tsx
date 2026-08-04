@@ -1954,6 +1954,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     let captureAllStart = 0; // wall-clock ms when capturing phase began
     let frameStart = 0;      // wall-clock ms for the current frame
 
+    // Once extraction is done (or aborted), drop this element's decode session —
+    // otherwise it sits holding the full video open indefinitely, competing with
+    // the main player's decoder for the rest of the session. Barely noticeable on
+    // short clips, but on long videos (tens of minutes) this was enough to stall
+    // the main player playback shortly after pressing play.
+    function releaseHiddenVideo() {
+      vid!.pause();
+      vid!.removeAttribute("src");
+      vid!.load();
+    }
+
     // ── DIAGNOSTIC 1: log hidden video element CSS + initial dimensions ──
     {
       const cs = window.getComputedStyle(vid);
@@ -2036,6 +2047,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         pushDebug(doneMsg);
         setThumbnails([...results]);
         setThumbsLoading(false);
+        releaseHiddenVideo();
         saveThumbnails(hlCase.id, results); // cache for next time — fire-and-forget, non-fatal if it fails
       }
     }
@@ -2287,6 +2299,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         console.warn("[thumbs]", badMsg);
         pushDebug(badMsg);
         setThumbsLoading(false);
+        releaseHiddenVideo();
         return;
       }
       const wuMsg = `[WU] metadata loaded dur=${dur.toFixed(1)}s rs=${vid!.readyState} — ${vid!.readyState >= 2 ? "already ready" : "waiting for first frame (loadeddata/canplay)"}`;
@@ -2316,7 +2329,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       const errMsg = `[ERR] video error code=${ve?.code} msg="${ve?.message}" net=${vid!.networkState} src="${vid!.src.slice(0, 60)}" curSrc="${vid!.currentSrc.slice(0, 60)}"`;
       console.error("[thumbs]", errMsg);
       pushDebug(errMsg);
-      if (!cancelled) setThumbsLoading(false);
+      if (!cancelled) { setThumbsLoading(false); releaseHiddenVideo(); }
     }
 
     vid.addEventListener("loadedmetadata", onLoadedMetadata);

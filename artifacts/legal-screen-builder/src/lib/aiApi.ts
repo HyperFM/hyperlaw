@@ -936,10 +936,14 @@ export const aiApi = {
     existingExhibits?: string[];
     forceType?: string;
   }): Promise<{
-    selectedType: string;
-    content: Record<string, unknown>;
-    alternativeLayouts: string[];
-    verificationResults: Array<{ field: string; ref: string; origin: string; supported: boolean }>;
+    candidates: Array<{
+      selectedType: string;
+      content: Record<string, unknown>;
+      rationale: string;
+      verificationResults: Array<{ field: string; ref: string; origin: string; supported: boolean }>;
+    }>;
+    recommendedIndex: number;
+    recommendationReason: string;
   }> {
     return aiFetch("/exhibit/generate", { method: "POST", body: JSON.stringify(input) });
   },

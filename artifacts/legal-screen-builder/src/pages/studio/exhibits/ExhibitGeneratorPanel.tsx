@@ -6,11 +6,17 @@ import { ExhibitReviewPanel } from "./ExhibitReviewPanel";
 
 const ORANGE = "#E8611A";
 
-interface GenerateResult {
+export interface ExhibitCandidate {
   selectedType: string;
   content: Record<string, unknown>;
-  alternativeLayouts: string[];
+  rationale: string;
   verificationResults: FieldVerificationResult[];
+}
+
+interface GenerateResult {
+  candidates: ExhibitCandidate[];
+  recommendedIndex: number;
+  recommendationReason: string;
 }
 
 export interface ExhibitGeneratorPanelProps {

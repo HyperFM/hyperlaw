@@ -1,20 +1,22 @@
-import React from "react";
-import { ArrowLeft, Check, X, Loader2, AlertCircle } from "lucide-react";
-import type { ExhibitScreenData, FieldVerificationResult } from "../../../types";
+import React, { useState } from "react";
+import { ArrowLeft, Check, X, Loader2, AlertCircle, Star } from "lucide-react";
+import type { ExhibitScreenData } from "../../../types";
 import { EXHIBIT_TYPES } from "./exhibitTypes";
 import { ExhibitRenderer } from "./ExhibitRenderer";
+import type { ExhibitCandidate } from "./ExhibitGeneratorPanel";
 
 const ORANGE = "#E8611A";
 const VIOLET = "#8b5cf6";
 
-// Preview at 18% of native 1920×1080 → 345 × 194
+// Main preview at 18% of native 1920×1080 → 345 × 194
 const PREVIEW_SCALE = 0.18;
+// Candidate-strip thumbnails, small enough to compare several at a glance
+const THUMB_SCALE = 0.09;
 
 interface GenerateResult {
-  selectedType: string;
-  content: Record<string, unknown>;
-  alternativeLayouts: string[];
-  verificationResults: FieldVerificationResult[];
+  candidates: ExhibitCandidate[];
+  recommendedIndex: number;
+  recommendationReason: string;
 }
 
 interface ExhibitReviewPanelProps {
@@ -40,22 +42,26 @@ export function ExhibitReviewPanel({
   regenerating = false,
   regenError = null,
 }: ExhibitReviewPanelProps) {
-  const { selectedType, content, alternativeLayouts, verificationResults } = result;
+  const { candidates, recommendedIndex, recommendationReason } = result;
+  const [selectedIndex, setSelectedIndex] = useState(recommendedIndex);
+
+  const selected = candidates[selectedIndex] ?? candidates[0];
+  const { selectedType, content, verificationResults } = selected;
 
   const supported = verificationResults.filter(r => r.supported).length;
   const total = verificationResults.length;
   const unsupported = verificationResults.filter(r => !r.supported);
 
   const selectedConfig = EXHIBIT_TYPES.find(t => t.id === selectedType);
-  const altConfigs = alternativeLayouts
-    .map(id => EXHIBIT_TYPES.find(t => t.id === id))
-    .filter(Boolean) as typeof EXHIBIT_TYPES;
+  // Offer "try another layout" for types not already among the generated candidates
+  const candidateTypeIds = new Set(candidates.map(c => c.selectedType));
+  const altConfigs = EXHIBIT_TYPES.filter(t => !candidateTypeIds.has(t.id)).slice(0, 3);
 
   function handleApprove() {
     const data: ExhibitScreenData = {
       selectedType,
       content,
-      alternativeLayouts,
+      alternativeLayouts: [],
       verificationResults,
     };
     onApprove(data);
@@ -96,6 +102,70 @@ export function ExhibitReviewPanel({
 
       {/* Scrollable body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 0" }}>
+
+        {/* Candidate strip — only when there's more than one option to compare */}
+        {candidates.length > 1 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>
+              {candidates.length} OPTIONS FOR THIS MOMENT
+            </div>
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+              {candidates.map((c, i) => {
+                const isRec = i === recommendedIndex;
+                const isSel = i === selectedIndex;
+                const cfg = EXHIBIT_TYPES.find(t => t.id === c.selectedType);
+                return (
+                  <button key={i} onClick={() => setSelectedIndex(i)}
+                    style={{
+                      flexShrink: 0, background: "#0d0d0d",
+                      border: `1.5px solid ${isSel ? ORANGE : "#222"}`,
+                      borderRadius: 10, padding: 6, cursor: "pointer",
+                      display: "flex", flexDirection: "column", gap: 6, width: 1920 * THUMB_SCALE + 12,
+                      position: "relative",
+                    }}>
+                    {isRec && (
+                      <div style={{
+                        position: "absolute", top: -8, right: -6, background: ORANGE, borderRadius: 6,
+                        padding: "2px 6px", display: "flex", alignItems: "center", gap: 3,
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
+                      }}>
+                        <Star size={9} color="#000" fill="#000" />
+                        <span style={{ fontSize: 8, fontWeight: 900, color: "#000" }}>AI PICK</span>
+                      </div>
+                    )}
+                    <div style={{ width: 1920 * THUMB_SCALE, height: 1080 * THUMB_SCALE, borderRadius: 4, overflow: "hidden" }}>
+                      <ExhibitRenderer content={c.content} scale={THUMB_SCALE} />
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: isSel ? "#fff" : "#888", textAlign: "center" }}>
+                      {cfg?.name ?? c.selectedType}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Why the AI recommended its pick */}
+        {recommendationReason && selectedIndex === recommendedIndex && (
+          <div style={{
+            display: "flex", gap: 8, alignItems: "flex-start",
+            background: `${ORANGE}0f`, border: `1px solid ${ORANGE}33`, borderRadius: 10,
+            padding: "10px 12px", marginBottom: 16,
+          }}>
+            <Star size={13} color={ORANGE} fill={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 12, color: "#ccc", lineHeight: 1.5 }}>{recommendationReason}</div>
+          </div>
+        )}
+        {/* Why THIS candidate is persuasive, when viewing a non-recommended one */}
+        {selected.rationale && selectedIndex !== recommendedIndex && (
+          <div style={{
+            fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 16,
+            background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: "10px 12px",
+          }}>
+            {selected.rationale}
+          </div>
+        )}
 
         {/* Preview */}
         <div style={{ marginBottom: 20 }}>
@@ -171,7 +241,7 @@ export function ExhibitReviewPanel({
           </div>
         )}
 
-        {/* Alternative layouts */}
+        {/* Other layouts not already among the generated options */}
         {altConfigs.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>

@@ -106,11 +106,19 @@ SourceRef: { origin:"dictation"|"complaint"|"discovery"|"evidence"|"existing_exh
 SourceRef.ref MUST be a verbatim excerpt from the provided source material — never invented.
 Use classification "verified_fact" only for direct citations, "observation" for inferences, "speculation" for unsupported claims.
 
+Generate 2–3 DISTINCT candidate exhibits for this moment — different exhibit types or angles on the same moment (e.g. one framed as a contradiction, one as an escalation), not near-duplicates of each other. For each candidate, write a one-sentence "rationale" explaining why THIS framing is persuasive for a judge or jury. Then pick the single strongest candidate as the recommendation and explain why it beats the others in one or two sentences — weigh evidence strength, visual clarity, and whether a viewer would grasp the point within five seconds.
+
 RETURN FORMAT — valid JSON only, no preamble:
 {
-  "selectedType": "<one of the 10 exhibit type IDs>",
-  "content": { <the complete layout object matching the chosen layout's schema> },
-  "alternativeLayouts": ["<up to 3 other suitable exhibit type IDs>"]
+  "candidates": [
+    {
+      "selectedType": "<one of the 10 exhibit type IDs>",
+      "content": { <the complete layout object matching the chosen layout's schema> },
+      "rationale": "<one sentence: why this framing is persuasive>"
+    }
+  ],
+  "recommendedIndex": <index into candidates of the strongest one>,
+  "recommendationReason": "<one or two sentences explaining why this candidate is the strongest of the set>"
 }`;
 
 // ── POST /exhibit/generate ────────────────────────────────────────────────────
@@ -172,9 +180,11 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     ? `\n\nPRIOR EXHIBIT SUMMARIES (for narrative consistency — avoid repeating these):\n${existingExhibits.map((e, i) => `Exhibit ${i + 1}: ${e}`).join("\n")}`
     : "";
 
-  // Force type hint
+  // Force type hint — when set, the user asked to regenerate with one
+  // specific type instead of a fresh multi-candidate set, so ask for exactly
+  // one candidate of that type.
   const forceBlock = forceType
-    ? `\n\nUSER REQUESTED TYPE: "${forceType}" — prefer this exhibit type if the content supports it.`
+    ? `\n\nUSER REQUESTED TYPE: "${forceType}" — generate exactly ONE candidate of this type instead of the usual 2-3, and prefer it if the content supports it.`
     : "";
 
   const userMessage = `VIDEO TIMESTAMP: ${timestamp}
@@ -190,7 +200,7 @@ ${sourceText}`;
   const start = Date.now();
   const response = await (aiService as unknown as { client: { messages: { create: (args: unknown) => Promise<{ content: Array<{ type: string; text?: string }>; stop_reason: string }> } } }).client.messages.create({
     model: MODEL,
-    max_tokens: 4000,
+    max_tokens: 8000,
     system: EXHIBIT_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
@@ -212,28 +222,34 @@ ${sourceText}`;
   }
 
   // Basic shape validation
-  if (!parsed.selectedType || !parsed.content || typeof parsed.content !== "object") {
+  const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+  const validCandidates = rawCandidates.filter(
+    (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string } =>
+      !!c && typeof c === "object" && !!(c as Record<string, unknown>).selectedType && typeof (c as Record<string, unknown>).content === "object",
+  );
+  if (validCandidates.length === 0) {
     res.status(500).json({ error: "AI response missing required fields" });
     return;
   }
 
-  // Source verification
-  const verificationResults = verifySourceClaims(
-    parsed.content as Record<string, unknown>,
-    sourceText,
-  );
+  // Source verification, per candidate
+  const candidates = validCandidates.map(c => ({
+    selectedType: c.selectedType,
+    content: c.content,
+    rationale: typeof c.rationale === "string" ? c.rationale : "",
+    verificationResults: verifySourceClaims(c.content, sourceText),
+  }));
+
+  const rawRecommendedIndex = typeof parsed.recommendedIndex === "number" ? parsed.recommendedIndex : 0;
+  const recommendedIndex = rawRecommendedIndex >= 0 && rawRecommendedIndex < candidates.length ? rawRecommendedIndex : 0;
+  const recommendationReason = typeof parsed.recommendationReason === "string" ? parsed.recommendationReason : "";
 
   const responseMs = Date.now() - start;
   console.log(
-    `[exhibit-generate] selectedType=${parsed.selectedType} layout=${(parsed.content as Record<string, unknown>).layout} verified=${verificationResults.filter(r => r.supported).length}/${verificationResults.length} ms=${responseMs}`
+    `[exhibit-generate] candidates=${candidates.length} types=${candidates.map(c => c.selectedType).join(",")} recommended=${recommendedIndex} ms=${responseMs}`
   );
 
-  res.json({
-    selectedType: parsed.selectedType,
-    content: parsed.content,
-    alternativeLayouts: Array.isArray(parsed.alternativeLayouts) ? parsed.alternativeLayouts : [],
-    verificationResults,
-  });
+  res.json({ candidates, recommendedIndex, recommendationReason });
 });
 
 export default router;

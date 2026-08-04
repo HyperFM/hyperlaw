@@ -4982,6 +4982,11 @@ export default function App() {
   const isMobile = w < 768;
   const { user } = useAuth();
   const isAdmin = user?.isAdmin ?? false;
+  const isTester = user?.isTester ?? false;
+  // Tester accounts bypass paywalls/tier limits exactly like admin, but don't
+  // get admin's account-management powers — kept as its own flag rather than
+  // folded into isAdmin so those two things can't be confused anywhere.
+  const bypassPaywalls = isAdmin || isTester;
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
@@ -5174,7 +5179,7 @@ export default function App() {
   }
 
   function handleCreateNewCase() {
-    if (data.cases.length >= 1) {
+    if (data.cases.length >= 1 && !bypassPaywalls) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5212,7 +5217,7 @@ export default function App() {
 
   function handleConvertToCase(incident: Incident) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 1) {
+    if (data.cases.length >= 1 && !bypassPaywalls) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5240,7 +5245,7 @@ export default function App() {
 
   async function handleUploadForNewCase(file: File) {
     // After 2 free cases, require at least 1 credit to create more
-    if (data.cases.length >= 1) {
+    if (data.cases.length >= 1 && !bypassPaywalls) {
       setShowUpgradeGate(true);
       return;
     }
@@ -5442,7 +5447,7 @@ export default function App() {
           caseId={view.caseId}
           fileName={view.fileName}
           isAdmin={isAdmin}
-          isApex={planTier === "apex"}
+          isApex={planTier === "apex" || isTester}
           onComplete={(analysis) => {
             // Merge the AI's extraction (summary, jurisdiction, parties, timeline) into the case.
             const updated = mergeAnalysisIntoCase(hlCase, analysis);
@@ -5490,7 +5495,7 @@ export default function App() {
           genDocsRefreshKey={genDocsRefreshKey}
           creditBalance={creditBalance}
           isAdmin={isAdmin}
-          isApex={planTier === "apex"}
+          isApex={planTier === "apex" || isTester}
           onBuyCredits={() => setShowCreditShop(true)}
           onDocGenerated={() => {
             setGenDocsRefreshKey(k => k + 1);

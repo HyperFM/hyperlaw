@@ -17,6 +17,7 @@ export interface AuthUser {
   googleId: string | null;
   appleId: string | null;
   isAdmin: boolean;
+  isTester: boolean;
   secondaryEmail: string | null;
   stripeCustomerId: string | null;
   creditBalance: number;
@@ -67,6 +68,8 @@ export interface RegisterInput {
   ssnLast4?: string;
   adminSecurityQuestion?: string;
   adminSecurityAnswer?: string;
+  isTesterRequest?: boolean;
+  testerCode?: string;
 }
 
 export function useRegister() {

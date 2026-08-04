@@ -255,6 +255,12 @@ export const usersTable = pgTable("users", {
    *  routes/auth.ts (requires the primary or secondary email to already be on
    *  a hardcoded allowlist) — never settable by a plain profile edit. */
   isAdmin: boolean("is_admin").notNull().default(false),
+  /** True only once granted through the gated tester-registration flow in
+   *  routes/auth.ts (requires a secret TESTER_ACCESS_CODE, not just checking a
+   *  box) — bypasses paywalls/tier limits like isAdmin does, but doesn't grant
+   *  any of isAdmin's account-management powers. Sticky once set — not a
+   *  per-login toggle. */
+  isTester: boolean("is_tester").notNull().default(false),
   /** Admin accounts only: a second recovery-eligible email address. */
   secondaryEmail: text("secondary_email"),
   /** Admin accounts only: scrypt hash of the last 4 SSN digits, same

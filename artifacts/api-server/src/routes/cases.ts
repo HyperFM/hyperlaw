@@ -159,8 +159,8 @@ router.post(
     if (!multerReq.file) { res.status(400).json({ error: "No video provided" }); return; }
 
     const durationSec = Number(req.body.durationSec);
-    const isAdmin = !!req.user?.isAdmin;
-    if (Number.isFinite(durationSec) && durationSec > FIVE_MINUTES_SEC && !isAdmin) {
+    const bypassLimits = !!req.user?.isAdmin || !!req.user?.isTester;
+    if (Number.isFinite(durationSec) && durationSec > FIVE_MINUTES_SEC && !bypassLimits) {
       res.status(403).json({
         error: "Videos are limited to 5 minutes on the free plan. Upgrade for longer videos.",
         code: "video_duration_limit",

@@ -333,6 +333,8 @@ const signUpSchema = z.object({
   ssnLast4: z.string().optional(),
   adminSecurityQuestion: z.string().optional(),
   adminSecurityAnswer: z.string().optional(),
+  isTesterRequest: z.boolean().optional(),
+  testerCode: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -350,6 +352,11 @@ const signUpSchema = z.object({
   if (!data.adminSecurityAnswer?.trim()) {
     ctx.addIssue({ code: "custom", message: "Answer your security question", path: ["adminSecurityAnswer"] });
   }
+}).superRefine((data, ctx) => {
+  if (!data.isTesterRequest) return;
+  if (!data.testerCode?.trim()) {
+    ctx.addIssue({ code: "custom", message: "Enter the tester code", path: ["testerCode"] });
+  }
 });
 type SignUpValues = z.infer<typeof signUpSchema>;
 
@@ -360,6 +367,7 @@ export function SignUpPage() {
   const questions = fetchedQuestions?.length ? fetchedQuestions : DEFAULT_SECURITY_QUESTIONS;
   const { register, handleSubmit, watch, formState: { errors } } = useForm<SignUpValues>({ resolver: zodResolver(signUpSchema) });
   const isAdminRequest = watch("isAdminRequest");
+  const isTesterRequest = watch("isTesterRequest");
 
   const onSubmit = (values: SignUpValues) => {
     register_.mutate(values, { onSuccess: () => navigate(`${basePath}/`) });
@@ -437,6 +445,18 @@ export function SignUpPage() {
                 <input style={inputStyle} {...register("adminSecurityAnswer")} autoComplete="off" />
               </Field>
             </div>
+          )}
+
+          {/* TEMPORARY — remove once real subscription tiers exist. Checking
+              this alone does nothing; it also requires the secret tester
+              code, so a random visitor can't grant themselves free access. */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#9c948a", fontSize: 13, margin: "10px 0 4px" }}>
+            <input type="checkbox" {...register("isTesterRequest")} /> This is a tester account
+          </label>
+          {isTesterRequest && (
+            <Field label="Tester code" error={errors.testerCode?.message}>
+              <input style={inputStyle} {...register("testerCode")} autoComplete="off" />
+            </Field>
           )}
 
           <button type="submit" style={{ ...buttonStyle, marginTop: 4 }} disabled={register_.isPending}>

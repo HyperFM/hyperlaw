@@ -55,6 +55,7 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
     username, firstName, lastName, phoneNumber, email, password, confirmPassword,
     securityAnswer1, securityAnswer2, securityAnswer3,
     isAdminRequest, secondaryEmail, ssnLast4, adminSecurityQuestion, adminSecurityAnswer,
+    isTesterRequest, testerCode,
   } = req.body as Record<string, unknown>;
 
   if (typeof username !== "string" || username.trim().length < 3) {
@@ -122,6 +123,20 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
     }
   }
 
+  // Tester registration — checking the box alone does nothing; it also
+  // requires the secret TESTER_ACCESS_CODE, so a random visitor can't just
+  // grant themselves free unlimited access. Reject outright on a wrong code
+  // rather than silently registering a normal account, so a mistyped code
+  // doesn't look like it worked when it didn't.
+  const wantsTester = isTesterRequest === true || isTesterRequest === "true";
+  if (wantsTester) {
+    const configuredCode = process.env.TESTER_ACCESS_CODE;
+    if (!configuredCode || typeof testerCode !== "string" || testerCode !== configuredCode) {
+      res.status(403).json({ error: "Incorrect tester code." });
+      return;
+    }
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedUsername = username.trim().toLowerCase();
   const normalizedPhone = phoneNumber.trim();
@@ -169,6 +184,7 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
       adminSecurityQuestion: (adminSecurityQuestion as string).trim(),
       adminSecurityAnswerHash: hashAdminSecurityAnswer(adminSecurityAnswer as string),
     } : {}),
+    ...(wantsTester ? { isTester: true } : {}),
   }).returning();
 
   sendVerificationEmail(normalizedEmail, verificationToken)

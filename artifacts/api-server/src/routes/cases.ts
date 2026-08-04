@@ -3,7 +3,7 @@ import multer from "multer";
 import { getAuth } from "../services/auth.js";
 import { db } from "@workspace/db";
 import { casesTable, generatedDocumentsTable, uploadedDocumentsTable } from "@workspace/db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, lt } from "drizzle-orm";
 import { verifyPin } from "../services/security.js";
 import * as videoStorage from "../services/videoStorage.js";
 
@@ -26,10 +26,39 @@ function handleVideoMulterError(err: unknown, _req: Request, res: Response, next
 
 const FIVE_MINUTES_SEC = 5 * 60;
 
+// A case with zero saves (title/story/documents/studio work, anything that
+// touches updatedAt) for this long is treated as abandoned and permanently
+// deleted the next time this user's case list is loaded. There's no separate
+// cron/worker in this deployment, so the sweep runs lazily on GET /cases —
+// cheap (one indexed query per app load) and only matters when it matters:
+// if the user never opens the app again, nobody's around to notice either way.
+const CASE_INACTIVITY_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+
+async function sweepInactiveCases(userId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - CASE_INACTIVITY_MS);
+  const stale = await db
+    .select({ id: casesTable.id, studioVideoKey: casesTable.studioVideoKey })
+    .from(casesTable)
+    .where(and(eq(casesTable.userId, userId), lt(casesTable.updatedAt, cutoff)));
+  if (!stale.length) return;
+
+  const staleIds = stale.map(c => c.id);
+  await Promise.all([
+    db.delete(casesTable).where(and(eq(casesTable.userId, userId), inArray(casesTable.id, staleIds))),
+    db.delete(generatedDocumentsTable).where(and(eq(generatedDocumentsTable.userId, userId), inArray(generatedDocumentsTable.caseId, staleIds))),
+    db.delete(uploadedDocumentsTable).where(and(eq(uploadedDocumentsTable.userId, userId), inArray(uploadedDocumentsTable.caseId, staleIds))),
+    ...stale
+      .filter((c): c is typeof c & { studioVideoKey: string } => !!c.studioVideoKey)
+      .map(c => videoStorage.deleteVideo(c.studioVideoKey).catch(() => {})),
+  ]);
+}
+
 // ── GET /cases ─────────────────────────────────────────────────────────────────
 router.get("/cases", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  await sweepInactiveCases(auth.userId);
 
   const cases = await db
     .select()

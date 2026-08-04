@@ -1518,7 +1518,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   function showInsertToast(msg: string) {
     if (insertToastTimer.current) clearTimeout(insertToastTimer.current);
     setInsertToast(msg);
-    insertToastTimer.current = setTimeout(() => setInsertToast(null), 2500);
+    // Short confirmations ("Clip added to timeline") only need a flash; longer
+    // messages (error explanations) need real time to actually read.
+    const duration = msg.length > 40 ? 5000 : 2500;
+    insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
   }
 
   function togglePlay() {
@@ -3609,13 +3612,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         />
       )}
 
-      {/* ── Media insert toast — "Clip added to timeline" etc. ── */}
+      {/* ── Media insert toast — "Clip added to timeline" etc. Also reused for
+          longer messages (e.g. video-save failures), so this can't assume a
+          single short line — whiteSpace:nowrap with no width cap used to
+          stretch long messages into one unreadable line running off both
+          edges of the screen. ── */}
       {insertToast && (
         <div style={{
           position: "fixed", bottom: 96, left: "50%", transform: "translateX(-50%)",
-          background: "#111", border: "1px solid #2a2a2a", borderRadius: 24,
+          background: "#111", border: "1px solid #2a2a2a", borderRadius: 16,
           padding: "10px 20px", fontSize: 13, fontWeight: 700, color: "#ddd",
-          zIndex: 600, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
+          zIndex: 600, whiteSpace: "normal", textAlign: "center", lineHeight: 1.5,
+          maxWidth: "calc(100vw - 40px)", boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
           pointerEvents: "none",
           animation: "hlConfirmFlash 0.25s ease-out",
         }}>

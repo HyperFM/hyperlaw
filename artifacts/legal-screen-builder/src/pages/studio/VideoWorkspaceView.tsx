@@ -965,6 +965,7 @@ const PREPARING_MESSAGES = [
   "Building your evidence, frame by frame.",
   "Every case worth winning takes a little prep.",
   "Justice doesn't rush. Neither will this.",
+  "This is a one-time thing.",
   "Almost there — hang tight.",
 ];
 
@@ -1480,12 +1481,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     triggerAutosave(markers);
 
     // Save the video's actual bytes locally so this case reopens without
-    // re-picking the file. Not awaited — playback shouldn't wait on it, and
-    // failure (e.g. storage quota on a very large file) is recoverable: the
-    // user just has to re-pick the file next time, same as it works today.
-    saveVideoBlob(hlCase.id, file, file.name).catch(() => {
-      showInsertToast("Couldn't save this video for next time — you'll need to re-add it if you close this case (may be too large for local storage).");
-    });
+    // re-picking the file — this is just the fast local path. Not awaited —
+    // playback shouldn't wait on it. Silently ignore failure (e.g. storage
+    // quota on a very large file): the server upload below is the real
+    // backstop now, so a failed local cache write isn't worth surfacing.
+    saveVideoBlob(hlCase.id, file, file.name).catch(() => {});
 
     // Also queue a background upload to server storage, so this case's video
     // never needs re-picking on another device. Duration isn't known yet at

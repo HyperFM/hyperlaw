@@ -1524,6 +1524,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
   }
 
+  // Opens the given (off-screen) file input, deferred one frame past any
+  // in-flight blur/keyboard-dismiss animation. Presenting a native iOS file
+  // picker while another UI transition (keyboard closing, mic UI leaving)
+  // is still animating is a known WKWebView quirk that can make the picker
+  // sheet flash open and immediately dismiss itself, sometimes repeatedly.
+  function openFilePicker(ref: React.RefObject<HTMLInputElement | null>) {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    requestAnimationFrame(() => { requestAnimationFrame(() => ref.current?.click()); });
+  }
+
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
@@ -2931,7 +2941,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ background: "#1a0000", border: "1px solid #5a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#ef4444" }}>
             <AlertCircle size={13} color="#ef4444" />
             <div style={{ flex: 1 }}>{videoError} — try a different file or format.</div>
-            <button onClick={() => fileInputRef.current?.click()} style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer", flexShrink: 0 }}>
+            <button onClick={() => openFilePicker(fileInputRef)} style={{ background: ORANGE, border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer", flexShrink: 0 }}>
               Try another
             </button>
           </div>
@@ -2943,8 +2953,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <div
               role="button"
               tabIndex={0}
-              onClick={() => fileInputRef.current?.click()}
-              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
+              onClick={() => openFilePicker(fileInputRef)}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") openFilePicker(fileInputRef); }}
               onDragEnter={e => {
                 e.preventDefault();
                 dragCounter.current += 1;
@@ -3021,7 +3031,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                 <>Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue.</>
               )}
             </div>
-            <button onClick={() => fileInputRef.current?.click()}
+            <button onClick={() => openFilePicker(fileInputRef)}
               style={{ background: markers.length > 0 ? "#3b82f6" : ORANGE, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
               Relink
             </button>
@@ -3164,7 +3174,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
           {/* Change video */}
           {videoUrl && (
-            <button onClick={() => fileInputRef.current?.click()} title="Change video"
+            <button onClick={() => openFilePicker(fileInputRef)} title="Change video"
               style={{ background: "none", border: "1px solid #222", borderRadius: 7, padding: "4px 10px", fontSize: 11, color: "#555", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
               <Upload size={11} /> Change
             </button>

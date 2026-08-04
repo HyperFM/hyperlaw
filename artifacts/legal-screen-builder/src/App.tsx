@@ -1162,7 +1162,13 @@ function PrimaryCaseCard({ hlCase, onOpen }: {
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
         {photo
-          ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          // key forces a fresh <img> node whenever the photo value changes
+          // (or the card remounts) instead of React reusing the existing node
+          // and mutating its src in place — WKWebView occasionally leaves a
+          // reused node blank after the view was backgrounded/re-shown, which
+          // matches reports of a case photo vanishing until leaving and
+          // reopening the screen.
+          ? <img key={photo.slice(-24)} src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
           : <Camera size={28} color={ORANGE} />}
       </button>
       <div onClick={onOpen} style={{
@@ -1673,7 +1679,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
               style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 16, position: "relative" }}>
               {casePhoto
-                ? <img src={casePhoto} alt="" style={{ width: 92, height: 92, borderRadius: 16, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
+                ? <img key={casePhoto.slice(-24)} src={casePhoto} alt="" style={{ width: 92, height: 92, borderRadius: 16, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
                 : <div style={{ width: 92, height: 92, borderRadius: 16, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={38} color={ORANGE} /></div>}
               <div style={{ position: "absolute", right: -3, bottom: -3, width: 26, height: 26, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
                 <Camera size={13} color="#000" />

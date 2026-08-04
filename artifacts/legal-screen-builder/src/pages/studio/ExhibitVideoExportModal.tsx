@@ -28,11 +28,13 @@ interface Props {
   initialIncludeAudio?: boolean;
   /** Called whenever a setting changes so the workspace can persist it */
   onSettingsChange?: (s: ExportSettings) => void;
+  /** Called once a full (non-cancelled) export succeeds — e.g. to stop the 30-day retention clock. */
+  onExportComplete?: () => void;
 }
 
 export default function ExhibitVideoExportModal({
   videoUrl, durationSec, markers, caseTitle, onClose, onUpdateHold,
-  initialResKey, initialFps, initialFormat, initialIncludeAudio, onSettingsChange,
+  initialResKey, initialFps, initialFormat, initialIncludeAudio, onSettingsChange, onExportComplete,
 }: Props) {
   const canMp4 = useMemo(() => mp4Supported(), []);
   const [resKey, setResKey] = useState(initialResKey ?? "1080");
@@ -147,6 +149,7 @@ export default function ExhibitVideoExportModal({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      onExportComplete?.();
     } catch (e) {
       if (lastReachedMarkerRef.current) setInterruptedAt(lastReachedMarkerRef.current);
       setError(e instanceof Error ? e.message : "Export failed. Please try again.");

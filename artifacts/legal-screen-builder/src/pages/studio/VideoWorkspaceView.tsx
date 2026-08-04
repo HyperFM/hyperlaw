@@ -1067,6 +1067,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [largFileWarning, setLargeFileWarning] = useState(false);
+  // ── Server-side video storage — uploaded in the background once duration
+  // is known (right after loadVideo, via onDurationChange), so the case's
+  // video is durably tied to the account and never needs re-picking on
+  // another device. Local IndexedDB stays the fast path for active editing.
+  const pendingVideoUploadRef = useRef<File | null>(null);
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [triedServerVideo, setTriedServerVideo] = useState(false);
   // ── Import loading state (CapCut-style feedback) ────────────────
   const [videoLoading, setVideoLoading] = useState(false);
   const [loadingFileName, setLoadingFileName] = useState("");
@@ -1434,9 +1441,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // undefined) for any fresh user-initiated pick (initial load, Relink,
   // Change video) — this always resets the ref, so a stale filmstrip from a
   // *different* video can never leak into a new one.
-  function loadVideo(file: File, cachedThumbnails?: string[]) {
+  function loadVideo(file: File, cachedThumbnails?: string[], skipServerUpload = false) {
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
+    setVideoUploadError(null);
     // Show import loading state immediately — before any decoding happens
     setVideoLoading(true);
     setLoadingFileName(file.name);
@@ -1478,6 +1486,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     saveVideoBlob(hlCase.id, file, file.name).catch(() => {
       showInsertToast("Couldn't save this video for next time — you'll need to re-add it if you close this case (may be too large for local storage).");
     });
+
+    // Also queue a background upload to server storage, so this case's video
+    // never needs re-picking on another device. Duration isn't known yet at
+    // this point — onDurationChange picks up this pending file once it is.
+    // Skipped when we're the ones restoring an already-server-stored video
+    // (would just re-upload the file we just downloaded).
+    if (!skipServerUpload) pendingVideoUploadRef.current = file;
+  }
+
+  function uploadVideoToServer(file: File, durationSec: number) {
+    api.studioProject.uploadVideo(hlCase.id, file, durationSec)
+      .then(() => setVideoUploadError(null))
+      .catch((err: unknown) => {
+        const msg = (err as Error).message || "";
+        setVideoUploadError(
+          msg.includes("5 minutes")
+            ? msg
+            : "Couldn't save this video to your account — it'll only be available on this device for now."
+        );
+      });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -2323,6 +2351,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       // Markers already cleared in initial state; remove the expired data from server too
       onUpdateCase({ ...hlCase, studioProject: undefined });
       clearVideoBlob(hlCase.id);
+      api.studioProject.deleteVideo(hlCase.id).catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2524,16 +2553,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Restore a locally-saved video on mount, if this case has one ────
-  // This is the whole point of saving the video's bytes locally instead of
-  // just its filename: reopen the case and it's just there, no file picker,
-  // no "Relink" prompt. Falls through to that prompt only if no local copy
-  // exists (new case, or the browser evicted storage under space pressure).
+  // ── Restore a saved video on mount, if this case has one ────────────
+  // This is the whole point of saving the video's bytes: reopen the case and
+  // it's just there, no file picker, no "Relink" prompt. Local IndexedDB is
+  // tried first (fastest); if this device has no local copy (new device,
+  // cleared browser storage, private browsing), fall back to the server copy
+  // automatically before ever asking the user to manually re-pick the file.
   useEffect(() => {
-    loadVideoBlob(hlCase.id).then(saved => {
-      if (!saved || videoUrlRef.current) return; // nothing saved, or user already picked one in the meantime
-      const file = new File([saved.blob], saved.fileName, { type: saved.blob.type || "video/mp4" });
-      loadVideo(file, saved.thumbnails);
+    loadVideoBlob(hlCase.id).then(async saved => {
+      if (videoUrlRef.current) return; // user already picked one in the meantime
+      if (saved) {
+        const file = new File([saved.blob], saved.fileName, { type: saved.blob.type || "video/mp4" });
+        loadVideo(file, saved.thumbnails);
+        return;
+      }
+      // No local copy — try the server before giving up to manual Relink.
+      try {
+        const { url } = await api.studioProject.getVideoUrl(hlCase.id);
+        if (!url || videoUrlRef.current) return;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("fetch failed");
+        const blob = await resp.blob();
+        const file = new File([blob], videoFileName || "video.mp4", { type: blob.type || "video/mp4" });
+        loadVideo(file, undefined, true); // skipServerUpload — it's already there
+      } catch {
+        // Genuinely nothing available anywhere — Relink prompt is the right fallback.
+      } finally {
+        setTriedServerVideo(true);
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2677,6 +2724,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </>
           )}
 
+          {/* Video-storage upload notice (background upload failed, or hit the 5-minute limit) */}
+          {videoUploadError && (
+            <>
+              <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
+                <AlertCircle size={13} color="#cc6600" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: "#a05000", lineHeight: 1.6, flex: 1 }}>{videoUploadError}</div>
+                <button onClick={() => setVideoUploadError(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
+                  <X size={13} color="#6b3800" />
+                </button>
+              </div>
+              <div style={{ borderTop: "1px solid #1c1c1c", marginBottom: 14 }} />
+            </>
+          )}
+
           {/* Jurisdiction */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 7, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2797,6 +2858,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               setDuration(d);
               snapshotRef.current.videoDurationSec = d;
               triggerAutosave(markers);
+              const pending = pendingVideoUploadRef.current;
+              if (pending && isFinite(d) && d > 0) {
+                pendingVideoUploadRef.current = null;
+                uploadVideoToServer(pending, d);
+              }
             }}
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}
@@ -2923,7 +2989,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
 
         {/* ── Relink banner ─────────────────────────────────────────── */}
-        {!videoUrl && videoFileName && (
+        {!videoUrl && videoFileName && triedServerVideo && (
           <div style={{ background: markers.length > 0 ? "#081020" : "#1a0e00", border: `1px solid ${markers.length > 0 ? "#1a3060" : "#4a2800"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: markers.length > 0 ? "#4a80c0" : "#cc6600" }}>
             <AlertCircle size={14} color={markers.length > 0 ? "#4a80c0" : "#cc6600"} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: 1, lineHeight: 1.55 }}>
@@ -3539,6 +3605,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           initialFormat={exportSettings.format}
           initialIncludeAudio={exportSettings.includeAudio}
           onSettingsChange={s => { setExportSettings(s); triggerIndexedDBSave(); }}
+          onExportComplete={() => { api.studioProject.clearExpiry(hlCase.id).catch(() => {}); }}
         />
       )}
 

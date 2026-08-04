@@ -166,10 +166,15 @@ export const casesTable = pgTable("cases", {
   caseData: jsonb("case_data").notNull().$type<Record<string, unknown>>(),
   /** Structured output from the Organization Engine — clouds, facts, claims, etc. */
   structuredCase: jsonb("structured_case").$type<Record<string, unknown>>(),
-  /** Expiry timestamp for the studio project (markers + exhibits).
-   *  Set to now + 7 days on every studio autosave; cleared on expiry.
+  /** Expiry timestamp for the studio project (markers + exhibits + stored video).
+   *  Set to now + 30 days on every studio autosave; cleared on expiry.
    *  Null = no studio project exists yet. */
   studioProjectExpiresAt: timestamp("studio_project_expires_at"),
+  /** Supabase Storage object key for this case's uploaded video, once stored
+   *  server-side. Null = never uploaded (or wiped on expiry). Server-authoritative
+   *  — deliberately its own column, not inside caseData, since the client
+   *  fully overwrites caseData on every autosave. */
+  studioVideoKey: text("studio_video_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({

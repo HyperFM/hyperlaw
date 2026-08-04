@@ -13,6 +13,34 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+/** POST a FormData body with real-time upload-progress reporting (XMLHttpRequest, so upload.onprogress fires). */
+function uploadWithProgress<T>(path: string, form: FormData, onProgress?: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}${path}`);
+    xhr.withCredentials = true;
+    xhr.upload.addEventListener("progress", e => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText) as T); }
+        catch { reject(new Error("Invalid server response")); }
+      } else {
+        try {
+          const body = JSON.parse(xhr.responseText) as { error?: string };
+          reject(new Error(body.error ?? `Upload failed (${xhr.status})`));
+        } catch {
+          reject(new Error(`Upload failed (${xhr.status})`));
+        }
+      }
+    });
+    xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+    xhr.send(form);
+  });
+}
+
 export interface ServerCase {
   id: string;
   userId: string;
@@ -131,11 +159,24 @@ export const api = {
       apiFetch<{ ok: boolean }>(`/cases/${id}`, { method: "DELETE" }),
   },
   studioProject: {
-    /** Refresh the 7-day retention timer for a case's studio project */
+    /** Refresh the 30-day retention timer for a case's studio project */
     keepAlive: (caseId: string) =>
       apiFetch<{ ok: boolean; expiresAt: string }>(`/cases/${caseId}/studio-project/keep-alive`, { method: "POST" }),
     /** Explicitly clear the studio project expiry (called after export) */
     clearExpiry: (caseId: string) =>
       apiFetch<{ ok: boolean }>(`/cases/${caseId}/studio-project/clear-expiry`, { method: "DELETE" }),
+    /** Upload the case's video to server-side storage so it never needs re-picking on another device. */
+    uploadVideo: (caseId: string, file: File, durationSec: number, onProgress?: (pct: number) => void) => {
+      const form = new FormData();
+      form.append("video", file);
+      form.append("durationSec", String(durationSec));
+      return uploadWithProgress<{ ok: boolean }>(`/cases/${caseId}/studio-project/video`, form, onProgress);
+    },
+    /** Signed URL for the stored video, or null if none has been uploaded yet. */
+    getVideoUrl: (caseId: string) =>
+      apiFetch<{ url: string | null }>(`/cases/${caseId}/studio-project/video`),
+    /** Delete the stored video (called when the studio project's 30-day retention expires). */
+    deleteVideo: (caseId: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${caseId}/studio-project/video`, { method: "DELETE" }),
   },
 };

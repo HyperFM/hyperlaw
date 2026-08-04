@@ -2942,9 +2942,9 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
             <button
               onClick={() => setShowCrisisSupport(false)}
               aria-label="Close"
-              style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", color: "#5a534c", cursor: "pointer", padding: 6 }}
+              style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", color: "#6d6a63", cursor: "pointer", padding: 6, fontSize: 12.5, fontWeight: 700 }}
             >
-              <X size={18} />
+              Wait it out
             </button>
 
             <div style={{
@@ -2984,7 +2984,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
               onClick={() => setShowCrisisSupport(false)}
               style={{ fontSize: 12.5, color: "#6d6a63", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
             >
-              Not right now
+              I'll be patient with myself
             </span>
           </div>
         </div>

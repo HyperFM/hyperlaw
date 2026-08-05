@@ -1593,7 +1593,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // worse than the original rare glitch it was meant to fix. Don't reintroduce
   // that deferral for the web fallback path.
   function openFilePicker(ref: React.RefObject<HTMLInputElement | null>) {
-    if (Capacitor.isNativePlatform()) {
+    // isNativePlatform() alone isn't enough — it's true on ANY native build,
+    // including ones installed before this plugin existed. This app loads its
+    // web bundle live from the server, so a web deploy can ship this branch
+    // before the matching native binary (with the plugin actually compiled
+    // in) ever reaches the device — calling a plugin the installed binary
+    // doesn't have silently fails, which looked like "tapping does nothing at
+    // all." isPluginAvailable checks the ACTUAL installed binary, not just
+    // the platform, and falls back to the HTML input either way.
+    if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("FilePicker")) {
       pickVideoNative()
         .then(file => { if (file) loadVideo(file); })
         .catch(() => {}); // user cancelled, or the picker itself failed — no file, nothing to load

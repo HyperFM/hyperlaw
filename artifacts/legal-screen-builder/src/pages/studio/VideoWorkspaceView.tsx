@@ -1075,6 +1075,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const pendingVideoUploadRef = useRef<File | null>(null);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [triedServerVideo, setTriedServerVideo] = useState(false);
+  // Guards the Infinity-duration probe seek (below) to at most once per video
+  // load. Some browsers keep re-firing durationchange with Infinity instead
+  // of resolving it after a single seek — without this guard, every one of
+  // those re-fires forces another seek on the live player, which is
+  // indistinguishable from "plays a couple seconds, then stops for good."
+  const infinityProbeAttemptedRef = useRef(false);
   // ── Import loading state (CapCut-style feedback) ────────────────
   const [videoLoading, setVideoLoading] = useState(false);
   const [loadingFileName, setLoadingFileName] = useState("");
@@ -1446,6 +1452,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
     setVideoUploadError(null);
+    infinityProbeAttemptedRef.current = false;
     // Show import loading state immediately — before any decoding happens
     setVideoLoading(true);
     setLoadingFileName(file.name);
@@ -1492,7 +1499,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // this point — onDurationChange picks up this pending file once it is.
     // Skipped when we're the ones restoring an already-server-stored video
     // (would just re-upload the file we just downloaded).
-    if (!skipServerUpload) pendingVideoUploadRef.current = file;
+    if (!skipServerUpload) {
+      pendingVideoUploadRef.current = file;
+      // Safety net: on some browsers/files duration never resolves to a
+      // finite number no matter what (the Infinity-probe seek above is a
+      // best-effort, not a guarantee) — which would otherwise leave the
+      // video stuck forever with nothing ever reaching the server. Duration
+      // is only used for the free-tier 5-minute cap, so falling back to 0
+      // (which never trips that check) is far better than silently never
+      // uploading at all.
+      setTimeout(() => {
+        const stillPending = pendingVideoUploadRef.current;
+        if (stillPending === file) {
+          pendingVideoUploadRef.current = null;
+          const d = videoRef.current?.duration;
+          uploadVideoToServer(file, isFinite(d ?? NaN) ? (d as number) : 0);
+        }
+      }, 8000);
+    }
   }
 
   function uploadVideoToServer(file: File, durationSec: number) {
@@ -2886,13 +2910,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               const d = v.duration;
               if (!isFinite(d)) {
                 // Some MP4s (recorded/exported without a proper duration atom
-                // in their metadata) report Infinity here and never fire
-                // durationchange again with a real number — which silently
-                // stalled the server upload forever, since it waits for a
-                // finite duration before it ever fires. Seeking near the end
-                // forces the browser to scan and resolve the real duration;
-                // durationchange re-fires afterward with the correct value.
-                v.currentTime = 1e101;
+                // in their metadata) report Infinity here. Seeking near the
+                // end can force the browser to scan and resolve the real
+                // duration — but on some browsers durationchange just keeps
+                // re-firing Infinity afterward instead of resolving, and
+                // repeating the seek on every one of those re-fires yanks the
+                // live player to a bogus position mid-playback, which looks
+                // exactly like "plays a couple seconds, then stops for good."
+                // Only ever try this once per video.
+                if (!infinityProbeAttemptedRef.current) {
+                  infinityProbeAttemptedRef.current = true;
+                  v.currentTime = 1e101;
+                }
                 return;
               }
               if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above

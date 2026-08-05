@@ -22,6 +22,7 @@ import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
 import { assignNickname } from "./lib/nicknames";
+import { downscaleCasePhoto } from "./lib/casePhoto";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
@@ -1006,31 +1007,10 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 // localStorage is gone for good the moment storage gets evicted (WKWebView
 // does this under memory pressure) or the app is reinstalled — matches
 // reports of a case photo vanishing from the barrel screen with no way back.
-// Downscale (max 256px, JPEG) client-side — the result is only a few KB, so
-// it's cheap to hand to the caller, who updates local state via onUpdateCase
-// AND pushes it to the server via api.cases.savePhoto.
-function saveCasePhoto(caseId: string, file: File, onSaved: (dataUrl: string) => void, inputEl?: HTMLInputElement | null) {
-  if (inputEl) inputEl.value = "";
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const src = e.target?.result as string;
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 256;
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      let dataUrl = src;
-      if (ctx) { ctx.drawImage(img, 0, 0, w, h); dataUrl = canvas.toDataURL("image/jpeg", 0.82); }
-      onSaved(dataUrl);
-    };
-    img.onerror = () => alert("That image could not be loaded. Try a different file.");
-    img.src = src;
-  };
-  reader.onerror = () => alert("Could not read that file.");
-  reader.readAsDataURL(file);
+// The actual downscale/save helper lives in lib/casePhoto.ts, shared with
+// VideoWorkspaceView's "pick a frame from the video" photo picker.
+function saveCasePhoto(_caseId: string, file: File, onSaved: (dataUrl: string) => void, inputEl?: HTMLInputElement | null) {
+  downscaleCasePhoto(file, onSaved, inputEl);
 }
 
 // ─── Deadline notifications (browser Notification API) ────────────────────────

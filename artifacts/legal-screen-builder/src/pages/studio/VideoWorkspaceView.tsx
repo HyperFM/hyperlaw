@@ -5,7 +5,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -13,6 +13,7 @@ import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
+import { downscaleCasePhoto } from "../../lib/casePhoto";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -1292,6 +1293,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // ── AI Exhibit Screen ───────────────────────────────────────────
   const [showExhibitGenerator, setShowExhibitGenerator] = useState(false);
 
+  // ── Case photo (barrel screen) — picked from this video's own thumbnails ──
+  const [showCasePhotoPicker, setShowCasePhotoPicker] = useState(false);
+  const casePhotoInputRef = useRef<HTMLInputElement>(null);
+
   // ── Media inserts ───────────────────────────────────────────────
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
@@ -2148,6 +2153,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         setThumbsLoading(false);
         releaseHiddenVideo();
         saveThumbnails(hlCase.id, videoFileName, results); // cache for next time — fire-and-forget, non-fatal if it fails
+        // Default the case's barrel-screen photo to the video's opening frame,
+        // the first time a video is ever loaded — only if the user hasn't
+        // already set one (a custom photo or an earlier pick from this same
+        // strip always wins, never gets silently overwritten).
+        if (!hlCase.photoDataUrl && results[0]) {
+          onUpdateCase({ ...hlCase, photoDataUrl: results[0] });
+          api.cases.savePhoto(hlCase.id, results[0]).catch(() => {});
+        }
       }
     }
 
@@ -3261,6 +3274,74 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onHealBoundary={healBoundary}
           isDraggingBandaid={!!unsplitGhostPos}
         />
+
+        {/* ── Case photo picker — the barrel-screen photo defaults to this
+            video's opening frame (see the auto-set in acceptFrame above) the
+            first time a video loads; this lets the user pick a better frame
+            from the same filmstrip they already scrub through, or swap in
+            their own photo instead. Only shown once thumbnails exist. ── */}
+        {thumbnails.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <input ref={casePhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) downscaleCasePhoto(f, dataUrl => {
+                  onUpdateCase({ ...hlCase, photoDataUrl: dataUrl });
+                  api.cases.savePhoto(hlCase.id, dataUrl).catch(() => {});
+                }, e.currentTarget);
+              }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0, overflow: "hidden",
+                background: "#111", border: "1px solid #222",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {hlCase.photoDataUrl
+                  ? <img key={hlCase.photoDataUrl.slice(-24)} src={hlCase.photoDataUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : <Film size={16} color="#444" />}
+              </div>
+              <div style={{ flex: 1, fontSize: 12, color: "#888", fontWeight: 700 }}>Case Photo</div>
+              <button onClick={() => setShowCasePhotoPicker(v => !v)}
+                style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                {showCasePhotoPicker ? "Done" : "Change"}
+              </button>
+            </div>
+            {showCasePhotoPicker && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>
+                  Tap a frame from your video, or add your own photo.
+                </div>
+                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+                  <button onClick={() => casePhotoInputRef.current?.click()}
+                    style={{
+                      flexShrink: 0, width: 56, height: 56, borderRadius: 8, background: "#111",
+                      border: `1px dashed ${ORANGE}66`, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                    title="Add your own photo">
+                    <Camera size={18} color={ORANGE} />
+                  </button>
+                  {thumbnails.map((src, i) => (
+                    <button key={i}
+                      onClick={() => {
+                        onUpdateCase({ ...hlCase, photoDataUrl: src });
+                        api.cases.savePhoto(hlCase.id, src).catch(() => {});
+                        showInsertToast("Case photo updated");
+                        setShowCasePhotoPicker(false);
+                      }}
+                      style={{
+                        flexShrink: 0, width: 56, height: 56, borderRadius: 8, padding: 0, overflow: "hidden",
+                        border: hlCase.photoDataUrl === src ? `2px solid ${ORANGE}` : "1px solid #222",
+                        cursor: "pointer", background: "none",
+                      }}>
+                      <img src={src} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Currently working on — floats right under the track so the
             moment a user just chunked is visible without scrolling past the

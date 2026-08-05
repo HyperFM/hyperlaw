@@ -12,7 +12,7 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveVideoBlob, loadVideoBlob, clearVideoBlob, saveThumbnails } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
 import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -40,6 +40,16 @@ const speechSupported = !!SpeechRecognitionCtor;
 // the two can never drift out of sync with each other.
 const EXPIRY_DAYS = 30;
 const EXPIRY_MS = EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+// Hard ceiling on a video file's size — matches the server's own multer limit
+// (cases.ts) exactly. The server buffers the whole upload in memory before
+// forwarding it to storage, on what's very likely a memory-constrained
+// hosting tier — raising this without also raising the server's limit (a
+// bigger, riskier change: streaming to disk/storage instead of buffering in
+// RAM) would just let a large upload crash the server outright. Not about
+// the free-tier 5-minute duration cap (a separate, account-based check) —
+// this is a flat technical limit that applies to every account.
+const VIDEO_MAX_BYTES = 500 * 1024 * 1024; // 500 MB — keep in sync with cases.ts's multer limit
 
 function formatTime(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -1069,14 +1079,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [largFileWarning, setLargeFileWarning] = useState(false);
   // ── Server-side video storage — uploaded in the background once duration
   // is known (right after loadVideo, via onDurationChange), so the case's
-  // video is durably tied to the account and never needs re-picking on
-  // another device. Local IndexedDB stays the fast path for active editing.
+  // video is durably tied to the account and never needs re-picking, on this
+  // device or any other. The server copy is the ONLY copy — nothing is
+  // cached locally anymore (see studioIndexedDB.ts header comment for why).
   const pendingVideoUploadRef = useRef<File | null>(null);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
-  const [triedServerVideo, setTriedServerVideo] = useState(false);
   // Guards the Infinity-duration probe seek (below) to at most once per video
   // load. Some browsers keep re-firing durationchange with Infinity instead
   // of resolving it after a single seek — without this guard, every one of
@@ -1448,13 +1457,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }
 
   // ── Video controls ─────────────────────────────────────────────
-  // cachedThumbnails: pass the previously-saved filmstrip when restoring a
-  // video from local storage, so it doesn't get regenerated. Omit (or leave
-  // undefined) for any fresh user-initiated pick (initial load, Relink,
-  // Change video) — this always resets the ref, so a stale filmstrip from a
+  // cachedThumbnails: pass the previously-extracted filmstrip when restoring
+  // a video from the server, so it doesn't get regenerated. Omit (or leave
+  // undefined) for any fresh user-initiated pick (initial load, Change
+  // video) — this always resets the ref, so a stale filmstrip from a
   // *different* video can never leak into a new one.
   function loadVideo(file: File, cachedThumbnails?: string[], skipServerUpload = false) {
     pushDebug(`[UPLOAD] loadVideo file="${file.name}" size=${file.size} type="${file.type}" skipServerUpload=${skipServerUpload}`);
+    // Hard block on genuinely unusable file sizes, before touching anything
+    // else. A file this large can't reliably play, thumbnail-extract, or
+    // upload on a phone regardless of account type — attempting it anyway
+    // was the actual root cause of "plays a couple seconds then freezes" and
+    // "eats gigabytes of phone storage for a video that never even saves."
+    // Matches the server's own cap (cases.ts) so a rejected file here would
+    // have been rejected there too.
+    if (file.size > VIDEO_MAX_BYTES) {
+      setVideoError(
+        `This file is ${(file.size / 1e9).toFixed(1)} GB — too large to use here (max ${Math.round(VIDEO_MAX_BYTES / 1e6)} MB). ` +
+        `Compress it first (e.g. share it through Mail and pick a smaller size, or lower your camera's recording quality) and try again.`
+      );
+      return;
+    }
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
     setVideoUploadError(null);
@@ -1485,20 +1508,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       videoRef.current.load();
     }
 
-    const gb2 = 2 * 1024 * 1024 * 1024;
-    setLargeFileWarning(file.size > gb2);
-
     // Persist the filename immediately — snapshotRef will be updated on the
     // next render so the 800 ms debounce always captures the new value.
     snapshotRef.current.videoFileName = file.name;
     triggerAutosave(markers);
-
-    // Save the video's actual bytes locally so this case reopens without
-    // re-picking the file — this is just the fast local path. Not awaited —
-    // playback shouldn't wait on it. Silently ignore failure (e.g. storage
-    // quota on a very large file): the server upload below is the real
-    // backstop now, so a failed local cache write isn't worth surfacing.
-    saveVideoBlob(hlCase.id, file, file.name).catch(() => {});
 
     // Also queue a background upload to server storage, so this case's video
     // never needs re-picking on another device. Duration isn't known yet at
@@ -2134,7 +2147,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         setThumbnails([...results]);
         setThumbsLoading(false);
         releaseHiddenVideo();
-        saveThumbnails(hlCase.id, results); // cache for next time — fire-and-forget, non-fatal if it fails
+        saveThumbnails(hlCase.id, videoFileName, results); // cache for next time — fire-and-forget, non-fatal if it fails
       }
     }
 
@@ -2443,16 +2456,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     };
   }, [videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Expiry check on mount — clean up server data AND the locally-saved
-  // video for expired projects, together, so the two can't drift apart
-  // (video surviving locally after the markers/exhibit work it belongs to
-  // has already been wiped server-side would just be a confusing half-state).
+  // ── Expiry check on mount — clean up server data for expired projects ──
   useEffect(() => {
     const sp = hlCase.studioProject;
     if (sp?.expiresAt && sp.expiresAt < Date.now()) {
       // Markers already cleared in initial state; remove the expired data from server too
       onUpdateCase({ ...hlCase, studioProject: undefined });
-      clearVideoBlob(hlCase.id);
       api.studioProject.deleteVideo(hlCase.id).catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2656,34 +2665,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restore a saved video on mount, if this case has one ────────────
-  // This is the whole point of saving the video's bytes: reopen the case and
-  // it's just there, no file picker, no "Relink" prompt. Local IndexedDB is
-  // tried first (fastest); if this device has no local copy (new device,
-  // cleared browser storage, private browsing), fall back to the server copy
-  // automatically before ever asking the user to manually re-pick the file.
+  // The video lives on the server only now (no local copy to fall back to
+  // first) — this is the whole point: reopen the case on any device and it's
+  // just there, no re-picking. Cached thumbnails (if any) load alongside it
+  // so the filmstrip doesn't need to re-extract from scratch.
   useEffect(() => {
-    loadVideoBlob(hlCase.id).then(async saved => {
-      if (videoUrlRef.current) return; // user already picked one in the meantime
-      if (saved) {
-        const file = new File([saved.blob], saved.fileName, { type: saved.blob.type || "video/mp4" });
-        loadVideo(file, saved.thumbnails);
-        return;
-      }
-      // No local copy — try the server before giving up to manual Relink.
+    (async () => {
       try {
         const { url } = await api.studioProject.getVideoUrl(hlCase.id);
-        if (!url || videoUrlRef.current) return;
+        if (!url || videoUrlRef.current) return; // nothing there, or user already picked one in the meantime
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("fetch failed");
         const blob = await resp.blob();
+        const cachedThumbs = await loadThumbnails(hlCase.id);
         const file = new File([blob], videoFileName || "video.mp4", { type: blob.type || "video/mp4" });
-        loadVideo(file, undefined, true); // skipServerUpload — it's already there
+        loadVideo(file, cachedThumbs ?? undefined, true); // skipServerUpload — it's already there
       } catch {
-        // Genuinely nothing available anywhere — Relink prompt is the right fallback.
-      } finally {
-        setTriedServerVideo(true);
+        // Genuinely nothing on the server for this case yet — the normal
+        // "tap to load a video" empty state is the right thing to show.
       }
-    });
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2791,7 +2792,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <div style={{ fontSize: 12, color: "#666", lineHeight: 1.65 }}>
               Save your video from your photo library to the <strong style={{ color: "#999" }}>Files app</strong> on your device first, then tap <strong style={{ color: "#999" }}>Load Video</strong> here and choose it from Files.
               <br /><br />
-              Switching between phone and laptop is fine — transfer the same video to the other device and tap <strong style={{ color: "#999" }}>Relink</strong> to reconnect it. Your edits and exhibit screens are always saved here; the video never leaves your device.
+              Once it's loaded, it saves to your account automatically — open this case on any device and it's just there, no re-adding it. Videos over 500 MB aren't supported; compress a large file first if you hit that limit.
             </div>
           </div>
 
@@ -2810,21 +2811,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             </div>
           </div>
 
-          {/* Large file notice */}
-          {largFileWarning && (
-            <>
-              <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
-                <AlertCircle size={13} color="#cc6600" style={{ flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: 12, color: "#a05000", lineHeight: 1.6, flex: 1 }}>
-                  <strong style={{ color: "#cc6600" }}>Large file detected.</strong> If playback is slow, trim unnecessary portions before loading.
-                </div>
-                <button onClick={() => setLargeFileWarning(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
-                  <X size={13} color="#6b3800" />
-                </button>
-              </div>
-              <div style={{ borderTop: "1px solid #1c1c1c", marginBottom: 14 }} />
-            </>
-          )}
 
           {/* Video-storage upload notice (background upload failed, or hit the 5-minute limit) */}
           {videoUploadError && (
@@ -3112,30 +3098,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onChange={handleFileChange}
         />
 
-
-        {/* ── Relink banner ─────────────────────────────────────────── */}
-        {!videoUrl && videoFileName && triedServerVideo && (
-          <div style={{ background: markers.length > 0 ? "#081020" : "#1a0e00", border: `1px solid ${markers.length > 0 ? "#1a3060" : "#4a2800"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: markers.length > 0 ? "#4a80c0" : "#cc6600" }}>
-            <AlertCircle size={14} color={markers.length > 0 ? "#4a80c0" : "#cc6600"} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ flex: 1, lineHeight: 1.55 }}>
-              {markers.length > 0 ? (
-                <>
-                  <strong style={{ color: "#7ab0e0" }}>Your {markers.length} saved edit{markers.length !== 1 ? "s" : ""} are here.</strong>{" "}
-                  Load <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
-                  <div style={{ fontSize: 11, color: "#2d5080", marginTop: 5 }}>
-                    Switching devices? The file can come from your phone, laptop, or any device — as long as it's the same recording. AirDrop or transfer it here, then tap Relink.
-                  </div>
-                </>
-              ) : (
-                <>Previously linked: <strong>{videoFileName}</strong> — tap Relink to continue.</>
-              )}
-            </div>
-            <button onClick={() => openFilePicker(fileInputRef)}
-              style={{ background: markers.length > 0 ? "#3b82f6" : ORANGE, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
-              Relink
-            </button>
-          </div>
-        )}
 
         {/* ── Controls ──────────────────────────────────────────────── */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>

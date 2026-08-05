@@ -3,12 +3,13 @@
 // settings, video file name) to IndexedDB so the workspace can be recovered
 // after a tab close, browser crash, or mobile suspension.
 //
-// The video file's actual bytes ARE stored here too (in a separate object
-// store from the lightweight metadata above, so frequent metadata autosaves
-// don't keep rewriting a large blob) — this is what lets the workspace
-// reopen a case without re-picking the video file each time. It's still
-// entirely local: the video never leaves the device, this is just the
-// browser's own storage instead of a fresh file-picker prompt every time.
+// The video's actual bytes are NOT stored here — that used to be the case,
+// but storing an entire video blob locally (sometimes many GB) had no real
+// upper bound and could silently eat a large chunk of a phone's storage for
+// a video that never even finished saving. The server (studioVideoKey /
+// Supabase Storage) is the one real copy now; this file only keeps a small
+// cache of extracted thumbnail images, so reopening a case doesn't redo the
+// (slow) frame-extraction pass every single time.
 
 import type { ExhibitMarker } from "../../types";
 
@@ -28,23 +29,28 @@ export interface StudioSnapshot {
   exportSettings: ExportSettings;
 }
 
-interface VideoBlobRecord {
+interface ThumbnailCacheRecord {
   caseId: string;
-  blob: Blob;
   fileName: string;
   savedAt: number;
   // Cached filmstrip thumbnails for this exact video, so they don't need to
   // be regenerated (a real seek-by-seek extraction pass) every time the case
   // is reopened — only when the video itself changes. Keyed by absolute
   // timestamp in the source video, same as at generation time, so this is
-  // unaffected by chunks being reordered in the Organize step.
-  thumbnails?: string[];
+  // unaffected by chunks being reordered in the Organize step. Small JPEG
+  // data URLs at low res — nowhere near the scale that made storing the full
+  // video locally a problem.
+  thumbnails: string[];
 }
 
 const DB_NAME = "hyperlaw-studio";
-const DB_VERSION = 2;
+// v3: the old "video-blobs" store held full video files locally (see header
+// comment) — bumping the version deletes it outright on upgrade, reclaiming
+// that space for anyone who had a video (successfully saved or not) sitting
+// in it, then recreates it thumbnail-only.
+const DB_VERSION = 3;
 const STORE = "workspace-sessions";
-const VIDEO_STORE = "video-blobs";
+const THUMBNAIL_STORE = "video-blobs"; // store name kept as-is; only its contents changed
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -54,9 +60,13 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "caseId" });
       }
-      if (!db.objectStoreNames.contains(VIDEO_STORE)) {
-        db.createObjectStore(VIDEO_STORE, { keyPath: "caseId" });
+      // Delete and recreate — old records may carry a `blob` field this
+      // version never writes again; dropping the store outright is the only
+      // way to actually reclaim the disk space IndexedDB had allocated to it.
+      if (db.objectStoreNames.contains(THUMBNAIL_STORE)) {
+        db.deleteObjectStore(THUMBNAIL_STORE);
       }
+      db.createObjectStore(THUMBNAIL_STORE, { keyPath: "caseId" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -109,55 +119,16 @@ export async function clearStudioSnapshot(caseId: string): Promise<void> {
   }
 }
 
-/** Save the video file's bytes for a case. Unlike the metadata snapshot
- *  above, this is NOT silently swallowed on failure (e.g. storage quota
- *  exceeded on a very large file) — it's the only copy of the video, so the
- *  caller needs to know it didn't stick and tell the user. */
-export async function saveVideoBlob(caseId: string, blob: Blob, fileName: string): Promise<void> {
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(VIDEO_STORE, "readwrite");
-    const record: VideoBlobRecord = { caseId, blob, fileName, savedAt: Date.now() };
-    tx.objectStore(VIDEO_STORE).put(record);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
-
-/** Load the saved video for a case, or null if none was saved (or storage
- *  was cleared, e.g. the browser evicted it under storage pressure). */
-export async function loadVideoBlob(caseId: string): Promise<{ blob: Blob; fileName: string; thumbnails?: string[] } | null> {
-  try {
-    const db = await openDB();
-    return await new Promise<{ blob: Blob; fileName: string; thumbnails?: string[] } | null>((resolve, reject) => {
-      const tx = db.transaction(VIDEO_STORE, "readonly");
-      const req = tx.objectStore(VIDEO_STORE).get(caseId);
-      req.onsuccess = () => {
-        db.close();
-        const rec = req.result as VideoBlobRecord | undefined;
-        resolve(rec ? { blob: rec.blob, fileName: rec.fileName, thumbnails: rec.thumbnails } : null);
-      };
-      req.onerror = () => { db.close(); reject(req.error); };
-    });
-  } catch {
-    return null;
-  }
-}
-
-/** Attach generated thumbnails to the video already saved for a case.
- *  No-ops if the video was replaced/removed in the meantime (nothing to
- *  attach them to) rather than resurrecting a stale record. */
-export async function saveThumbnails(caseId: string, thumbnails: string[]): Promise<void> {
+/** Cache extracted thumbnails for a case's video, so reopening the case
+ *  doesn't redo the frame-extraction pass. Silently swallowed on failure —
+ *  purely a performance cache, thumbnails just regenerate next time. */
+export async function saveThumbnails(caseId: string, fileName: string, thumbnails: string[]): Promise<void> {
   try {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(VIDEO_STORE, "readwrite");
-      const store = tx.objectStore(VIDEO_STORE);
-      const getReq = store.get(caseId);
-      getReq.onsuccess = () => {
-        const rec = getReq.result as VideoBlobRecord | undefined;
-        if (rec) store.put({ ...rec, thumbnails });
-      };
+      const tx = db.transaction(THUMBNAIL_STORE, "readwrite");
+      const record: ThumbnailCacheRecord = { caseId, fileName, savedAt: Date.now(), thumbnails };
+      tx.objectStore(THUMBNAIL_STORE).put(record);
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
     });
@@ -166,18 +137,21 @@ export async function saveThumbnails(caseId: string, thumbnails: string[]): Prom
   }
 }
 
-/** Delete the saved video bytes for a case (called on expiry or when the
- *  user explicitly replaces/removes the video). */
-export async function clearVideoBlob(caseId: string): Promise<void> {
+/** Load cached thumbnails for a case, or null if none are cached. */
+export async function loadThumbnails(caseId: string): Promise<string[] | null> {
   try {
     const db = await openDB();
-    await new Promise<void>((resolve) => {
-      const tx = db.transaction(VIDEO_STORE, "readwrite");
-      tx.objectStore(VIDEO_STORE).delete(caseId);
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); resolve(); }; // non-fatal
+    return await new Promise<string[] | null>((resolve, reject) => {
+      const tx = db.transaction(THUMBNAIL_STORE, "readonly");
+      const req = tx.objectStore(THUMBNAIL_STORE).get(caseId);
+      req.onsuccess = () => {
+        db.close();
+        const rec = req.result as ThumbnailCacheRecord | undefined;
+        resolve(rec?.thumbnails ?? null);
+      };
+      req.onerror = () => { db.close(); reject(req.error); };
     });
   } catch {
-    /* noop */
+    return null;
   }
 }

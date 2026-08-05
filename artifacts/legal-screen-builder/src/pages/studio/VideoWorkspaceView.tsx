@@ -1243,10 +1243,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // instead of re-running the whole seek-by-seek capture pass. Cleared after
   // being consumed once so a later "Change video" doesn't reuse stale frames.
   const cachedThumbsRef = useRef<string[] | null>(null);
-  // ── On-screen debug log (thumbnail diagnostics) ────────────────
-  // Flip THUMB_DEBUG to true to bring back the green on-screen diagnostic
-  // overlay (the console [thumbs] logs always run regardless).
-  const THUMB_DEBUG = false;
+  // ── On-screen debug log (thumbnail + video-upload diagnostics) ──
+  // Temporarily on — the server-side upload endpoint verifies as working
+  // (tested directly against production), but the client never seems to be
+  // calling it for at least one real video, even with an 8s watchdog that
+  // should force it unconditionally. Needs to see what's actually happening
+  // on-device instead of guessing again. Flip back to false once diagnosed.
+  const THUMB_DEBUG = true;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLogRef = useRef<string[]>([]);
   const pushDebug = useCallback((line: string) => {
@@ -1449,6 +1452,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // Change video) — this always resets the ref, so a stale filmstrip from a
   // *different* video can never leak into a new one.
   function loadVideo(file: File, cachedThumbnails?: string[], skipServerUpload = false) {
+    pushDebug(`[UPLOAD] loadVideo file="${file.name}" size=${file.size} type="${file.type}" skipServerUpload=${skipServerUpload}`);
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
     setVideoUploadError(null);
@@ -1501,6 +1505,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // (would just re-upload the file we just downloaded).
     if (!skipServerUpload) {
       pendingVideoUploadRef.current = file;
+      pushDebug(`[UPLOAD] queued pendingVideoUploadRef, watchdog armed for 8s`);
       // Safety net: on some browsers/files duration never resolves to a
       // finite number no matter what (the Infinity-probe seek above is a
       // best-effort, not a guarantee) — which would otherwise leave the
@@ -1510,6 +1515,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       // uploading at all.
       setTimeout(() => {
         const stillPending = pendingVideoUploadRef.current;
+        pushDebug(`[UPLOAD] watchdog fired, stillPending=${stillPending === file} videoRef.duration=${videoRef.current?.duration}`);
         if (stillPending === file) {
           pendingVideoUploadRef.current = null;
           const d = videoRef.current?.duration;
@@ -1520,10 +1526,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }
 
   function uploadVideoToServer(file: File, durationSec: number) {
+    pushDebug(`[UPLOAD] uploadVideoToServer starting: file="${file.name}" size=${file.size} durationSec=${durationSec} caseId=${hlCase.id}`);
     api.studioProject.uploadVideo(hlCase.id, file, durationSec)
-      .then(() => setVideoUploadError(null))
+      .then(() => {
+        pushDebug(`[UPLOAD] SUCCESS`);
+        setVideoUploadError(null);
+      })
       .catch((err: unknown) => {
         const msg = (err as Error).message || "";
+        pushDebug(`[UPLOAD] FAILED: ${msg}`);
         setVideoUploadError(
           msg.includes("5 minutes")
             ? msg
@@ -2908,6 +2919,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onDurationChange={e => {
               const v = e.currentTarget;
               const d = v.duration;
+              pushDebug(`[UPLOAD] durationchange d=${d} finite=${isFinite(d)} currentTime=${v.currentTime.toFixed(2)} readyState=${v.readyState}`);
               if (!isFinite(d)) {
                 // Some MP4s (recorded/exported without a proper duration atom
                 // in their metadata) report Infinity here. Seeking near the
@@ -2937,12 +2949,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}
             onLoadedData={() => setVideoLoading(false)}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
+            onPlay={() => { pushDebug(`[UPLOAD] video onPlay currentTime=${videoRef.current?.currentTime.toFixed(2)}`); setIsPlaying(true); }}
+            onPause={() => { pushDebug(`[UPLOAD] video onPause currentTime=${videoRef.current?.currentTime.toFixed(2)} readyState=${videoRef.current?.readyState} networkState=${videoRef.current?.networkState}`); setIsPlaying(false); }}
+            onWaiting={() => pushDebug(`[UPLOAD] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+            onStalled={() => pushDebug(`[UPLOAD] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+            onSuspend={() => pushDebug(`[UPLOAD] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
             onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
             onError={e => {
               const v = e.currentTarget;
               const code = v.error?.code;
+              pushDebug(`[UPLOAD] video onError code=${code} message="${v.error?.message}"`);
               const msgs: Record<number, string> = {
                 1: "Load aborted.",
                 2: "Network error loading video.",

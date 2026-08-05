@@ -75,6 +75,7 @@
   "dependencies": {
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
+    "@capawesome/capacitor-file-picker": "8.0.4",
     "@simplewebauthn/browser": "^13.3.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1"

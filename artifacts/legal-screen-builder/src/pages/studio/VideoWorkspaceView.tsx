@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Capacitor } from "@capacitor/core";
+import { FilePicker } from "@capawesome/capacitor-file-picker";
 import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
@@ -1559,15 +1561,44 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
   }
 
-  // Opens the given (off-screen) file input. MUST fire synchronously inside
-  // the original tap handler — iOS WKWebView only honors input.click() as a
-  // real file-picker trigger when it's part of the actual user-gesture call
-  // stack (this file already has a similar note on video.load()). An earlier
-  // version of this function deferred the click via requestAnimationFrame to
-  // dodge a suspected animation-timing race, which instead made the picker
-  // present outside the trusted gesture and flicker open/closed continuously
-  // on every attempt — worse than the original rare glitch it was meant to fix.
+  // Raw HTML <input type="file"> inside a Capacitor WKWebView is a known,
+  // documented source of native flakiness on iOS (flashes open/closed,
+  // sometimes crashes) — confirmed on this app: the identical picker works
+  // fine in plain mobile Safari, only breaks in the installed app. On native
+  // platforms, use Capacitor's own file-picker plugin instead, which drives
+  // the native UIDocumentPickerViewController/PHPickerViewController through
+  // Capacitor's bridge rather than leaving it to WKWebView's default
+  // <input type=file> handling. Falls back to the plain HTML input on web,
+  // where it already works correctly.
+  async function pickVideoNative(): Promise<File | null> {
+    const result = await FilePicker.pickVideos({ limit: 1 });
+    const picked = result.files[0];
+    if (!picked) return null;
+    if (picked.blob) return new File([picked.blob], picked.name, { type: picked.mimeType });
+    if (picked.path) {
+      const resp = await fetch(Capacitor.convertFileSrc(picked.path));
+      const blob = await resp.blob();
+      return new File([blob], picked.name, { type: picked.mimeType || blob.type });
+    }
+    return null;
+  }
+
+  // MUST fire synchronously inside the original tap handler on web — iOS
+  // Safari only honors input.click() as a real file-picker trigger when it's
+  // part of the actual user-gesture call stack (this file already has a
+  // similar note on video.load()). An earlier version of this function
+  // deferred the click via requestAnimationFrame to dodge a suspected
+  // animation-timing race, which instead made the picker present outside the
+  // trusted gesture and flicker open/closed continuously on every attempt —
+  // worse than the original rare glitch it was meant to fix. Don't reintroduce
+  // that deferral for the web fallback path.
   function openFilePicker(ref: React.RefObject<HTMLInputElement | null>) {
+    if (Capacitor.isNativePlatform()) {
+      pickVideoNative()
+        .then(file => { if (file) loadVideo(file); })
+        .catch(() => {}); // user cancelled, or the picker itself failed — no file, nothing to load
+      return;
+    }
     ref.current?.click();
   }
 

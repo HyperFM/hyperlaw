@@ -8,9 +8,19 @@ import { QuoteFocus } from "./QuoteFocus";
 import { EvidenceGrid } from "./EvidenceGrid";
 import { SummaryBoard } from "./SummaryBoard";
 
-// Native design dimensions — all 8 layout components are built at this size
+// Native design dimensions — the outer landscape canvas exhibit screens sit on
 const NATIVE_W = 1920;
 const NATIVE_H = 1080;
+// The 8 layout components actually render themselves at a fixed 1254×1254
+// (their default "square" orientation — no orientation prop is passed here,
+// so this is always what's used). That's taller than NATIVE_H, so it must be
+// scaled down to fit rather than rendered at face value — this preview needs
+// to match the fit-and-pillarbox behavior in renderAIExhibitSlide.tsx (the
+// actual video-export path), which fixed the same mismatch cropping the top
+// and bottom of every exported exhibit slide.
+const COMPONENT_W = 1254;
+const COMPONENT_H = 1254;
+const FIT_SCALE = Math.min(NATIVE_W / COMPONENT_W, NATIVE_H / COMPONENT_H);
 
 interface ExhibitRendererProps {
   /** The raw content object returned by the AI — typed loosely to avoid Zod in shared types */
@@ -39,16 +49,21 @@ export function ExhibitRenderer({ content, scale = 1 }: ExhibitRendererProps) {
         overflow: "hidden",
         flexShrink: 0,
         borderRadius: scale < 0.5 ? 6 : 0,
+        background: "#000",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
       <div
         style={{
-          width: NATIVE_W,
-          height: NATIVE_H,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
+          width: COMPONENT_W,
+          height: COMPONENT_H,
+          transform: `scale(${scale * FIT_SCALE})`,
+          transformOrigin: "center center",
           pointerEvents: "none",
           userSelect: "none",
+          flexShrink: 0,
         }}
       >
         {renderLayout(layout, content)}
@@ -70,9 +85,12 @@ function renderLayout(layout: string, content: Record<string, unknown>): React.R
     case "evidence_grid":          return <EvidenceGrid data={p} />;
     case "summary_board":          return <SummaryBoard data={p} />;
     default:
-      // Graceful fallback — render a minimal black slide with the layout name
+      // Graceful fallback — render a minimal black slide with the layout name.
+      // Sized to match the real components (COMPONENT_W×COMPONENT_H) so the
+      // parent's fit-scale wrapper doesn't distort this differently than it
+      // would a real layout.
       return (
-        <div style={{ width: NATIVE_W, height: NATIVE_H, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: COMPONENT_W, height: COMPONENT_H, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ color: "#E8611A", fontSize: 48, fontWeight: 900 }}>{layout || "Unknown Layout"}</div>
         </div>
       );

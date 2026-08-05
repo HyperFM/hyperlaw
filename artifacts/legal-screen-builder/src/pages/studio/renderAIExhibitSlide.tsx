@@ -77,6 +77,20 @@ export async function renderAIExhibitSlide(
   const scale   = isPortrait ? exportWidth / 1080 : exportHeight / 1080;
   const orientation = isPortrait ? "portrait" : "square";
 
+  // The layout components render themselves at a fixed native size per
+  // orientation — 1254×1254 for "square", 1080×1920 for "portrait" (see each
+  // component's own `dimensions` — e.g. SplitScreen.tsx). Portrait's native
+  // size equals the host exactly, so fitScale is a no-op there. But the
+  // "square" component is 1254 tall, taller than the 1080-tall landscape
+  // host — centering it at face value with overflow:hidden (the previous
+  // approach) cropped 87px off both the top AND bottom of every AI exhibit
+  // slide in the actual exported video at the default landscape resolution.
+  // Scaling the component down to fit the host, still centered, pillarboxes
+  // it (equal black bars left/right) instead — the originally intended look
+  // per this file's own header comment.
+  const componentSize = orientation === "portrait" ? { w: 1080, h: 1920 } : { w: 1254, h: 1254 };
+  const fitScale = Math.min(nativeW / componentSize.w, nativeH / componentSize.h);
+
   // 1. Off-screen host at native dimensions — black bg, component centered via flex
   const host = document.createElement("div");
   host.style.cssText =
@@ -94,7 +108,18 @@ export async function renderAIExhibitSlide(
     //    • Frame 1 — React flushes its commit (DOM writes)
     //    • Frame 2 — Browser paints (images / fonts settle)
     await new Promise<void>(resolve => {
-      root.render(pickLayoutElement(content, orientation));
+      root.render(
+        <div
+          style={{
+            width: componentSize.w,
+            height: componentSize.h,
+            transform: `scale(${fitScale})`,
+            transformOrigin: "center center",
+          }}
+        >
+          {pickLayoutElement(content, orientation)}
+        </div>
+      );
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
 

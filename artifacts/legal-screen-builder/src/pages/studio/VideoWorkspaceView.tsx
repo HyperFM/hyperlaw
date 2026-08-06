@@ -1245,10 +1245,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // instead of re-running the whole seek-by-seek capture pass. Cleared after
   // being consumed once so a later "Change video" doesn't reuse stale frames.
   const cachedThumbsRef = useRef<string[] | null>(null);
-  // ── On-screen debug log (thumbnail + video-upload diagnostics) ──
-  // Flip to true to bring back the on-screen diagnostic overlay (the console
-  // [thumbs] logs always run regardless).
-  const THUMB_DEBUG = false;
+  // ── On-screen debug log (thumbnail + native-picker diagnostics) ──
+  // Temporarily on — investigating the native FilePicker plugin silently
+  // failing to load a video after it's selected from Photos on iOS. Flip
+  // back to false once diagnosed (the console [thumbs]/[PICKER] logs always
+  // run regardless of this flag).
+  const THUMB_DEBUG = true;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLogRef = useRef<string[]>([]);
   const pushDebug = useCallback((line: string) => {
@@ -1535,13 +1537,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // <input type=file> handling. Falls back to the plain HTML input on web,
   // where it already works correctly.
   async function pickVideoNative(): Promise<File | null> {
+    pushDebug(`[PICKER] FilePicker.pickVideos() calling...`);
     const result = await FilePicker.pickVideos({ limit: 1 });
     const picked = result.files[0];
+    pushDebug(`[PICKER] result: name="${picked?.name}" size=${picked?.size} mimeType="${picked?.mimeType}" hasBlob=${!!picked?.blob} path="${picked?.path}"`);
     if (!picked) return null;
     if (picked.blob) return new File([picked.blob], picked.name, { type: picked.mimeType });
     if (picked.path) {
-      const resp = await fetch(Capacitor.convertFileSrc(picked.path));
+      const src = Capacitor.convertFileSrc(picked.path);
+      pushDebug(`[PICKER] convertFileSrc -> "${src}", fetching...`);
+      const resp = await fetch(src);
+      pushDebug(`[PICKER] fetch response: status=${resp.status} ok=${resp.ok}`);
+      if (!resp.ok) throw new Error(`Could not read the picked video (HTTP ${resp.status}).`);
       const blob = await resp.blob();
+      pushDebug(`[PICKER] blob size=${blob.size} type="${blob.type}"`);
+      if (blob.size === 0) throw new Error("The picked video read back empty.");
       return new File([blob], picked.name, { type: picked.mimeType || blob.type });
     }
     return null;
@@ -1572,7 +1582,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           const cached = await loadThumbnails(hlCase.id);
           loadVideo(file, cached ?? undefined);
         })
-        .catch(() => {}); // user cancelled, or the picker itself failed — no file, nothing to load
+        .catch((err: unknown) => {
+          pushDebug(`[PICKER] FAILED: ${(err as Error)?.message || err}`);
+          // A genuine cancel (user backed out of the picker) also lands here —
+          // only surface an error banner if there's an actual message to show,
+          // so cancelling isn't treated as a failure.
+          const msg = (err as Error)?.message;
+          if (msg) setVideoError(`Couldn't load that video: ${msg}`);
+        });
       return;
     }
     ref.current?.click();

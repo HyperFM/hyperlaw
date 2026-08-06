@@ -1276,7 +1276,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const verification = hlCase.studioProject?.jurisdictionVerification;
 
   // ── Autosave ───────────────────────────────────────────────────
-  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── AI Exhibit Screen ───────────────────────────────────────────
@@ -1370,7 +1370,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   ) {
     setAutosaveStatus("saving");
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => {
+    autosaveTimer.current = setTimeout(async () => {
       const project = getOrCreateProject();
       // Read from snapshotRef so we always get the latest values — calling code
       // may have just called setState and closures still hold stale values.
@@ -1387,10 +1387,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         expiresAt,
       };
       onUpdateCase({ ...hlCase, studioProject: next });
-      // Also update the dedicated DB column so the server can enforce cleanup
-      api.studioProject.keepAlive(hlCase.id).catch(() => {/* non-fatal */});
-      setAutosaveStatus("saved");
-      autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
+      // Also update the dedicated DB column so the server can enforce cleanup.
+      // Previously "Saved" showed immediately without waiting for this to
+      // actually succeed — genuinely honest confirmation matters here, so
+      // this now waits for a real response and shows an error state (with a
+      // retry) instead of "Saved" if it fails, rather than optimistically
+      // claiming success regardless of what actually happened.
+      try {
+        await api.studioProject.keepAlive(hlCase.id);
+        setAutosaveStatus("saved");
+        autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
+      } catch {
+        setAutosaveStatus("error");
+      }
     }, 800);
   }
 
@@ -2737,11 +2746,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
           {videoFileName && <div style={{ fontSize: 10, color: "#444", marginTop: 1 }}>{videoFileName}</div>}
         </div>
-        {/* Autosave */}
-        <div style={{ fontSize: 10, color: autosaveStatus === "saving" ? "#666" : autosaveStatus === "saved" ? "#22c55e" : "#333", fontWeight: 700, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, transition: "color 0.3s" }}>
-          {autosaveStatus === "saved" && <Check size={10} />}
-          {autosaveStatus === "saving" ? "Saving…" : autosaveStatus === "saved" ? "Saved" : ""}
-        </div>
+        {/* Autosave — "Saved" only shows once the server call actually
+            succeeds (see triggerAutosave); a failure shows a real error with
+            a retry instead of silently claiming success either way. */}
+        {autosaveStatus === "error" ? (
+          <button onClick={() => triggerAutosave(markers, chunks, organizedSlots, currentStep)}
+            style={{ fontSize: 10, color: "#ef4444", fontWeight: 800, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            <AlertCircle size={10} /> Not saved — tap to retry
+          </button>
+        ) : (
+          <div style={{ fontSize: 10, color: autosaveStatus === "saving" ? "#666" : autosaveStatus === "saved" ? "#22c55e" : "#333", fontWeight: 700, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, transition: "color 0.3s" }}>
+            {autosaveStatus === "saved" && <Check size={10} />}
+            {autosaveStatus === "saving" ? "Saving…" : autosaveStatus === "saved" ? "Saved" : ""}
+          </div>
+        )}
         {/* Undo / Redo */}
         <button onClick={undo} disabled={!undoStack.length} title="Undo"
           style={{ background: "none", border: "none", cursor: undoStack.length ? "pointer" : "not-allowed", padding: 4, opacity: undoStack.length ? 1 : 0.3 }}>
@@ -3685,9 +3703,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           <div style={{ fontSize: 12, color: "#666", textAlign: "center", marginBottom: 24, maxWidth: 320, lineHeight: 1.6 }}>
             Describe exactly what happened in this moment. Include actions, statements, contradictions, and anything a judge or jury should notice.
           </div>
-          <div style={{ width: "100%", maxWidth: 380, background: "#111", borderRadius: 12, padding: "14px 16px", minHeight: 80, fontSize: 14, color: "#ccc", lineHeight: 1.6, marginBottom: 24, border: "1px solid #1e1e1e" }}>
-            {dictationText || <span style={{ color: "#444", fontStyle: "italic" }}>Listening…</span>}
-          </div>
+          {/* A real, editable textarea — not just a live-transcript display.
+              window.SpeechRecognition doesn't exist on iOS Safari/WKWebView
+              at all (it's never shipped the recognition side of the Web
+              Speech API, only synthesis), so on iOS this was a dead end: a
+              read-only div that stayed on "Listening…" forever with no way
+              to actually get text in. Autofocusing this brings up the
+              keyboard immediately, which has its own dictation mic button
+              for real voice-to-text — and typing manually always works
+              regardless of platform support. */}
+          <textarea
+            autoFocus
+            value={dictationText}
+            onChange={e => setDictationText(e.target.value)}
+            placeholder={speechSupported ? "Listening… (or just type here)" : "Type here — tap the mic on your keyboard to dictate"}
+            style={{ width: "100%", maxWidth: 380, background: "#111", borderRadius: 12, padding: "14px 16px", minHeight: 100, fontSize: 14, color: "#ccc", lineHeight: 1.6, marginBottom: 24, border: "1px solid #1e1e1e", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
+          />
           <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 380 }}>
             <button onClick={() => stopDictation(false)}
               style={{ flex: 1, background: "#1a1a1a", border: "1px solid #333", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, color: "#888", cursor: "pointer" }}>

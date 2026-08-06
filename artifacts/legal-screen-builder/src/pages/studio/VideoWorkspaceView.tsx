@@ -42,15 +42,11 @@ const speechSupported = !!SpeechRecognitionCtor;
 const EXPIRY_DAYS = 30;
 const EXPIRY_MS = EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
-// Hard ceiling on a video file's size — matches the server's own multer limit
-// (cases.ts) exactly. The server buffers the whole upload in memory before
-// forwarding it to storage, on what's very likely a memory-constrained
-// hosting tier — raising this without also raising the server's limit (a
-// bigger, riskier change: streaming to disk/storage instead of buffering in
-// RAM) would just let a large upload crash the server outright. Not about
-// the free-tier 5-minute duration cap (a separate, account-based check) —
-// this is a flat technical limit that applies to every account.
-const VIDEO_MAX_BYTES = 500 * 1024 * 1024; // 500 MB — keep in sync with cases.ts's multer limit
+// Purely informational now — the video is never uploaded (see loadVideo's
+// header comment), so there's no server-memory ceiling to enforce. Large
+// files just take longer to decode/thumbnail-extract locally; this only
+// triggers a heads-up notice, never a rejection.
+const LARGE_FILE_NOTICE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
 function formatTime(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -1080,13 +1076,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
-  // ── Server-side video storage — uploaded in the background once duration
-  // is known (right after loadVideo, via onDurationChange), so the case's
-  // video is durably tied to the account and never needs re-picking, on this
-  // device or any other. The server copy is the ONLY copy — nothing is
-  // cached locally anymore (see studioIndexedDB.ts header comment for why).
-  const pendingVideoUploadRef = useRef<File | null>(null);
-  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [largFileWarning, setLargeFileWarning] = useState(false);
   // Guards the Infinity-duration probe seek (below) to at most once per video
   // load. Some browsers keep re-firing durationchange with Infinity instead
   // of resolving it after a single seek — without this guard, every one of
@@ -1256,12 +1246,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // being consumed once so a later "Change video" doesn't reuse stale frames.
   const cachedThumbsRef = useRef<string[] | null>(null);
   // ── On-screen debug log (thumbnail + video-upload diagnostics) ──
-  // Temporarily on — the server-side upload endpoint verifies as working
-  // (tested directly against production), but the client never seems to be
-  // calling it for at least one real video, even with an 8s watchdog that
-  // should force it unconditionally. Needs to see what's actually happening
-  // on-device instead of guessing again. Flip back to false once diagnosed.
-  const THUMB_DEBUG = true;
+  // Flip to true to bring back the on-screen diagnostic overlay (the console
+  // [thumbs] logs always run regardless).
+  const THUMB_DEBUG = false;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLogRef = useRef<string[]>([]);
   const pushDebug = useCallback((line: string) => {
@@ -1462,31 +1449,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   }
 
   // ── Video controls ─────────────────────────────────────────────
-  // cachedThumbnails: pass the previously-extracted filmstrip when restoring
-  // a video from the server, so it doesn't get regenerated. Omit (or leave
-  // undefined) for any fresh user-initiated pick (initial load, Change
-  // video) — this always resets the ref, so a stale filmstrip from a
+  // The raw video is never uploaded anywhere — same model as CapCut/iMovie:
+  // editing happens against the local file for this session only, and only
+  // the edits themselves (markers, chunks, exhibit screens — see
+  // triggerAutosave) and the final exported video (a real download, already
+  // small and re-encoded) are guaranteed to persist. Reopening this case in
+  // a later session means re-picking the same file, same as reopening a
+  // project in any desktop video editor whose media went offline.
+  //
+  // cachedThumbnails: pass the previously-cached filmstrip (see
+  // studioIndexedDB's thumbnail cache) so it doesn't get regenerated when the
+  // same file is re-picked. Omit (or leave undefined) for a genuinely new
+  // file — this always resets the ref, so a stale filmstrip from a
   // *different* video can never leak into a new one.
-  function loadVideo(file: File, cachedThumbnails?: string[], skipServerUpload = false) {
-    pushDebug(`[UPLOAD] loadVideo file="${file.name}" size=${file.size} type="${file.type}" skipServerUpload=${skipServerUpload}`);
-    // Hard block on genuinely unusable file sizes, before touching anything
-    // else. A file this large can't reliably play, thumbnail-extract, or
-    // upload on a phone regardless of account type — attempting it anyway
-    // was the actual root cause of "plays a couple seconds then freezes" and
-    // "eats gigabytes of phone storage for a video that never even saves."
-    // Matches the server's own cap (cases.ts) so a rejected file here would
-    // have been rejected there too.
-    if (file.size > VIDEO_MAX_BYTES) {
-      setVideoError(
-        `This file is ${(file.size / 1e9).toFixed(1)} GB — too large to use here (max ${Math.round(VIDEO_MAX_BYTES / 1e6)} MB). ` +
-        `Compress it first (e.g. share it through Mail and pick a smaller size, or lower your camera's recording quality) and try again.`
-      );
-      return;
-    }
+  function loadVideo(file: File, cachedThumbnails?: string[]) {
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
-    setVideoUploadError(null);
     infinityProbeAttemptedRef.current = false;
+    // Informational only — large files just take longer to decode/thumbnail
+    // locally, nothing stops them from working the way an upload-size cap
+    // would (there's no upload anymore).
+    setLargeFileWarning(file.size > LARGE_FILE_NOTICE_BYTES);
     // Show import loading state immediately — before any decoding happens
     setVideoLoading(true);
     setLoadingFileName(file.name);
@@ -1517,55 +1500,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // next render so the 800 ms debounce always captures the new value.
     snapshotRef.current.videoFileName = file.name;
     triggerAutosave(markers);
-
-    // Also queue a background upload to server storage, so this case's video
-    // never needs re-picking on another device. Duration isn't known yet at
-    // this point — onDurationChange picks up this pending file once it is.
-    // Skipped when we're the ones restoring an already-server-stored video
-    // (would just re-upload the file we just downloaded).
-    if (!skipServerUpload) {
-      pendingVideoUploadRef.current = file;
-      pushDebug(`[UPLOAD] queued pendingVideoUploadRef, watchdog armed for 8s`);
-      // Safety net: on some browsers/files duration never resolves to a
-      // finite number no matter what (the Infinity-probe seek above is a
-      // best-effort, not a guarantee) — which would otherwise leave the
-      // video stuck forever with nothing ever reaching the server. Duration
-      // is only used for the free-tier 5-minute cap, so falling back to 0
-      // (which never trips that check) is far better than silently never
-      // uploading at all.
-      setTimeout(() => {
-        const stillPending = pendingVideoUploadRef.current;
-        pushDebug(`[UPLOAD] watchdog fired, stillPending=${stillPending === file} videoRef.duration=${videoRef.current?.duration}`);
-        if (stillPending === file) {
-          pendingVideoUploadRef.current = null;
-          const d = videoRef.current?.duration;
-          uploadVideoToServer(file, isFinite(d ?? NaN) ? (d as number) : 0);
-        }
-      }, 8000);
-    }
-  }
-
-  function uploadVideoToServer(file: File, durationSec: number) {
-    pushDebug(`[UPLOAD] uploadVideoToServer starting: file="${file.name}" size=${file.size} durationSec=${durationSec} caseId=${hlCase.id}`);
-    api.studioProject.uploadVideo(hlCase.id, file, durationSec)
-      .then(() => {
-        pushDebug(`[UPLOAD] SUCCESS`);
-        setVideoUploadError(null);
-      })
-      .catch((err: unknown) => {
-        const msg = (err as Error).message || "";
-        pushDebug(`[UPLOAD] FAILED: ${msg}`);
-        setVideoUploadError(
-          msg.includes("5 minutes")
-            ? msg
-            : "Couldn't save this video to your account — it'll only be available on this device for now."
-        );
-      });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) loadVideo(file);
+    if (file) {
+      // Cached thumbnails (keyed by caseId, from a previous session) let a
+      // re-picked video skip straight past the frame-extraction pass. Only a
+      // meaningful assumption when it's genuinely the same file being
+      // reloaded — the case this exists for — not a real guarantee against
+      // picking a different file by mistake, same tradeoff this already had.
+      loadThumbnails(hlCase.id).then(cached => loadVideo(file, cached ?? undefined));
+    }
     // Reset so same file can be picked again
     e.target.value = "";
   }
@@ -1621,7 +1567,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // the platform, and falls back to the HTML input either way.
     if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("FilePicker")) {
       pickVideoNative()
-        .then(file => { if (file) loadVideo(file); })
+        .then(async file => {
+          if (!file) return;
+          const cached = await loadThumbnails(hlCase.id);
+          loadVideo(file, cached ?? undefined);
+        })
         .catch(() => {}); // user cancelled, or the picker itself failed — no file, nothing to load
       return;
     }
@@ -2475,7 +2425,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (sp?.expiresAt && sp.expiresAt < Date.now()) {
       // Markers already cleared in initial state; remove the expired data from server too
       onUpdateCase({ ...hlCase, studioProject: undefined });
-      api.studioProject.deleteVideo(hlCase.id).catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2677,29 +2626,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Restore a saved video on mount, if this case has one ────────────
-  // The video lives on the server only now (no local copy to fall back to
-  // first) — this is the whole point: reopen the case on any device and it's
-  // just there, no re-picking. Cached thumbnails (if any) load alongside it
-  // so the filmstrip doesn't need to re-extract from scratch.
-  useEffect(() => {
-    (async () => {
-      try {
-        const { url } = await api.studioProject.getVideoUrl(hlCase.id);
-        if (!url || videoUrlRef.current) return; // nothing there, or user already picked one in the meantime
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error("fetch failed");
-        const blob = await resp.blob();
-        const cachedThumbs = await loadThumbnails(hlCase.id);
-        const file = new File([blob], videoFileName || "video.mp4", { type: blob.type || "video/mp4" });
-        loadVideo(file, cachedThumbs ?? undefined, true); // skipServerUpload — it's already there
-      } catch {
-        // Genuinely nothing on the server for this case yet — the normal
-        // "tap to load a video" empty state is the right thing to show.
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Nothing to restore on mount — the video isn't stored anywhere but this
+  // browser tab's memory for the current session (see loadVideo's header
+  // comment). If this case was worked on before, `videoFileName` is already
+  // populated from the saved studioProject, and the "reload your video"
+  // prompt below picks that up immediately — no fetch needed.
 
   // ── Cleanup ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -2805,7 +2736,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             <div style={{ fontSize: 12, color: "#666", lineHeight: 1.65 }}>
               Save your video from your photo library to the <strong style={{ color: "#999" }}>Files app</strong> on your device first, then tap <strong style={{ color: "#999" }}>Load Video</strong> here and choose it from Files.
               <br /><br />
-              Once it's loaded, it saves to your account automatically — open this case on any device and it's just there, no re-adding it. Videos over 500 MB aren't supported; compress a large file first if you hit that limit.
+              Your edits and exhibit screens always save here — the video itself doesn't leave your device. Closing this case and coming back just means reloading the same file, same as any video editor whose project references outside media.
             </div>
           </div>
 
@@ -2825,13 +2756,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
 
 
-          {/* Video-storage upload notice (background upload failed, or hit the 5-minute limit) */}
-          {videoUploadError && (
+          {/* Large file notice — informational only, nothing is rejected */}
+          {largFileWarning && (
             <>
               <div style={{ background: "#1a0e00", border: "1px solid #4a2800", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
                 <AlertCircle size={13} color="#cc6600" style={{ flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: 12, color: "#a05000", lineHeight: 1.6, flex: 1 }}>{videoUploadError}</div>
-                <button onClick={() => setVideoUploadError(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
+                <div style={{ fontSize: 12, color: "#a05000", lineHeight: 1.6, flex: 1 }}>
+                  <strong style={{ color: "#cc6600" }}>Large file detected.</strong> If playback or thumbnail loading is slow, trim unnecessary portions before loading.
+                </div>
+                <button onClick={() => setLargeFileWarning(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
                   <X size={13} color="#6b3800" />
                 </button>
               </div>
@@ -2957,7 +2890,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             onDurationChange={e => {
               const v = e.currentTarget;
               const d = v.duration;
-              pushDebug(`[UPLOAD] durationchange d=${d} finite=${isFinite(d)} currentTime=${v.currentTime.toFixed(2)} readyState=${v.readyState}`);
               if (!isFinite(d)) {
                 // Some MP4s (recorded/exported without a proper duration atom
                 // in their metadata) report Infinity here. Seeking near the
@@ -2978,25 +2910,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               setDuration(d);
               snapshotRef.current.videoDurationSec = d;
               triggerAutosave(markers);
-              const pending = pendingVideoUploadRef.current;
-              if (pending && d > 0) {
-                pendingVideoUploadRef.current = null;
-                uploadVideoToServer(pending, d);
-              }
             }}
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}
             onLoadedData={() => setVideoLoading(false)}
-            onPlay={() => { pushDebug(`[UPLOAD] video onPlay currentTime=${videoRef.current?.currentTime.toFixed(2)}`); setIsPlaying(true); }}
-            onPause={() => { pushDebug(`[UPLOAD] video onPause currentTime=${videoRef.current?.currentTime.toFixed(2)} readyState=${videoRef.current?.readyState} networkState=${videoRef.current?.networkState}`); setIsPlaying(false); }}
-            onWaiting={() => pushDebug(`[UPLOAD] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-            onStalled={() => pushDebug(`[UPLOAD] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-            onSuspend={() => pushDebug(`[UPLOAD] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+            onPlay={() => { pushDebug(`[PLAYBACK] video onPlay currentTime=${videoRef.current?.currentTime.toFixed(2)}`); setIsPlaying(true); }}
+            onPause={() => { pushDebug(`[PLAYBACK] video onPause currentTime=${videoRef.current?.currentTime.toFixed(2)} readyState=${videoRef.current?.readyState} networkState=${videoRef.current?.networkState}`); setIsPlaying(false); }}
+            onWaiting={() => pushDebug(`[PLAYBACK] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+            onStalled={() => pushDebug(`[PLAYBACK] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+            onSuspend={() => pushDebug(`[PLAYBACK] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
             onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
             onError={e => {
               const v = e.currentTarget;
               const code = v.error?.code;
-              pushDebug(`[UPLOAD] video onError code=${code} message="${v.error?.message}"`);
+              pushDebug(`[PLAYBACK] video onError code=${code} message="${v.error?.message}"`);
               const msgs: Record<number, string> = {
                 1: "Load aborted.",
                 2: "Network error loading video.",
@@ -3111,6 +3038,31 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onChange={handleFileChange}
         />
 
+
+        {/* ── Reload video prompt — shown once this case has a saved video
+            filename but nothing loaded in this session yet. Same model as
+            any desktop video editor whose media went offline: your edits are
+            always safe, you just need to point the app back at the source
+            file each time you open it (see loadVideo's header comment). ── */}
+        {!videoUrl && videoFileName && (
+          <div style={{ background: markers.length > 0 ? "#081020" : "#1a0e00", border: `1px solid ${markers.length > 0 ? "#1a3060" : "#4a2800"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: markers.length > 0 ? "#4a80c0" : "#cc6600" }}>
+            <AlertCircle size={14} color={markers.length > 0 ? "#4a80c0" : "#cc6600"} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, lineHeight: 1.55 }}>
+              {markers.length > 0 ? (
+                <>
+                  <strong style={{ color: "#7ab0e0" }}>Your {markers.length} saved edit{markers.length !== 1 ? "s" : ""} are here.</strong>{" "}
+                  Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
+                </>
+              ) : (
+                <>Reload <strong>{videoFileName}</strong> to continue.</>
+              )}
+            </div>
+            <button onClick={() => openFilePicker(fileInputRef)}
+              style={{ background: markers.length > 0 ? "#3b82f6" : ORANGE, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
+              Reload
+            </button>
+          </div>
+        )}
 
         {/* ── Controls ──────────────────────────────────────────────── */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>

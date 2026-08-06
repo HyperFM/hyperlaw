@@ -3,13 +3,15 @@
 // settings, video file name) to IndexedDB so the workspace can be recovered
 // after a tab close, browser crash, or mobile suspension.
 //
-// The video's actual bytes are NOT stored here — that used to be the case,
-// but storing an entire video blob locally (sometimes many GB) had no real
-// upper bound and could silently eat a large chunk of a phone's storage for
-// a video that never even finished saving. The server (studioVideoKey /
-// Supabase Storage) is the one real copy now; this file only keeps a small
-// cache of extracted thumbnail images, so reopening a case doesn't redo the
-// (slow) frame-extraction pass every single time.
+// The video's actual bytes are NOT stored here, and never uploaded to the
+// server either — same model as CapCut/iMovie: the source video only ever
+// lives on-device for the current editing session (see VideoWorkspaceView's
+// loadVideo header comment). Storing the whole blob locally used to be tried
+// and had no real upper bound — it could silently eat many GB of a phone's
+// storage for a video that never even finished saving. This file only keeps
+// a small cache of extracted thumbnail images, so reopening a case doesn't
+// redo the (slow) frame-extraction pass every single time the same file is
+// reloaded.
 
 import type { ExhibitMarker } from "../../types";
 

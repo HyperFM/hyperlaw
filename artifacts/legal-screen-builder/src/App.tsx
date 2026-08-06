@@ -5070,7 +5070,7 @@ export default function App() {
               caseData.structuredCase = sc.structuredCase as unknown as HLCase["structuredCase"];
             }
             // casePhotoDataUrl lives in its own DB column, not caseData (same
-            // reasoning as studioVideoKey) — pull it in explicitly.
+            // reasoning as studioProjectExpiresAt) — pull it in explicitly.
             if (sc.casePhotoDataUrl) caseData.photoDataUrl = sc.casePhotoDataUrl;
             localMap.set(sc.id, caseData);
             changed = true;

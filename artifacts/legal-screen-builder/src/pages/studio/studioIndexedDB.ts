@@ -139,17 +139,22 @@ export async function saveThumbnails(caseId: string, fileName: string, thumbnail
   }
 }
 
-/** Load cached thumbnails for a case, or null if none are cached. */
-export async function loadThumbnails(caseId: string): Promise<string[] | null> {
+/** Load cached thumbnails for a case, or null if none are cached. Returns the
+ *  fileName they were extracted from too — the cache is keyed by caseId
+ *  alone, not which video, so callers MUST check this matches whatever file
+ *  is actually being loaded before reusing the thumbnails. Reusing them
+ *  unconditionally after switching to a different video was the exact bug
+ *  behind "the frames don't change when I switch videos." */
+export async function loadThumbnails(caseId: string): Promise<{ fileName: string; thumbnails: string[] } | null> {
   try {
     const db = await openDB();
-    return await new Promise<string[] | null>((resolve, reject) => {
+    return await new Promise<{ fileName: string; thumbnails: string[] } | null>((resolve, reject) => {
       const tx = db.transaction(THUMBNAIL_STORE, "readonly");
       const req = tx.objectStore(THUMBNAIL_STORE).get(caseId);
       req.onsuccess = () => {
         db.close();
         const rec = req.result as ThumbnailCacheRecord | undefined;
-        resolve(rec?.thumbnails ?? null);
+        resolve(rec ? { fileName: rec.fileName, thumbnails: rec.thumbnails } : null);
       };
       req.onerror = () => { db.close(); reject(req.error); };
     });

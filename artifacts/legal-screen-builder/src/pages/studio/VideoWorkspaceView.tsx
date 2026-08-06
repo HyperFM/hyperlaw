@@ -1523,11 +1523,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     const file = e.target.files?.[0];
     if (file) {
       // Cached thumbnails (keyed by caseId, from a previous session) let a
-      // re-picked video skip straight past the frame-extraction pass. Only a
-      // meaningful assumption when it's genuinely the same file being
-      // reloaded — the case this exists for — not a real guarantee against
-      // picking a different file by mistake, same tradeoff this already had.
-      loadThumbnails(hlCase.id).then(cached => loadVideo(file, cached ?? undefined));
+      // re-picked video skip straight past the frame-extraction pass — but
+      // ONLY when it's genuinely the same file being reloaded. The cache
+      // isn't keyed by which video, so reusing it unconditionally after
+      // switching to a different file was exactly why the filmstrip kept
+      // showing the previous video's frames instead of the new one's.
+      loadThumbnails(hlCase.id).then(cached =>
+        loadVideo(file, cached?.fileName === file.name ? cached.thumbnails : undefined)
+      );
     }
     // Reset so same file can be picked again
     e.target.value = "";
@@ -1614,8 +1617,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     pickVideoNative(source)
       .then(async picked => {
         if (!picked) return;
+        // Only reuse the cache if it's actually for this same file — see
+        // handleFileChange's matching comment for why that check matters.
         const cached = await loadThumbnails(hlCase.id);
-        loadVideo(picked, cached ?? undefined);
+        loadVideo(picked, cached?.fileName === picked.fileName ? cached.thumbnails : undefined);
       })
       .catch((err: unknown) => {
         pushDebug(`[PICKER] FAILED: ${(err as Error)?.message || err}`);

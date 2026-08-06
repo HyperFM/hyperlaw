@@ -1290,6 +1290,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // plugin exposes these as two distinct native pickers, unlike the single
   // HTML <input type=file> sheet on web that already offers both at once.
   const [showNativeSourceChoice, setShowNativeSourceChoice] = useState(false);
+  // Set while the "you already have saved moments" confirmation is showing —
+  // holds which input ref to actually open once the user confirms.
+  const [pendingFilePickerRef, setPendingFilePickerRef] = useState<React.RefObject<HTMLInputElement | null> | null>(null);
 
   // ── Media inserts ───────────────────────────────────────────────
   const [showMediaPicker, setShowMediaPicker] = useState(false);
@@ -1596,7 +1599,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // trusted gesture and flicker open/closed continuously on every attempt —
   // worse than the original rare glitch it was meant to fix. Don't reintroduce
   // that deferral for the web fallback path.
+  // Marker timestamps are tied to the exact video they were made against —
+  // loading a different video (or even the same one re-exported/trimmed
+  // differently) after moments already exist would silently desync every
+  // timestamp from what it's actually pointing at. Once there's real
+  // progress to protect, route through a confirmation step first rather
+  // than opening the picker immediately.
   function openFilePicker(ref: React.RefObject<HTMLInputElement | null>) {
+    if (markers.length > 0) {
+      setPendingFilePickerRef(ref);
+      return;
+    }
+    openFilePickerConfirmed(ref);
+  }
+
+  function openFilePickerConfirmed(ref: React.RefObject<HTMLInputElement | null>) {
+    setPendingFilePickerRef(null);
     // isNativePlatform() alone isn't enough — it's true on ANY native build,
     // including ones installed before this plugin existed. This app loads its
     // web bundle live from the server, so a web deploy can ship this branch
@@ -3781,6 +3799,49 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onSettingsChange={s => { setExportSettings(s); triggerIndexedDBSave(); }}
           onExportComplete={() => { api.studioProject.clearExpiry(hlCase.id).catch(() => {}); }}
         />
+      )}
+
+      {/* ── "You already have saved moments" confirmation — marker timestamps
+          are tied to the exact video they were made against, so loading a
+          different (or even re-exported) video after moments already exist
+          would silently desync every timestamp from what it actually points
+          at. Shown before the picker ever opens once there's real progress
+          to protect. ── */}
+      {pendingFilePickerRef && (
+        <div
+          onClick={() => setPendingFilePickerRef(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 700,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, boxSizing: "border-box",
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 380, background: "#141414", border: "1px solid #2a2a2a",
+              borderRadius: 16, padding: 20, boxSizing: "border-box",
+            }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+              <AlertCircle size={18} color={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>
+                You already have {markers.length} saved moment{markers.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6, marginBottom: 18 }}>
+              Your moments are timed to this exact recording. If you load a different video (or a re-exported version of this one), those timestamps won't line up anymore. Only continue if you're reloading <em style={{ color: "#bbb" }}>the same</em> video file.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setPendingFilePickerRef(null)}
+                style={{ flex: 1, background: "#1c1c1c", border: "1px solid #2a2a2a", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, color: "#ccc", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => pendingFilePickerRef && openFilePickerConfirmed(pendingFilePickerRef)}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Native Photos/Files source choice — the web <input type=file>

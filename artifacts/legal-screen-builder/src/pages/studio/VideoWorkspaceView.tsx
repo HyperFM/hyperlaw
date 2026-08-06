@@ -1286,6 +1286,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [showCasePhotoPicker, setShowCasePhotoPicker] = useState(false);
   const casePhotoInputRef = useRef<HTMLInputElement>(null);
 
+  // On native, "Add Video" offers a choice between Photos and Files — the
+  // plugin exposes these as two distinct native pickers, unlike the single
+  // HTML <input type=file> sheet on web that already offers both at once.
+  const [showNativeSourceChoice, setShowNativeSourceChoice] = useState(false);
+
   // ── Media inserts ───────────────────────────────────────────────
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
@@ -1464,29 +1469,39 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // same file is re-picked. Omit (or leave undefined) for a genuinely new
   // file — this always resets the ref, so a stale filmstrip from a
   // *different* video can never leak into a new one.
-  function loadVideo(file: File, cachedThumbnails?: string[]) {
+  // Accepts either a real File (web picker / native small-enough files read
+  // back as a Blob) or a direct native URL (native picker's usual path for
+  // anything of real size — see pickVideoNative's header comment for why
+  // fetching the whole file into a Blob first isn't viable for large video).
+  type VideoSource = File | { url: string; fileName: string; size?: number };
+  function loadVideo(source: VideoSource, cachedThumbnails?: string[]) {
+    const isFile = source instanceof File;
+    const fileName = isFile ? source.name : source.fileName;
+    const size = isFile ? source.size : (source.size ?? 0);
+
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
     infinityProbeAttemptedRef.current = false;
     // Informational only — large files just take longer to decode/thumbnail
     // locally, nothing stops them from working the way an upload-size cap
     // would (there's no upload anymore).
-    setLargeFileWarning(file.size > LARGE_FILE_NOTICE_BYTES);
+    setLargeFileWarning(size > LARGE_FILE_NOTICE_BYTES);
     // Show import loading state immediately — before any decoding happens
     setVideoLoading(true);
-    setLoadingFileName(file.name);
+    setLoadingFileName(fileName);
 
-    // Revoke previous blob URL to free memory
+    // Revoke the previous blob URL to free memory. Harmless no-op if it
+    // wasn't actually a blob: URL (e.g. a native capacitor:// file URL).
     if (videoUrlRef.current) {
       URL.revokeObjectURL(videoUrlRef.current);
       videoUrlRef.current = null;
     }
-    const url = URL.createObjectURL(file);
+    const url = isFile ? URL.createObjectURL(source) : source.url;
     videoUrlRef.current = url;
 
     // Set state so React renders the <video> element
     setVideoUrl(url);
-    setVideoFileName(file.name);
+    setVideoFileName(fileName);
     setCurrentTime(0);
     setIsPlaying(false);
 
@@ -1500,7 +1515,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     // Persist the filename immediately — snapshotRef will be updated on the
     // next render so the 800 ms debounce always captures the new value.
-    snapshotRef.current.videoFileName = file.name;
+    snapshotRef.current.videoFileName = fileName;
     triggerAutosave(markers);
   }
 
@@ -1536,24 +1551,36 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // Capacitor's bridge rather than leaving it to WKWebView's default
   // <input type=file> handling. Falls back to the plain HTML input on web,
   // where it already works correctly.
-  async function pickVideoNative(): Promise<File | null> {
-    pushDebug(`[PICKER] FilePicker.pickVideos() calling...`);
-    const result = await FilePicker.pickVideos({ limit: 1 });
+  // Real-device diagnostic confirmed the actual failure: fetch() on a
+  // Capacitor-converted capacitor:// URL for a large (2.4GB) picked video
+  // fails outright with a generic "Load failed" — a known WKWebView
+  // limitation reading very large local files back through a custom URL
+  // scheme handler's response mechanism. Loading the whole file into a JS
+  // Blob first was never necessary anyway: the plugin already copies the
+  // picked file into the app's own sandboxed cache directory (confirmed by
+  // reading the plugin's iOS Swift source directly), so the converted URL is
+  // a real, stable, same-origin file the <video> element can be pointed at
+  // directly — it streams progressively from there exactly like it would
+  // from any other src, the same way native video players handle multi-hour
+  // footage, and never needs the whole file in memory at once.
+  async function pickVideoNative(source: "photos" | "files"): Promise<{ url: string; fileName: string; size?: number } | null> {
+    pushDebug(`[PICKER] FilePicker.${source === "photos" ? "pickVideos" : "pickFiles"}() calling...`);
+    // pickFiles' types must be real MIME types — the plugin's iOS side maps
+    // each one through UTTypeCreatePreferredIdentifierForTag, which doesn't
+    // understand wildcards ("video/*") or bare UTIs ("public.movie"); either
+    // would silently fail to resolve and fall back to accepting any file.
+    const result = source === "photos"
+      ? await FilePicker.pickVideos({ limit: 1 })
+      : await FilePicker.pickFiles({ types: ["video/mp4", "video/quicktime", "video/x-m4v", "video/mpeg"], limit: 1 });
     const picked = result.files[0];
     pushDebug(`[PICKER] result: name="${picked?.name}" size=${picked?.size} mimeType="${picked?.mimeType}" hasBlob=${!!picked?.blob} path="${picked?.path}"`);
     if (!picked) return null;
-    if (picked.blob) return new File([picked.blob], picked.name, { type: picked.mimeType });
     if (picked.path) {
       const src = Capacitor.convertFileSrc(picked.path);
-      pushDebug(`[PICKER] convertFileSrc -> "${src}", fetching...`);
-      const resp = await fetch(src);
-      pushDebug(`[PICKER] fetch response: status=${resp.status} ok=${resp.ok}`);
-      if (!resp.ok) throw new Error(`Could not read the picked video (HTTP ${resp.status}).`);
-      const blob = await resp.blob();
-      pushDebug(`[PICKER] blob size=${blob.size} type="${blob.type}"`);
-      if (blob.size === 0) throw new Error("The picked video read back empty.");
-      return new File([blob], picked.name, { type: picked.mimeType || blob.type });
+      pushDebug(`[PICKER] using native src directly (no fetch): "${src}"`);
+      return { url: src, fileName: picked.name, size: picked.size };
     }
+    if (picked.blob) return { url: URL.createObjectURL(picked.blob), fileName: picked.name, size: picked.blob.size };
     return null;
   }
 
@@ -1576,23 +1603,28 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // all." isPluginAvailable checks the ACTUAL installed binary, not just
     // the platform, and falls back to the HTML input either way.
     if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("FilePicker")) {
-      pickVideoNative()
-        .then(async file => {
-          if (!file) return;
-          const cached = await loadThumbnails(hlCase.id);
-          loadVideo(file, cached ?? undefined);
-        })
-        .catch((err: unknown) => {
-          pushDebug(`[PICKER] FAILED: ${(err as Error)?.message || err}`);
-          // A genuine cancel (user backed out of the picker) also lands here —
-          // only surface an error banner if there's an actual message to show,
-          // so cancelling isn't treated as a failure.
-          const msg = (err as Error)?.message;
-          if (msg) setVideoError(`Couldn't load that video: ${msg}`);
-        });
+      setShowNativeSourceChoice(true);
       return;
     }
     ref.current?.click();
+  }
+
+  function pickFromNativeSource(source: "photos" | "files") {
+    setShowNativeSourceChoice(false);
+    pickVideoNative(source)
+      .then(async picked => {
+        if (!picked) return;
+        const cached = await loadThumbnails(hlCase.id);
+        loadVideo(picked, cached ?? undefined);
+      })
+      .catch((err: unknown) => {
+        pushDebug(`[PICKER] FAILED: ${(err as Error)?.message || err}`);
+        // A genuine cancel (user backed out of the picker) also lands here —
+        // only surface an error banner if there's an actual message to show,
+        // so cancelling isn't treated as a failure.
+        const msg = (err as Error)?.message;
+        if (msg) setVideoError(`Couldn't load that video: ${msg}`);
+      });
   }
 
   function togglePlay() {
@@ -3744,6 +3776,44 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onSettingsChange={s => { setExportSettings(s); triggerIndexedDBSave(); }}
           onExportComplete={() => { api.studioProject.clearExpiry(hlCase.id).catch(() => {}); }}
         />
+      )}
+
+      {/* ── Native Photos/Files source choice — the web <input type=file>
+          sheet offers both in one dialog, but the native FilePicker plugin
+          exposes them as two distinct pickers. ── */}
+      {showNativeSourceChoice && (
+        <div
+          onClick={() => setShowNativeSourceChoice(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 700,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 480, background: "#141414",
+              borderTopLeftRadius: 18, borderTopRightRadius: 18,
+              padding: "10px 16px calc(20px + env(safe-area-inset-bottom))",
+              boxSizing: "border-box",
+            }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: "#333", margin: "6px auto 16px" }} />
+            <button onClick={() => pickFromNativeSource("photos")}
+              style={{ width: "100%", textAlign: "left", background: "#1c1c1c", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <ImageIcon size={18} color={ORANGE} />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Photo Library</span>
+            </button>
+            <button onClick={() => pickFromNativeSource("files")}
+              style={{ width: "100%", textAlign: "left", background: "#1c1c1c", border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <Upload size={18} color={ORANGE} />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Files</span>
+            </button>
+            <button onClick={() => setShowNativeSourceChoice(false)}
+              style={{ width: "100%", textAlign: "center", background: "none", border: "none", padding: "12px 16px", cursor: "pointer" }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#888" }}>Cancel</span>
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Media insert toast — "Clip added to timeline" etc. Also reused for

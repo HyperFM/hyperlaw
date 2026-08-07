@@ -5656,7 +5656,7 @@ export default function App() {
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <span style={{ fontSize: 9, color: "#252525", letterSpacing: "0.03em", textAlign: "center" }}>
-            HyperLaw AI Legal Assistant · Legal Information • Document Drafting • Case Organization · {COMPLIANCE.FOOTER_TAGLINE}
+            HyperLaw · Legal Information • Document Drafting • Case Organization · {COMPLIANCE.FOOTER_TAGLINE}
           </span>
         </div>
       )}

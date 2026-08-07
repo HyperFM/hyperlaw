@@ -1062,9 +1062,13 @@ interface Props {
   hlCase: HLCase;
   onUpdateCase: (c: HLCase) => void;
   onBack: () => void;
+  /** Admin/tester accounts only — the diagnostic overlay dumps raw internal
+   *  state (file paths, playback events, picker results) that regular users
+   *  have no use for and shouldn't see. */
+  showDebug?: boolean;
 }
 
-export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Props) {
+export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showDebug = false }: Props) {
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
@@ -1280,15 +1284,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // Kept on permanently as a pull-out sidebar (not a fixed overlay) with a
   // copy button, so it's available for reporting future issues without
   // getting in the way of normal use (the console [thumbs]/[PICKER] logs
-  // always run regardless of this flag).
-  const THUMB_DEBUG = true;
+  // always run regardless of this flag). Admin/tester accounts only — see
+  // showDebug's own doc comment on Props.
+  const THUMB_DEBUG = showDebug;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLogRef = useRef<string[]>([]);
   const pushDebug = useCallback((line: string) => {
     if (!THUMB_DEBUG) return;
     debugLogRef.current = [...debugLogRef.current, line];
     setDebugLog([...debugLogRef.current]);
-  }, []);
+  }, [THUMB_DEBUG]);
   // Closed by default — a pull-tab on the edge opens it as a sidebar instead
   // of a fixed bottom overlay always covering part of the screen.
   const [debugSidebarOpen, setDebugSidebarOpen] = useState(false);

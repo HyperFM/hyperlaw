@@ -1707,9 +1707,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
    *  the rest as the label, mirroring exactly what copyAllMomentInfo wrote.
    *  Tolerates an optional "(DELETED)" tag right after the number — pasting
    *  always recreates an active chunk regardless, since Paste Moments'
-   *  whole purpose is recovery. */
+   *  whole purpose is recovery. Also tolerant of whatever separator someone
+   *  actually typed when saving this by hand — em dash, hyphen, middle dot
+   *  (·, common when dictating/copying from other apps), or a colon — not
+   *  just the exact character copyAllMomentInfo itself writes. */
   function parseMomentInfo(text: string): VideoChunk[] {
-    const headerRe = /Moment\s+\d+\s*(?:\(DELETED\)\s*)?[-–—]\s*([\d:]+)\s*[-–—]\s*([\d:]+)/gi;
+    const headerRe = /Moment\s+\d+\s*(?:\(DELETED\)\s*)?[-–—·:]\s*([\d:]+)\s*[-–—·]\s*([\d:]+)/gi;
     const matches = [...text.matchAll(headerRe)];
     const results: VideoChunk[] = [];
     for (let i = 0; i < matches.length; i++) {

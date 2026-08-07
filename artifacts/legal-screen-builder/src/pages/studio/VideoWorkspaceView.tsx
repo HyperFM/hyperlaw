@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { FilePicker } from "@capawesome/capacitor-file-picker";
+import { Filesystem } from "@capacitor/filesystem";
 import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
@@ -1071,6 +1072,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
+  // The native FilePicker plugin copies every picked file into its own new
+  // folder under the app's Caches directory (confirmed by reading the
+  // plugin's iOS source) and never deletes it — that copy has nothing to do
+  // with our own "video never leaves the device" storage model, it's a side
+  // effect of the OS picker handing off a stable file. Left unmanaged, every
+  // video ever picked across every session sits there permanently, which is
+  // exactly what was silently filling up "Documents & Data" on-device.
+  // Tracking the path here lets us delete the previous copy the moment it's
+  // replaced by a new pick, instead of leaving it behind forever.
+  const nativePickedPathRef = useRef<string | null>(null);
+  function deleteNativePickedFile(path: string | null) {
+    if (!path) return;
+    Filesystem.deleteFile({ path }).catch(() => {}); // best-effort — nothing user-facing depends on this succeeding
+  }
   const [videoFileName, setVideoFileName] = useState(hlCase.studioProject?.videoFileName ?? "");
   const [duration, setDuration] = useState(hlCase.studioProject?.videoDurationSec ?? 0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1611,7 +1626,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // directly — it streams progressively from there exactly like it would
   // from any other src, the same way native video players handle multi-hour
   // footage, and never needs the whole file in memory at once.
-  async function pickVideoNative(source: "photos" | "files"): Promise<{ url: string; fileName: string; size?: number } | null> {
+  async function pickVideoNative(source: "photos" | "files"): Promise<{ url: string; fileName: string; size?: number; nativePath?: string } | null> {
     pushDebug(`[PICKER] FilePicker.${source === "photos" ? "pickVideos" : "pickFiles"}() calling...`);
     // pickFiles' types must be real MIME types — the plugin's iOS side maps
     // each one through UTTypeCreatePreferredIdentifierForTag, which doesn't
@@ -1626,7 +1641,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     if (picked.path) {
       const src = Capacitor.convertFileSrc(picked.path);
       pushDebug(`[PICKER] using native src directly (no fetch): "${src}"`);
-      return { url: src, fileName: picked.name, size: picked.size };
+      // nativePath (the plugin's own file:// copy, not the capacitor://
+      // src above) is what deleteNativePickedFile needs — kept separate so
+      // callers can clean up the plugin's Caches copy once it's replaced.
+      return { url: src, fileName: picked.name, size: picked.size, nativePath: picked.path };
     }
     if (picked.blob) return { url: URL.createObjectURL(picked.blob), fileName: picked.name, size: picked.blob.size };
     return null;
@@ -1681,6 +1699,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         // handleFileChange's matching comment for why that check matters.
         const cached = await loadThumbnails(hlCase.id);
         loadVideo(picked, cached?.fileName === picked.fileName ? cached.thumbnails : undefined);
+        // The plugin's own Caches copy of whatever was picked BEFORE this one
+        // is now fully replaced — nothing else references it, so it can be
+        // deleted instead of sitting there forever (see nativePickedPathRef).
+        const previousPath = nativePickedPathRef.current;
+        nativePickedPathRef.current = picked.nativePath ?? null;
+        if (previousPath && previousPath !== picked.nativePath) deleteNativePickedFile(previousPath);
       })
       .catch((err: unknown) => {
         pushDebug(`[PICKER] FAILED: ${(err as Error)?.message || err}`);
@@ -2767,6 +2791,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       if (idbSaveTimer.current) clearTimeout(idbSaveTimer.current);
       if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
       mediaBlobUrlsRef.current.forEach(url => { try { URL.revokeObjectURL(url); } catch {} });
+      // Leaving the workspace means this video won't be touched again until
+      // it's re-picked from scratch next time (same reasoning as the header
+      // comment above) — so the plugin's Caches copy of it has no further
+      // use and can go now instead of sitting there until the next pick.
+      deleteNativePickedFile(nativePickedPathRef.current);
+      nativePickedPathRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -88,10 +88,20 @@ export default function ExhibitVideoExportModal({
   }, [exporting]);
 
   const sorted = useMemo(() => [...markers].sort((a, b) => a.timestamp - b.timestamp), [markers]);
+  // video_cut markers (deleted chunks) are passed through to the actual
+  // export so that footage gets skipped — but they don't hold on screen
+  // anymore, so listing them here with an editable hold-seconds field would
+  // be actively misleading.
+  const displayMarkers = useMemo(() => sorted.filter(m => m.type !== "video_cut"), [sorted]);
   const res = RESOLUTIONS.find(r => r.key === resKey) || RESOLUTIONS[1];
 
-  const totalHold = sorted.reduce((s, m) => s + (m.holdSec ?? DEFAULT_HOLD_SEC), 0);
-  const estSeconds = Math.round(durationSec + totalHold);
+  const totalHold = displayMarkers.reduce((s, m) => s + (m.holdSec ?? DEFAULT_HOLD_SEC), 0);
+  // Deleted chunks subtract from the estimate instead — that footage won't
+  // appear in the output at all, matching exportExhibitVideo's own totalHold math.
+  const totalCutSec = sorted
+    .filter(m => m.type === "video_cut" && m.cutEnd != null)
+    .reduce((s, m) => s + (m.cutEnd! - m.timestamp), 0);
+  const estSeconds = Math.max(0, Math.round(durationSec + totalHold - totalCutSec));
 
   const fileBase = (caseTitle || "exhibits").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "exhibits";
 
@@ -177,7 +187,10 @@ export default function ExhibitVideoExportModal({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Export Exhibit Video</div>
-          <div style={{ fontSize: 11, color: "#555", marginTop: 1 }}>Source clip + {sorted.length} exhibit hold{sorted.length !== 1 ? "s" : ""}</div>
+          <div style={{ fontSize: 11, color: "#555", marginTop: 1 }}>
+            Source clip + {displayMarkers.length} exhibit hold{displayMarkers.length !== 1 ? "s" : ""}
+            {totalCutSec > 0 ? ` · ${formatTime(totalCutSec)} cut` : ""}
+          </div>
         </div>
         <button onClick={close} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
           <X size={20} color="#555" />
@@ -294,13 +307,14 @@ export default function ExhibitVideoExportModal({
 
             {/* ── Exhibit hold durations ── */}
             <SectionLabel>EXHIBIT HOLD LENGTH</SectionLabel>
-            {noMarkers ? (
+            {displayMarkers.length === 0 ? (
               <div style={{ fontSize: 12, color: "#555", lineHeight: 1.6, marginBottom: 8 }}>
                 No exhibits marked yet. Add exhibits on the timeline, then export — each holds on screen for its set number of seconds.
+                {totalCutSec > 0 ? ` Deleted moments (${formatTime(totalCutSec)} total) will still be cut from the export.` : ""}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {sorted.map((m, i) => (
+                {displayMarkers.map((m, i) => (
                   <div key={m.id} style={{ background: "#111", border: "1px solid #1a1a1a", borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                     <div style={{ width: 26, height: 26, borderRadius: 7, background: "#0d0d0d", border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 11, fontWeight: 900, color: ORANGE }}>{i + 1}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>

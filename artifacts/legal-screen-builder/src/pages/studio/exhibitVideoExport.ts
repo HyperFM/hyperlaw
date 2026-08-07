@@ -256,7 +256,8 @@ async function loadClipVideo(blobUrl: string): Promise<HTMLVideoElement> {
 // (clip mode) — it never branches on marker type itself.
 type Slot =
   | { kind: "canvas"; canvas: HTMLCanvasElement }
-  | { kind: "clip"; video: HTMLVideoElement; durationSec: number };
+  | { kind: "clip"; video: HTMLVideoElement; durationSec: number }
+  | { kind: "skip"; cutEnd: number };
 
 // ── Unified marker slot dispatcher ────────────────────────────────────────────
 async function getMarkerSlot(
@@ -268,6 +269,15 @@ async function getMarkerSlot(
   exportHeight: number,
   isPortrait: boolean,
 ): Promise<Slot> {
+  if (marker.type === "video_cut" && marker.cutEnd != null) {
+    // A deleted chunk — the region from marker.timestamp to cutEnd should
+    // disappear from the export entirely, exactly like it already does
+    // during in-editor playback (see the seek-past-cut effect). This used
+    // to fall through to the generic "analysis" slide below, which rendered
+    // a full exhibit card headlined "Cut" and held on it for 10 seconds —
+    // the opposite of deleting that footage.
+    return { kind: "skip", cutEnd: marker.cutEnd };
+  }
   if (marker.type === "media_insert" && marker.mediaInsert) {
     const mi: MediaInsert = marker.mediaInsert;
     if (mi.kind === "photo") {
@@ -423,9 +433,15 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
     recorder.start(250);
     onStage?.("Recording… (runs in real time)");
 
-    // Use actual clip durations for totalHold (photos use holdSec as usual)
+    // Use actual clip durations for totalHold (photos use holdSec as usual).
+    // A skip subtracts instead — that stretch of source video won't appear
+    // in the output at all, so the estimated total should shrink, not grow.
     const totalHold = slots.reduce((sum, slot, i) =>
-      sum + (slot.kind === "clip" ? slot.durationSec : (sorted[i].holdSec ?? DEFAULT_HOLD_SEC)), 0);
+      sum + (
+        slot.kind === "clip" ? slot.durationSec :
+        slot.kind === "skip" ? -(slot.cutEnd - sorted[i].timestamp) :
+        (sorted[i].holdSec ?? DEFAULT_HOLD_SEC)
+      ), 0);
     const totalDur = Math.max(0.001, duration + totalHold);
     const STALL_MS = 8000; // watchdog: if currentTime wedges, terminate rather than hang
     let cancelled = false;
@@ -482,10 +498,21 @@ export async function exportExhibitVideo(opts: ExportOptions): Promise<ExportRes
 
       /** Transition from video mode into hold or clip depending on the slot type. */
       const enterHoldOrClip = () => {
+        const slot = slots[idx];
+        if (slot.kind === "skip") {
+          // No pause, no mode change — just jump the source past the cut
+          // region and keep recording continuously, exactly like the
+          // in-editor playback skip this mirrors.
+          onReachMarker?.(idx + 1, sorted.length);
+          video.currentTime = slot.cutEnd;
+          lastT = slot.cutEnd;
+          lastAdvance = performance.now();
+          idx++;
+          return;
+        }
         try { video.pause(); } catch {}
         holdStart = performance.now();
         onReachMarker?.(idx + 1, sorted.length); // 1-based marker index
-        const slot = slots[idx];
         if (slot.kind === "clip") {
           mode = "clip"; currentClip = slot; clipEnded = false;
           if (includeAudio) {

@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera, Copy,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1603,6 +1603,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     // messages (error explanations) need real time to actually read.
     const duration = msg.length > 40 ? 5000 : 2500;
     insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
+  }
+
+  function copyAllMomentInfo() {
+    const ordered = [...chunks].sort((a, b) => a.start - b.start);
+    const text = ordered
+      .map((c, i) => {
+        const lines = [`Moment ${i + 1} — ${formatTime(c.start)}–${formatTime(c.end)}`];
+        if (c.name?.trim()) lines.push(c.name.trim());
+        if (c.label?.trim()) lines.push(c.label.trim());
+        return lines.join("\n");
+      })
+      .join("\n\n");
+    navigator.clipboard.writeText(text)
+      .then(() => showInsertToast("Copied all moment info"))
+      .catch(() => showInsertToast("Couldn't copy — try again"));
   }
 
   // Raw HTML <input type="file"> inside a Capacitor WKWebView is a known,
@@ -3569,6 +3584,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                   .sort((a, b) => Number(!!a.c.label) - Number(!!b.c.label))
                   .map(({ c, originalIndex: i }) => renderMomentCard(c, i))}
               </div>
+            )}
+
+            {chunks.length > 0 && (
+              <button onClick={copyAllMomentInfo}
+                style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #252525", borderRadius: 12,
+                  padding: "12px 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#999" }}>
+                <Copy size={14} color="#999" />
+                Copy All Moment Info
+              </button>
             )}
 
             {showDictationHelp && (

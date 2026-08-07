@@ -1406,15 +1406,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         updatedAt: Date.now(),
         expiresAt,
       };
-      onUpdateCase({ ...hlCase, studioProject: next });
-      // Also update the dedicated DB column so the server can enforce cleanup.
-      // Previously "Saved" showed immediately without waiting for this to
-      // actually succeed — genuinely honest confirmation matters here, so
-      // this now waits for a real response and shows an error state (with a
-      // retry) instead of "Saved" if it fails, rather than optimistically
-      // claiming success regardless of what actually happened.
+      const updatedCase = { ...hlCase, studioProject: next };
+      onUpdateCase(updatedCase);
+      // "Saved" used to be confirmed by keepAlive succeeding — but keepAlive
+      // only refreshes this project's expiry timer, it carries no actual
+      // data. The real write (markers/chunks/labels) went through
+      // onUpdateCase above, which only reaches the server via App.tsx's own
+      // 1500ms-debounced, fire-and-forget sync — meaning "Saved" could show
+      // here while the edits themselves were still sitting unsent, and would
+      // be lost outright if the app got backgrounded/closed before that
+      // debounce fired. Awaiting the actual case upsert directly here closes
+      // both gaps: "Saved" now means the data really reached the server, and
+      // it isn't at the mercy of a timer that can die with the app.
       try {
-        await api.studioProject.keepAlive(hlCase.id);
+        await api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>);
+        api.studioProject.keepAlive(hlCase.id).catch(() => {}); // best-effort expiry refresh, not load-bearing for correctness
         setAutosaveStatus("saved");
         autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
       } catch {

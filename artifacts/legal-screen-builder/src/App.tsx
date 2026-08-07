@@ -5003,18 +5003,49 @@ export default function App() {
   const serverSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Tracks which cases have already had organize triggered to prevent double-firing */
   const organizingCasesRef = useRef<Set<string>>(new Set());
+  // Mirrors `data` outside React state so the visibility/pagehide flush below
+  // (registered once, empty deps) always sees the latest cases instead of
+  // whatever was current when the listener was attached.
+  const dataRef = useRef(data);
+
+  function syncCasesToServer(cases: AppData["cases"]) {
+    cases.forEach(c => {
+      api.cases.upsert(c.id, c.title, c.workflowStage, c as unknown as Record<string, unknown>).catch(() => {});
+    });
+  }
 
   function setData(d: AppData) {
     setDataRaw(d);
+    dataRef.current = d;
     saveData(d);
     // Debounce server sync — avoids flooding during rapid updates (e.g. StoryView auto-save)
     if (serverSyncTimeoutRef.current) clearTimeout(serverSyncTimeoutRef.current);
-    serverSyncTimeoutRef.current = setTimeout(() => {
-      d.cases.forEach(c => {
-        api.cases.upsert(c.id, c.title, c.workflowStage, c as unknown as Record<string, unknown>).catch(() => {});
-      });
-    }, 1500);
+    serverSyncTimeoutRef.current = setTimeout(() => syncCasesToServer(d.cases), 1500);
   }
+
+  // A phone closed/backgrounded within that 1500ms window loses the pending
+  // sync outright — the debounced timeout never fires, so whatever was typed
+  // right before switching apps or locking the screen never reaches the
+  // server, even though the UI already showed it as saved locally. Flushing
+  // immediately on the tab/app actually going hidden (not just unmounting)
+  // closes that gap without waiting the full debounce on every keystroke.
+  useEffect(() => {
+    function flushPendingSync() {
+      if (!serverSyncTimeoutRef.current) return;
+      clearTimeout(serverSyncTimeoutRef.current);
+      serverSyncTimeoutRef.current = null;
+      syncCasesToServer(dataRef.current.cases);
+    }
+    function onVisibilityChange() {
+      if (document.hidden) flushPendingSync();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flushPendingSync);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flushPendingSync);
+    };
+  }, []);
 
   // Fetch credit balance + plan tier on mount and after checkout success
   const fetchCreditBalance = useCallback(async () => {

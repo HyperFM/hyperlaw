@@ -3412,10 +3412,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
         {/* ── Currently working on — floats right under the track so the
             moment a user just chunked is visible without scrolling past the
-            step nav and Chunk It button. Drops back into the list below once
-            it's labeled. ──────────────────────────────────────────── */}
+            step nav and Chunk It button. Stays floating for as long as this
+            is the most recently chunked moment — NOT tied to whether it has
+            a label yet. It used to also require an empty label, so typing or
+            dictating even one character yanked the card out from under the
+            user mid-sentence and dropped it into the list below. Only moves
+            to the list once the user chunks the next moment. ────────────── */}
         {currentStep === 1 && videoUrl && (() => {
-          const active = chunks.find(c => c.id === lastChunkedId && !c.label);
+          const active = chunks.find(c => c.id === lastChunkedId);
           if (!active) return null;
           const activeIndex = chunks.findIndex(c => c.id === active.id);
           return (
@@ -3482,7 +3486,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                 {chunks
                   .map((c, i) => ({ c, originalIndex: i }))
-                  .filter(({ c }) => !(c.id === lastChunkedId && !c.label)) // shown floating above instead
+                  .filter(({ c }) => c.id !== lastChunkedId) // shown floating above instead
                   .sort((a, b) => Number(!!a.c.label) - Number(!!b.c.label))
                   .map(({ c, originalIndex: i }) => renderMomentCard(c, i))}
               </div>

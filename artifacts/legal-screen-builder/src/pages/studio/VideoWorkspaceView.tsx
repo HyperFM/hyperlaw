@@ -4148,6 +4148,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 style={{ background: debugCopied ? "#1a3a1a" : "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: debugCopied ? "#4ade80" : "#aaa", fontFamily: "monospace" }}>
                 {debugCopied ? "Copied!" : "Copy all"}
               </button>
+              <button
+                onClick={() => {
+                  // debugLogRef is what pushDebug actually appends onto — clearing
+                  // only the displayed debugLog state and not this too would mean
+                  // the very next log line resurrects everything "cleared" right
+                  // alongside it, since pushDebug does [...debugLogRef.current, line].
+                  debugLogRef.current = [];
+                  setDebugLog([]);
+                }}
+                style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: "#aaa", fontFamily: "monospace" }}>
+                Clear
+              </button>
               <button onClick={() => setDebugSidebarOpen(false)}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                 <X size={14} color="#888" />

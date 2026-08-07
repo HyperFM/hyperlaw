@@ -3953,43 +3953,53 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
         </button>
       )}
 
-      {/* ── Diagnostics sidebar ── */}
+      {/* ── Diagnostics panel — a centered square, not a full-height sidebar
+          (which stretched under the status bar and made Copy/X unreachable). ── */}
       {debugSidebarOpen && (
-        <div style={{
-          position: "fixed", top: 0, bottom: 0, right: 0, width: "min(320px, 85vw)", zIndex: 9999,
-          background: "rgba(0,0,0,0.94)", borderLeft: "1px solid #333",
-          display: "flex", flexDirection: "column",
-          boxShadow: "-4px 0 20px rgba(0,0,0,0.5)",
-        }}>
-          <div style={{
-            flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 10px calc(8px + env(safe-area-inset-top)) 10px",
-            borderBottom: "1px solid #222",
+        <div
+          onClick={() => setDebugSidebarOpen(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <div style={{ flex: 1, fontWeight: 700, color: "#ff0", fontSize: 11, fontFamily: "monospace" }}>
-              DIAGNOSTICS ({debugLog.length})
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(debugLog.join("\n")).then(() => {
-                  setDebugCopied(true);
-                  setTimeout(() => setDebugCopied(false), 1500);
-                });
-              }}
-              style={{ background: debugCopied ? "#1a3a1a" : "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: debugCopied ? "#4ade80" : "#aaa", fontFamily: "monospace" }}>
-              {debugCopied ? "Copied!" : "Copy all"}
-            </button>
-            <button onClick={() => setDebugSidebarOpen(false)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-              <X size={14} color="#888" />
-            </button>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px", fontFamily: "monospace", fontSize: 10, color: "#0f0", lineHeight: 1.5 }}>
-            {debugLog.map((line, i) => (
-              <div key={i} style={{ color: line.startsWith("[4]") || line.startsWith("[ERR]") ? "#f55" : "#0f0", wordBreak: "break-all" }}>
-                {line}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: "min(320px, 85vw)", height: "min(320px, 85vw)",
+              background: "rgba(0,0,0,0.94)", border: "1px solid #333", borderRadius: 14,
+              display: "flex", flexDirection: "column",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+            }}>
+            <div style={{
+              flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
+              padding: "10px 10px", borderBottom: "1px solid #222",
+            }}>
+              <div style={{ flex: 1, fontWeight: 700, color: "#ff0", fontSize: 11, fontFamily: "monospace" }}>
+                DIAGNOSTICS ({debugLog.length})
               </div>
-            ))}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(debugLog.join("\n")).then(() => {
+                    setDebugCopied(true);
+                    setTimeout(() => setDebugCopied(false), 1500);
+                  });
+                }}
+                style={{ background: debugCopied ? "#1a3a1a" : "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: debugCopied ? "#4ade80" : "#aaa", fontFamily: "monospace" }}>
+                {debugCopied ? "Copied!" : "Copy all"}
+              </button>
+              <button onClick={() => setDebugSidebarOpen(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+                <X size={14} color="#888" />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px", fontFamily: "monospace", fontSize: 10, color: "#0f0", lineHeight: 1.5 }}>
+              {debugLog.map((line, i) => (
+                <div key={i} style={{ color: line.startsWith("[4]") || line.startsWith("[ERR]") ? "#f55" : "#0f0", wordBreak: "break-all" }}>
+                  {line}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

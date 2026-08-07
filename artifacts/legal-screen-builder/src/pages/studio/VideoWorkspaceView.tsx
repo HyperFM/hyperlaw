@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera, Copy,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera, Copy, ClipboardPaste,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1339,6 +1339,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
   const [insertToast, setInsertToast] = useState<string | null>(null);
   const insertToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Paste-back for copyAllMomentInfo's own output — lets someone who saved
+  // that text elsewhere (or is recovering from a bad sync) rebuild real
+  // chunks with the exact original timestamps instead of re-scrubbing the
+  // whole video by eye.
+  const [showPasteMoments, setShowPasteMoments] = useState(false);
+  const [pasteMomentsText, setPasteMomentsText] = useState("");
 
   // ── Export ─────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
@@ -1667,6 +1673,54 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     navigator.clipboard.writeText(text)
       .then(() => showInsertToast("Copied all moment info"))
       .catch(() => showInsertToast("Couldn't copy — try again"));
+  }
+
+  /** Inverse of formatTime — "1:02:03" / "2:03" / "45" -> seconds. */
+  function parseTimeToSeconds(str: string): number | null {
+    const parts = str.trim().split(":").map(p => parseInt(p, 10));
+    if (parts.length === 0 || parts.some(Number.isNaN)) return null;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+
+  /** Parses copyAllMomentInfo's own output back into real chunks — matches
+   *  on the "Moment N — start–end" header line and takes everything up to
+   *  the next header (not just the next blank line) as that moment's body,
+   *  so a multi-paragraph "what happened here" doesn't get cut short. A
+   *  single leftover line is treated as the label (the field people
+   *  actually rely on); two or more treats the first as the short name and
+   *  the rest as the label, mirroring exactly what copyAllMomentInfo wrote. */
+  function parseMomentInfo(text: string): VideoChunk[] {
+    const headerRe = /Moment\s+\d+\s*[-–—]\s*([\d:]+)\s*[-–—]\s*([\d:]+)/g;
+    const matches = [...text.matchAll(headerRe)];
+    const results: VideoChunk[] = [];
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      const start = parseTimeToSeconds(m[1]);
+      const end = parseTimeToSeconds(m[2]);
+      if (start == null || end == null || end <= start) continue;
+      const bodyStart = (m.index ?? 0) + m[0].length;
+      const bodyEnd = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+      const lines = text.slice(bodyStart, bodyEnd).split("\n").map(l => l.trim()).filter(Boolean);
+      const name = lines.length >= 2 ? lines[0] : undefined;
+      const label = lines.length >= 2 ? lines.slice(1).join("\n") : (lines[0] ?? "");
+      results.push({ id: crypto.randomUUID(), start, end, name, label });
+    }
+    return results;
+  }
+
+  function importPastedMoments() {
+    const parsed = parseMomentInfo(pasteMomentsText);
+    if (parsed.length === 0) {
+      showInsertToast("Couldn't find any moments in that text — check it matches the copied format");
+      return;
+    }
+    pushUndoSnapshot();
+    const updated = [...chunks, ...parsed].sort((a, b) => a.start - b.start);
+    setChunks(updated);
+    setShowPasteMoments(false);
+    setPasteMomentsText("");
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
+    showInsertToast(`Imported ${parsed.length} moment${parsed.length !== 1 ? "s" : ""}`);
   }
 
   // Raw HTML <input type="file"> inside a Capacitor WKWebView is a known,
@@ -3643,14 +3697,55 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               </div>
             )}
 
-            {chunks.length > 0 && (
-              <button onClick={copyAllMomentInfo}
-                style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #252525", borderRadius: 12,
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              {chunks.length > 0 && (
+                <button onClick={copyAllMomentInfo}
+                  style={{ flex: 1, background: "none", border: "1px solid #252525", borderRadius: 12,
+                    padding: "12px 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                    gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#999" }}>
+                  <Copy size={14} color="#999" />
+                  Copy All Moment Info
+                </button>
+              )}
+              <button onClick={() => setShowPasteMoments(true)}
+                style={{ flex: 1, background: "none", border: "1px solid #252525", borderRadius: 12,
                   padding: "12px 12px", display: "flex", alignItems: "center", justifyContent: "center",
                   gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#999" }}>
-                <Copy size={14} color="#999" />
-                Copy All Moment Info
+                <ClipboardPaste size={14} color="#999" />
+                Paste Moments
               </button>
+            </div>
+
+            {showPasteMoments && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
+                onClick={() => setShowPasteMoments(false)}>
+                <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 22px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+                  <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
+                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>Paste Moments</div>
+                  <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
+                    Paste text you copied with "Copy All Moment Info" — it'll rebuild each moment with its exact original timestamp, short name, and label. Added alongside anything already here, not replacing it.
+                  </div>
+                  <textarea
+                    autoFocus
+                    value={pasteMomentsText}
+                    onChange={e => setPasteMomentsText(e.target.value)}
+                    placeholder={"Moment 1 — 0:00–0:12\nOfficer arrives\n..."}
+                    style={{ width: "100%", minHeight: 140, background: "#111", border: "1px solid #252525",
+                      borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", fontFamily: "monospace",
+                      outline: "none", boxSizing: "border-box", marginBottom: 14, resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setShowPasteMoments(false)}
+                      style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                    <button onClick={importPastedMoments} disabled={!pasteMomentsText.trim()}
+                      style={{ flex: 1, background: pasteMomentsText.trim() ? ORANGE : "#2a2a2a", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 800, color: pasteMomentsText.trim() ? "#000" : "#666", cursor: pasteMomentsText.trim() ? "pointer" : "default" }}>
+                      Import
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {showDictationHelp && (

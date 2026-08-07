@@ -14,7 +14,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db, pool, usersTable } from "@workspace/db";
 import { eq, or } from "drizzle-orm";
-import { verifyPassword } from "../services/auth.js";
+import { verifyPassword, SIGNUPS_LOCKED } from "../services/auth.js";
 import { logger } from "../lib/logger.js";
 
 const PgSessionStore = connectPgSimple(session);
@@ -110,6 +110,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
               .where(eq(usersTable.id, byEmail.id))
               .returning();
             return done(null, linked);
+          }
+
+          if (SIGNUPS_LOCKED) {
+            return done(null, false, { message: "signups_closed" });
           }
 
           const username = await uniqueUsernameFromEmail(email);

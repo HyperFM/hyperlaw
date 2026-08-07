@@ -65,6 +65,18 @@ export function generateToken(): string {
  *  regular account. */
 export const ADMIN_EMAIL_ALLOWLIST = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
 
+/**
+ * Temporary lock on creating brand-new accounts, while the app is still
+ * being finished pre-launch. Existing accounts (any account already in the
+ * DB — admin, tester, or otherwise) can still log in completely normally;
+ * this only blocks the three places a NEW row gets inserted into usersTable:
+ * POST /auth/register, first-ever Google sign-in, and first-ever Apple
+ * sign-in (see routes/auth.ts and middlewares/passportConfig.ts).
+ *
+ * Flip to false to reopen signups once the app is ready for real users.
+ */
+export const SIGNUPS_LOCKED = true;
+
 export function hashSsnLast4(last4: string): string {
   return scryptHash(last4.trim());
 }

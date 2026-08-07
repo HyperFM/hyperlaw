@@ -231,8 +231,19 @@ const signInSchema = z.object({
 });
 type SignInValues = z.infer<typeof signInSchema>;
 
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  signups_closed: "New accounts aren't being created right now — check back soon.",
+  google: "Google sign-in didn't work. Please try again.",
+  apple: "Apple sign-in didn't work. Please try again.",
+};
+
 export function SignInPage() {
   const [, navigate] = useLocation();
+  const search = useSearch();
+  // Google/Apple sign-in is a full-page redirect, not a fetch — failures
+  // (including the temporary signup lock) land back here as ?error=<code>
+  // with no other way to surface what happened.
+  const oauthError = OAUTH_ERROR_MESSAGES[new URLSearchParams(search).get("error") ?? ""];
   const login = useLogin();
   const passkeyLogin = usePasskeyLogin();
   const showPasskeyOption = browserSupportsWebAuthn();
@@ -260,6 +271,7 @@ export function SignInPage() {
         <h1 style={titleStyle}>Welcome back</h1>
         <p style={subtitleStyle}>Sign in to access your cases</p>
         <SocialButtons />
+        {oauthError && <div style={alertStyle}>{oauthError}</div>}
         {login.isError && <div style={alertStyle}>{login.error.message}</div>}
         <form onSubmit={handleSubmit(onSubmit)}>
           <Field label="Username or email" error={errors.usernameOrEmail?.message}>

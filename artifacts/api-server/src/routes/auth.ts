@@ -22,7 +22,7 @@ import {
   hashPassword, verifyPassword, generateToken, sanitizeUser, getAuth,
   hashSecurityAnswer, verifySecurityAnswer, SECURITY_QUESTIONS,
   hashSsnLast4, hashAdminSecurityAnswer, verifyAdminSecurityAnswer, ADMIN_EMAIL_ALLOWLIST,
-  EMAIL_VERIFICATION_TTL_MS, PASSWORD_RESET_TTL_MS,
+  EMAIL_VERIFICATION_TTL_MS, PASSWORD_RESET_TTL_MS, SIGNUPS_LOCKED,
 } from "../services/auth.js";
 import { sendVerificationEmail } from "../services/email.js";
 import { passport, uniqueUsernameFromEmail } from "../middlewares/passportConfig.js";
@@ -51,6 +51,10 @@ router.get("/auth/providers", (_req: Request, res: Response) => {
 
 // POST /auth/register
 router.post("/auth/register", async (req: Request, res: Response): Promise<void> => {
+  if (SIGNUPS_LOCKED) {
+    res.status(403).json({ error: "New accounts aren't being created right now — check back soon." });
+    return;
+  }
   const {
     username, firstName, lastName, phoneNumber, email, password, confirmPassword,
     securityAnswer1, securityAnswer2, securityAnswer3,
@@ -431,9 +435,21 @@ router.get("/auth/google", (req: Request, res: Response, next: NextFunction) => 
 });
 
 router.get("/auth/google/callback", (req: Request, res: Response, next: NextFunction) => {
-  passport.authenticate("google", { failureRedirect: "/sign-in?error=google" })(req, res, next);
-}, (_req: Request, res: Response) => {
-  res.redirect("/");
+  // A plain { failureRedirect } always lands on the same fixed URL no matter
+  // why auth failed — fine for a generic "didn't work," not enough to tell
+  // the user the real reason when it's actually the signup lock (see the
+  // strategy's own done(null, false, { message: "signups_closed" }) above).
+  // The custom callback form lets that reason reach the redirect.
+  passport.authenticate("google", (err: Error | null, user: Express.User | false, info: { message?: string } | undefined) => {
+    if (err || !user) {
+      res.redirect(`/sign-in?error=${info?.message === "signups_closed" ? "signups_closed" : "google"}`);
+      return;
+    }
+    req.logIn(user, (loginErr) => {
+      if (loginErr) { res.redirect("/sign-in?error=google"); return; }
+      res.redirect("/");
+    });
+  })(req, res, next);
 });
 
 // POST /auth/apple/callback — Apple's JS SDK on the frontend posts form-encoded
@@ -460,6 +476,9 @@ router.post("/auth/apple/callback", async (req: Request, res: Response): Promise
           .set({ appleId: applePayload.sub, updatedAt: new Date() })
           .where(eq(usersTable.id, byEmail.id))
           .returning();
+      } else if (SIGNUPS_LOCKED) {
+        res.redirect("/sign-in?error=signups_closed");
+        return;
       } else {
         let firstName = "Apple";
         let lastName = "User";

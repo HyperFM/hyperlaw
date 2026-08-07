@@ -13,7 +13,7 @@
 // redo the (slow) frame-extraction pass every single time the same file is
 // reloaded.
 
-import type { ExhibitMarker } from "../../types";
+import type { ExhibitMarker, VideoChunk } from "../../types";
 
 export interface ExportSettings {
   resKey: string;
@@ -26,6 +26,13 @@ export interface StudioSnapshot {
   caseId: string;
   savedAt: number;
   markers: ExhibitMarker[];
+  // Chunk & Label's actual moments (start/end/name/label) — a completely
+  // separate field from markers, which this snapshot used to leave out
+  // entirely. That meant the one local crash-recovery net this app has
+  // never actually protected the thing most users spend the most time
+  // building: real chunked-and-labeled moments had zero local backup beyond
+  // the server round-trip, with nothing to catch a bad sync.
+  chunks: VideoChunk[];
   timelinePosition: number;
   videoFileName: string;
   exportSettings: ExportSettings;

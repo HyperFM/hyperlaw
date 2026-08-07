@@ -1464,6 +1464,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       };
       const updatedCase = { ...hlCase, studioProject: next };
       onUpdateCase(updatedCase);
+      // Chunk & Label edits (markMoment, splitChunk, label onChange, etc.)
+      // only ever called triggerAutosave, never triggerIndexedDBSave — so
+      // the one local crash-recovery net this app has never actually caught
+      // real chunked moments, only the separate/older markers flow. Piggy-
+      // backing it onto every real save here means it now does.
+      triggerIndexedDBSave();
       // "Saved" used to be confirmed by keepAlive succeeding — but keepAlive
       // only refreshes this project's expiry timer, it carries no actual
       // data. The real write (markers/chunks/labels) went through
@@ -1507,6 +1513,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
         caseId: hlCase.id,
         savedAt: Date.now(),
         markers: snapshotRef.current.markers,
+        chunks: snapshotRef.current.chunks,
         timelinePosition: currentTimeRef.current,
         videoFileName: snapshotRef.current.videoFileName,
         exportSettings: snapshotRef.current.exportSettings,
@@ -1517,11 +1524,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   async function handleRestore() {
     if (!recoverySnapshot) return;
     setMarkersRaw(recoverySnapshot.markers);
+    setChunks(recoverySnapshot.chunks);
     setExportSettings(recoverySnapshot.exportSettings);
     setRecoverySnapshot(null);
     await clearStudioSnapshot(hlCase.id);
-    // Immediately persist restored markers to server
-    triggerAutosave(recoverySnapshot.markers);
+    // Immediately persist restored markers/chunks to server
+    triggerAutosave(recoverySnapshot.markers, recoverySnapshot.chunks);
   }
 
   async function handleDiscard() {
@@ -2827,7 +2835,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       if (!snapshot) return;
       const serverUpdatedAt = hlCase.studioProject?.updatedAt ?? 0;
       const serverMarkersJson = JSON.stringify(hlCase.studioProject?.markers ?? []);
-      if (snapshot.savedAt > serverUpdatedAt && JSON.stringify(snapshot.markers) !== serverMarkersJson) {
+      // chunks (Chunk & Label's real moments) used to be left out of this
+      // comparison entirely, so a locally-recoverable difference there never
+      // surfaced this banner at all — only marker differences did, and this
+      // app's actual workflow barely uses markers.
+      const serverChunksJson = JSON.stringify(hlCase.studioProject?.chunks ?? []);
+      const markersDiffer = JSON.stringify(snapshot.markers) !== serverMarkersJson;
+      const chunksDiffer = JSON.stringify(snapshot.chunks ?? []) !== serverChunksJson;
+      if (snapshot.savedAt > serverUpdatedAt && (markersDiffer || chunksDiffer)) {
         setRecoverySnapshot(snapshot);
       }
     });
@@ -3069,7 +3084,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 Unsaved workspace recovered
               </div>
               <div style={{ fontSize: 12, color: "#a37a00", lineHeight: 1.55, marginBottom: 10 }}>
-                {recoverySnapshot.markers.length} marker{recoverySnapshot.markers.length !== 1 ? "s" : ""} from {relativeTime(recoverySnapshot.savedAt)} — restore to pick up where you left off.
+                {recoverySnapshot.chunks?.length ?? 0} moment{(recoverySnapshot.chunks?.length ?? 0) !== 1 ? "s" : ""}
+                {recoverySnapshot.markers.length > 0 ? ` and ${recoverySnapshot.markers.length} marker${recoverySnapshot.markers.length !== 1 ? "s" : ""}` : ""} from {relativeTime(recoverySnapshot.savedAt)} — restore to pick up where you left off.
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={handleRestore}

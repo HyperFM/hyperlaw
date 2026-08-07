@@ -5170,7 +5170,22 @@ export default function App() {
             // was actually saved more recently instead of assuming one side
             // is always right.
             const serverProject = serverCase?.studioProject;
-            if (serverProject && (!local.studioProject || serverProject.updatedAt > local.studioProject.updatedAt)) {
+            // A newer timestamp does NOT mean better data — a device that
+            // never had real moments yet (a laptop that's never been used
+            // for this case, say) can still autosave its own empty project
+            // the instant a video loads, stamped with a fresh "now". Without
+            // this check, that empty-but-newer save would win the compare
+            // above and erase real moments/chunks that exist locally but
+            // never made it to the server. Real local work is never
+            // replaced by an incoming project with nothing in it, no matter
+            // what the timestamps say.
+            const localHasContent = (local.studioProject?.chunks?.length ?? 0) > 0 || (local.studioProject?.markers?.length ?? 0) > 0;
+            const serverHasContent = (serverProject?.chunks?.length ?? 0) > 0 || (serverProject?.markers?.length ?? 0) > 0;
+            if (
+              serverProject &&
+              (!local.studioProject || serverProject.updatedAt > local.studioProject.updatedAt) &&
+              !(localHasContent && !serverHasContent)
+            ) {
               patch.studioProject = serverProject;
             }
             if (Object.keys(patch).length > 0) {

@@ -1389,7 +1389,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   useEffect(() => {
     const sp = hlCase.studioProject;
     if (!sp || sp.updatedAt <= lastSyncedProjectUpdatedAtRef.current) return;
+    // A newer timestamp doesn't mean better data — this device's own real,
+    // already-chunked moments must never be replaced by an incoming project
+    // that has nothing in it, no matter what the timestamps say (this is
+    // exactly what wiped real moments before this guard existed: an empty
+    // project autosaved elsewhere raced past real local work on a mere
+    // timestamp compare). Still bump the ref so this same stale-but-newer
+    // value doesn't get re-evaluated on every render.
+    const incomingHasContent = (sp.chunks?.length ?? 0) > 0 || (sp.markers?.length ?? 0) > 0;
+    const localHasContent = chunks.length > 0 || markers.length > 0;
     lastSyncedProjectUpdatedAtRef.current = sp.updatedAt;
+    if (localHasContent && !incomingHasContent) return;
     const expired = sp.expiresAt && sp.expiresAt < Date.now();
     setMarkersRaw(expired ? [] : (sp.markers ?? []));
     setChunks(sp.chunks ?? []);
@@ -1397,7 +1407,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setCurrentStep(sp.workflowStep ?? 1);
     setVideoFileName(sp.videoFileName ?? "");
     setDuration(sp.videoDurationSec ?? 0);
-  }, [hlCase.studioProject]);
+  }, [hlCase.studioProject]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ────────────────────────────────────────────────────
   function getOrCreateProject(): StudioProject {

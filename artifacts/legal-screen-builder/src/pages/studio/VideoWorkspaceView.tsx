@@ -1229,6 +1229,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
       const updated = chunks.map(x => x.id === chunkId ? { ...x, label: text } : x);
       setChunks(updated);
       triggerAutosave(markers, updated, organizedSlots, currentStep);
+      // The label input is uncontrolled now (defaultValue, not value — see
+      // its own comment for why), so React won't reflect this state update
+      // into the DOM on its own. Write it directly through the ref instead,
+      // on the platforms where SpeechRecognition actually exists to reach
+      // this code at all (iOS never does — see the !SpeechRecognitionCtor
+      // branch above).
+      const inputEl = labelInputRefs.current.get(chunkId);
+      if (inputEl) inputEl.value = text;
     };
     recognition.onerror = () => setListeningChunkId(null);
     recognition.onend = () => setListeningChunkId(null);
@@ -1780,8 +1788,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             MOMENT {displayIndex + 1} · {formatTime(c.start)}–{formatTime(c.end)}
           </button>
           <input
+            key={`${c.id}-name`}
             type="text"
-            value={c.name ?? ""}
+            defaultValue={c.name ?? ""}
             placeholder="Short name (e.g. 'Officer arrives')"
             onChange={e => {
               const updated = chunks.map(x => x.id === c.id ? { ...x, name: e.target.value } : x);
@@ -1793,13 +1802,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               fontWeight: 700, outline: "none", boxSizing: "border-box", marginBottom: 6 }}
           />
           <div style={{ position: "relative", marginBottom: 8 }}>
+            {/* defaultValue, not value — a fully React-controlled input here
+                fights iOS's native dictation: every keystroke re-render
+                rewrites the DOM's value out from under dictation's own
+                progressive text insertion, which is exactly why dictation
+                (and even fast manual typing) got a word in and then closed
+                the keyboard. Uncontrolled lets the DOM own the value while
+                typing; onChange still keeps chunks state in sync. Safe
+                because each chunk row already has a stable key={c.id} above
+                (confirmed before making this change) — switching to a
+                genuinely different chunk always mounts a fresh input rather
+                than reusing this one with stale defaultValue. */}
             <input
+              key={`${c.id}-label`}
               ref={el => {
                 if (el) labelInputRefs.current.set(c.id, el);
                 else labelInputRefs.current.delete(c.id);
               }}
               type="text"
-              value={c.label}
+              defaultValue={c.label}
               placeholder="What happened here?"
               onChange={e => {
                 const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);

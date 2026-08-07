@@ -1077,6 +1077,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [largFileWarning, setLargeFileWarning] = useState(false);
+  // Cross-device continuation (sign in elsewhere, re-pick "the same" video,
+  // resume where you left off) relies on markers' saved timestamps still
+  // lining up with the newly loaded file. There's no way to verify it's
+  // truly the same file, but a duration check catches the common failure
+  // case — a re-export, a different trim, or genuinely the wrong video —
+  // before the user silently generates exhibits from the wrong timestamps.
+  const [videoMismatchWarning, setVideoMismatchWarning] = useState<string | null>(null);
+  const expectedDurationRef = useRef<number | null>(null);
   // Guards the Infinity-duration probe seek (below) to at most once per video
   // load. Some browsers keep re-firing durationchange with Infinity instead
   // of resolving it after a single seek — without this guard, every one of
@@ -1505,6 +1513,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
 
     cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
     setVideoError(null);
+    setVideoMismatchWarning(null);
+    // Only check when there are existing moments to protect (a resume, not a
+    // first upload) and a prior duration was actually saved to compare against.
+    expectedDurationRef.current =
+      markers.length > 0 && hlCase.studioProject?.videoDurationSec
+        ? hlCase.studioProject.videoDurationSec
+        : null;
     infinityProbeAttemptedRef.current = false;
     // Informational only — large files just take longer to decode/thumbnail
     // locally, nothing stops them from working the way an upload-size cap
@@ -2871,6 +2886,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           </div>
 
 
+          {/* Video/moments duration mismatch — likely wrong file on a resumed session */}
+          {videoMismatchWarning && (
+            <>
+              <div style={{ background: "#1a0000", border: "1px solid #4a0000", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
+                <AlertCircle size={13} color="#e04444" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: "#c06060", lineHeight: 1.6, flex: 1 }}>
+                  <strong style={{ color: "#e04444" }}>Video doesn't match your saved moments.</strong> {videoMismatchWarning}
+                </div>
+                <button onClick={() => setVideoMismatchWarning(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
+                  <X size={13} color="#7a2020" />
+                </button>
+              </div>
+              <div style={{ borderTop: "1px solid #1c1c1c", marginBottom: 14 }} />
+            </>
+          )}
+
           {/* Large file notice — informational only, nothing is rejected */}
           {largFileWarning && (
             <>
@@ -3025,6 +3056,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               setDuration(d);
               snapshotRef.current.videoDurationSec = d;
               triggerAutosave(markers);
+              if (expectedDurationRef.current != null) {
+                const expected = expectedDurationRef.current;
+                expectedDurationRef.current = null; // only ever check once per load
+                if (Math.abs(d - expected) > 2) {
+                  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+                  setVideoMismatchWarning(
+                    `This video is ${fmt(d)} long, but your saved moments were made against a ${fmt(expected)} video. If this isn't the exact same file, your timestamps will point at the wrong parts.`
+                  );
+                }
+              }
             }}
             onLoadedMetadata={() => setVideoLoading(false)}
             onCanPlay={() => setVideoLoading(false)}

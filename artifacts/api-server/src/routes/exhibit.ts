@@ -106,6 +106,8 @@ SourceRef: { origin:"dictation"|"complaint"|"discovery"|"evidence"|"existing_exh
 SourceRef.ref MUST be a verbatim excerpt from the provided source material — never invented.
 Use classification "verified_fact" only for direct citations, "observation" for inferences, "speculation" for unsupported claims.
 
+If a PARTIES IN THIS CASE block is provided, use it to resolve who's who: dictation often refers to people by nickname, role, or description rather than full name. Populate header.actor and any badgeNumber/agency/title fields with the party's real name and details from that block, not the nickname itself, unless the dictation explicitly quotes someone using the nickname.
+
 Generate 2–3 DISTINCT candidate exhibits for this moment — different exhibit types or angles on the same moment (e.g. one framed as a contradiction, one as an escalation), not near-duplicates of each other. For each candidate, write a one-sentence "rationale" explaining why THIS framing is persuasive for a judge or jury. Then pick the single strongest candidate as the recommendation and explain why it beats the others in one or two sentences — weigh evidence strength, visual clarity, and whether a viewer would grasp the point within five seconds.
 
 RETURN FORMAT — valid JSON only, no preamble:
@@ -166,10 +168,39 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
       eq(uploadedDocumentsTable.userId, userId),
     ));
 
+  // Parties and court are pulled out and included in full, rather than
+  // relying on them surviving inside the truncated CASE NOTES blob below.
+  // caseData is the entire case object (parties, court, story, notes,
+  // timeline, evidence, assembly, etc. all together) and jsonb doesn't
+  // guarantee key order is preserved on the way back from Postgres — so a
+  // long story or notes field could easily push party names and court info
+  // past a 1500-char cutoff. Names and roles are exactly what the AI needs
+  // to attribute quotes/actions to the right person, so they can't be left
+  // to chance.
+  const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
+  const parties = Array.isArray(cd.parties) ? (cd.parties as Record<string, unknown>[]) : [];
+  const court = cd.court && typeof cd.court === "object" ? (cd.court as Record<string, unknown>) : null;
+
+  const partiesBlock = parties.length > 0
+    ? `PARTIES IN THIS CASE:\n${parties.map(p => {
+        const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
+        const role = [p.type, p.title, p.agency, p.badge ? `badge #${p.badge}` : null].filter(Boolean).join(", ");
+        const nickname = p.nickname ? ` (referred to in dictation as "${p.nickname}")` : "";
+        return `- ${name}${nickname}${role ? ` — ${role}` : ""}`;
+      }).join("\n")}`
+    : null;
+
+  const courtBlock = court
+    ? `COURT: ${[court.name, court.state, court.level].filter(Boolean).join(", ")}`
+    : null;
+
   // Build source material
   const sourceText = [
     `DICTATION (primary source — timestamp ${timestamp}): ${dictation}`,
-    caseRow.caseData ? `CASE NOTES: ${JSON.stringify(caseRow.caseData).slice(0, 1500)}` : null,
+    partiesBlock,
+    courtBlock,
+    typeof cd.story === "string" && cd.story.trim() ? `CASE STORY: ${cd.story.slice(0, 3000)}` : null,
+    caseRow.caseData ? `OTHER CASE NOTES: ${JSON.stringify(caseRow.caseData).slice(0, 1500)}` : null,
     ...docs.map((d, i) =>
       `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 2000)}`
     ),

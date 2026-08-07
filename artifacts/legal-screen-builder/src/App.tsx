@@ -5082,9 +5082,11 @@ export default function App() {
   }, []);
 
   // ── Load cases from server on mount — merge with localStorage ────────────────
-  // Merge policy: local always wins (user may have unsynced edits).
-  // Server only fills in cases that don't exist locally, or adds structuredCase
-  // (which is always server-generated and never exists in local-only state).
+  // Merge policy: local wins for most fields (user may have unsynced edits).
+  // Server only fills in cases that don't exist locally, or fields that are
+  // still empty locally. studioProject is the one exception — it's compared
+  // by updatedAt instead, since Exhibit Studio work can legitimately happen
+  // on more than one device (see its own comment below).
   useEffect(() => {
     if (!user?.id) return; // wait for the session to finish loading before syncing
     api.cases.list().then(serverCases => {
@@ -5122,6 +5124,19 @@ export default function App() {
             // new device) from the server's authoritative copy. Doesn't overwrite
             // a photo the user just picked locally — local wins whenever present.
             if (!local.photoDataUrl && sc.casePhotoDataUrl) patch.photoDataUrl = sc.casePhotoDataUrl;
+            // studioProject (Exhibit Studio moments/chunks/labels) used to be
+            // left out of this patch entirely — once a case existed locally
+            // at all (even with no studio work yet), "local wins" meant this
+            // device would never again pick up studio progress made on
+            // ANOTHER device, permanently. Unlike the empty-only fields
+            // above, studio work can legitimately happen on either device,
+            // so this compares each side's own updatedAt and keeps whichever
+            // was actually saved more recently instead of assuming one side
+            // is always right.
+            const serverProject = serverCase?.studioProject;
+            if (serverProject && (!local.studioProject || serverProject.updatedAt > local.studioProject.updatedAt)) {
+              patch.studioProject = serverProject;
+            }
             if (Object.keys(patch).length > 0) {
               localMap.set(sc.id, { ...local, ...patch });
               changed = true;

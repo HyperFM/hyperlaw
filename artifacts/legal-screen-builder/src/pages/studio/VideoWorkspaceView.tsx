@@ -1373,6 +1373,32 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   snapshotRef.current.videoDurationSec = duration;
   snapshotRef.current.exportSettings = exportSettings;
 
+  // Keeps this already-mounted workspace in sync with studio work saved on
+  // ANOTHER device. markers/chunks/etc above are only read from hlCase once,
+  // in their useState initializers at mount — if this case's studioProject
+  // changes afterward (the App-level server->local merge landing after its
+  // own fetch, which is async and can resolve after this component already
+  // mounted from a stale snapshot), nothing here would ever pick that up.
+  // Worse: the very next autosave from this device (even just reloading the
+  // video to keep working) would then save that stale/empty local state
+  // right back to the server, silently erasing the other device's real
+  // work. Comparing updatedAt (rather than just re-syncing on every prop
+  // change) avoids that same autosave loop overwriting this device's own
+  // in-progress edits with what it just saved a moment ago.
+  const lastSyncedProjectUpdatedAtRef = useRef(hlCase.studioProject?.updatedAt ?? 0);
+  useEffect(() => {
+    const sp = hlCase.studioProject;
+    if (!sp || sp.updatedAt <= lastSyncedProjectUpdatedAtRef.current) return;
+    lastSyncedProjectUpdatedAtRef.current = sp.updatedAt;
+    const expired = sp.expiresAt && sp.expiresAt < Date.now();
+    setMarkersRaw(expired ? [] : (sp.markers ?? []));
+    setChunks(sp.chunks ?? []);
+    setOrganizedSlots(sp.organizedSlots && sp.organizedSlots.length >= 10 ? sp.organizedSlots : Array(10).fill(null));
+    setCurrentStep(sp.workflowStep ?? 1);
+    setVideoFileName(sp.videoFileName ?? "");
+    setDuration(sp.videoDurationSec ?? 0);
+  }, [hlCase.studioProject]);
+
   // ── Helpers ────────────────────────────────────────────────────
   function getOrCreateProject(): StudioProject {
     return hlCase.studioProject ?? {

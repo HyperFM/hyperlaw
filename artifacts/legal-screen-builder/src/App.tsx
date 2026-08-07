@@ -5108,13 +5108,22 @@ export default function App() {
     };
   }, []);
 
-  // ── Load cases from server on mount — merge with localStorage ────────────────
+  // ── Load cases from server — merge with localStorage ──────────────────────────
   // Merge policy: local wins for most fields (user may have unsynced edits).
   // Server only fills in cases that don't exist locally, or fields that are
   // still empty locally. studioProject is the one exception — it's compared
   // by updatedAt instead, since Exhibit Studio work can legitimately happen
   // on more than one device (see its own comment below).
-  useEffect(() => {
+  //
+  // A plain function (not just an effect) because this needs to run more
+  // than once per session: the original version only ran once at mount,
+  // which meant a tab left open from before another device's edits — or
+  // even just navigating to a case without a full page reload — would never
+  // re-check the server at all. It's called again below right before
+  // opening a case's studio, which is exactly the moment stale local state
+  // is most likely to overwrite another device's real work on the very next
+  // autosave (see VideoWorkspaceView's own sync-effect comment).
+  const syncCasesFromServer = useCallback(() => {
     if (!user?.id) return; // wait for the session to finish loading before syncing
     api.cases.list().then(serverCases => {
       if (!serverCases.length) return;
@@ -5177,6 +5186,16 @@ export default function App() {
       });
     }).catch(() => {}); // Silent failure — user stays on local data
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { syncCasesFromServer(); }, [syncCasesFromServer]);
+
+  // Re-check the server specifically when opening a case's Exhibit Studio —
+  // the single mount-time sync above can't catch edits made on another
+  // device AFTER this tab was already loaded, and studio work in particular
+  // is exactly what people bounce between devices to continue.
+  useEffect(() => {
+    if (view.type === "studio_workspace") syncCasesFromServer();
+  }, [view.type === "studio_workspace" ? view.caseId : null, syncCasesFromServer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-trigger Organization Engine when assembly completes ─────────────────
   useEffect(() => {

@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby,
+  HeartPlus, Phone, Baby, RefreshCw,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -4307,6 +4307,33 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Manage Cases</div>
               <div style={{ fontSize: 12, color: "#555" }}>Select and delete cases · {data.cases.length} total</div>
+            </div>
+            <ChevronRight size={15} color="#333" />
+          </button>
+        </div>
+      </div>
+
+      {/* App */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>APP</div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          <button
+            onClick={() => {
+              // A plain reload can still be served a cached index.html by the
+              // browser/WebView, which would point right back at the old
+              // hashed JS/CSS bundle names — the whole point of this button is
+              // to guarantee the latest deployed version, not "maybe." Adding
+              // a fresh query param forces this to be treated as a genuinely
+              // new request instead of a cache hit.
+              const url = new URL(window.location.href);
+              url.searchParams.set("_r", Date.now().toString());
+              window.location.replace(url.toString());
+            }}
+            style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <RefreshCw size={15} color="#666" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Refresh App</div>
+              <div style={{ fontSize: 12, color: "#555" }}>Reload to get the latest version — no need to close and reopen</div>
             </div>
             <ChevronRight size={15} color="#333" />
           </button>

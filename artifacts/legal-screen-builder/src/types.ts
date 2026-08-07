@@ -266,6 +266,8 @@ export interface VideoChunk {
   /** User-picked frame (data URL) for this moment's card thumbnail — overrides
    *  the auto-picked opening frame. Only affects the card, never the timeline. */
   thumbnailOverride?: string;
+  /** Set only on entries living in StudioProject.deletedChunks — when it was deleted. */
+  deletedAt?: number;
 }
 
 export interface StudioProject {
@@ -277,6 +279,11 @@ export interface StudioProject {
   markers: ExhibitMarker[];
   /** Captured moment chunks from the Chunk step */
   chunks?: VideoChunk[];
+  /** Deleted chunks, kept as a small recoverable record rather than thrown
+   *  away outright — shown as a compact "Deleted" marker in the list and
+   *  included in Copy All Moment Info so the original content isn't lost,
+   *  not merged back into `chunks` (which drives Organize/Exhibit/export). */
+  deletedChunks?: VideoChunk[];
   /** Which step the user is on (1 Chunk, 2 Label, 3 Organize, 4 Exhibit) */
   workflowStep?: number;
   /** Ordered slot array for the Organize step — each entry is a chunk id or null */

@@ -1145,6 +1145,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const [showCutBuilder, setShowCutBuilder] = useState(false);
   // ── Chunk / step state ─────────────────────────────────────────
   const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
+  // Deleted chunks live here instead of being thrown away — kept separate
+  // from `chunks` on purpose so every existing place that reads `chunks`
+  // (Organize, Exhibit, timeline segments, etc.) needs zero changes and
+  // can't accidentally pick up something that was deleted.
+  const [deletedChunks, setDeletedChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.deletedChunks ?? []);
   const [currentStep, setCurrentStep] = useState(hlCase.studioProject?.workflowStep ?? 1);
   const [organizedSlots, setOrganizedSlots] = useState<(string | null)[]>(() => {
     const saved = hlCase.studioProject?.organizedSlots;
@@ -1361,9 +1366,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentTimeRef = useRef(0);
   // snapshotRef holds latest values so the debounced IDB write always sees fresh data
-  const snapshotRef = useRef<{ markers: ExhibitMarker[]; chunks: VideoChunk[]; organizedSlots: (string | null)[]; workflowStep: number; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
+  const snapshotRef = useRef<{ markers: ExhibitMarker[]; chunks: VideoChunk[]; deletedChunks: VideoChunk[]; organizedSlots: (string | null)[]; workflowStep: number; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
     markers: hlCase.studioProject?.markers ?? [],
     chunks: hlCase.studioProject?.chunks ?? [],
+    deletedChunks: hlCase.studioProject?.deletedChunks ?? [],
     organizedSlots: hlCase.studioProject?.organizedSlots ?? Array(10).fill(null),
     workflowStep: hlCase.studioProject?.workflowStep ?? 1,
     videoFileName: hlCase.studioProject?.videoFileName ?? "",
@@ -1373,6 +1379,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // Keep snapshotRef current on every render (synchronous, safe)
   snapshotRef.current.markers = markers;
   snapshotRef.current.chunks = chunks;
+  snapshotRef.current.deletedChunks = deletedChunks;
   snapshotRef.current.organizedSlots = organizedSlots;
   snapshotRef.current.workflowStep = currentStep;
   snapshotRef.current.videoFileName = videoFileName;
@@ -1409,6 +1416,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     const expired = sp.expiresAt && sp.expiresAt < Date.now();
     setMarkersRaw(expired ? [] : (sp.markers ?? []));
     setChunks(sp.chunks ?? []);
+    setDeletedChunks(sp.deletedChunks ?? []);
     setOrganizedSlots(sp.organizedSlots && sp.organizedSlots.length >= 10 ? sp.organizedSlots : Array(10).fill(null));
     setCurrentStep(sp.workflowStep ?? 1);
     setVideoFileName(sp.videoFileName ?? "");
@@ -1449,6 +1457,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     updatedChunks?: VideoChunk[],
     updatedSlots?: (string | null)[],
     updatedStep?: number,
+    updatedDeletedChunks?: VideoChunk[],
   ) {
     setAutosaveStatus("saving");
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
@@ -1463,6 +1472,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
         videoDurationSec: snapshotRef.current.videoDurationSec,
         markers: updatedMarkers,
         chunks: updatedChunks ?? snapshotRef.current.chunks,
+        deletedChunks: updatedDeletedChunks ?? snapshotRef.current.deletedChunks,
         organizedSlots: updatedSlots ?? snapshotRef.current.organizedSlots,
         workflowStep: updatedStep ?? snapshotRef.current.workflowStep,
         updatedAt: Date.now(),
@@ -1662,14 +1672,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
 
   function copyAllMomentInfo() {
     const ordered = [...chunks].sort((a, b) => a.start - b.start);
-    const text = ordered
-      .map((c, i) => {
-        const lines = [`Moment ${i + 1} — ${formatTime(c.start)}–${formatTime(c.end)}`];
-        if (c.name?.trim()) lines.push(c.name.trim());
-        if (c.label?.trim()) lines.push(c.label.trim());
-        return lines.join("\n");
-      })
-      .join("\n\n");
+    // Deleted chunks are included too, tagged, so their name/label survives
+    // in whatever the user pastes this into — pasting it back through Paste
+    // Moments (which ignores the tag) is how a deletion gets recovered.
+    const deletedOrdered = [...deletedChunks].sort((a, b) => a.start - b.start);
+    const format = (c: VideoChunk, num: number, deleted: boolean) => {
+      const lines = [`Moment ${num}${deleted ? " (DELETED)" : ""} — ${formatTime(c.start)}–${formatTime(c.end)}`];
+      if (c.name?.trim()) lines.push(c.name.trim());
+      if (c.label?.trim()) lines.push(c.label.trim());
+      return lines.join("\n");
+    };
+    const text = [
+      ...ordered.map((c, i) => format(c, i + 1, false)),
+      ...deletedOrdered.map((c, i) => format(c, ordered.length + i + 1, true)),
+    ].join("\n\n");
     navigator.clipboard.writeText(text)
       .then(() => showInsertToast("Copied all moment info"))
       .catch(() => showInsertToast("Couldn't copy — try again"));
@@ -1688,9 +1704,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
    *  so a multi-paragraph "what happened here" doesn't get cut short. A
    *  single leftover line is treated as the label (the field people
    *  actually rely on); two or more treats the first as the short name and
-   *  the rest as the label, mirroring exactly what copyAllMomentInfo wrote. */
+   *  the rest as the label, mirroring exactly what copyAllMomentInfo wrote.
+   *  Tolerates an optional "(DELETED)" tag right after the number — pasting
+   *  always recreates an active chunk regardless, since Paste Moments'
+   *  whole purpose is recovery. */
   function parseMomentInfo(text: string): VideoChunk[] {
-    const headerRe = /Moment\s+\d+\s*[-–—]\s*([\d:]+)\s*[-–—]\s*([\d:]+)/g;
+    const headerRe = /Moment\s+\d+\s*(?:\(DELETED\)\s*)?[-–—]\s*([\d:]+)\s*[-–—]\s*([\d:]+)/gi;
     const matches = [...text.matchAll(headerRe)];
     const results: VideoChunk[] = [];
     for (let i = 0; i < matches.length; i++) {
@@ -2095,7 +2114,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     triggerAutosave(markers, result, organizedSlots, currentStep);
   }
 
-  // ── Remove a chunk → creates a video_cut marker for export ────────
+  // ── Remove a chunk → creates a video_cut marker for export, and keeps
+  //    the chunk itself as a recoverable record instead of discarding it ──
   function removeChunk(id: string) {
     const chunk = chunks.find(c => c.id === id);
     if (!chunk) return;
@@ -2106,12 +2126,33 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     };
     const newMarkers = [...markers, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
     const newChunks = chunks.filter(c => c.id !== id);
+    const newDeleted = [...deletedChunks, { ...chunk, deletedAt: Date.now() }];
     const newSlots = organizedSlots.map(s => s === id ? null : s);
     pushUndoSnapshot();
     setMarkersRaw(newMarkers);
     setChunks(newChunks);
+    setDeletedChunks(newDeleted);
     setOrganizedSlots(newSlots);
-    triggerAutosave(newMarkers, newChunks, newSlots, currentStep);
+    triggerAutosave(newMarkers, newChunks, newSlots, currentStep, newDeleted);
+  }
+
+  // ── Bring a deleted chunk back as an active moment ────────────────
+  function restoreChunk(id: string) {
+    const chunk = deletedChunks.find(c => c.id === id);
+    if (!chunk) return;
+    const { deletedAt: _deletedAt, ...restored } = chunk;
+    const newChunks = [...chunks, restored].sort((a, b) => a.start - b.start);
+    const newDeleted = deletedChunks.filter(c => c.id !== id);
+    // Undo the video_cut marker this deletion created too — otherwise the
+    // restored moment's own footage would still get skipped during
+    // playback/export, contradicting the restore. Matched by exact
+    // timestamp/cutEnd since that's the only link between the two records.
+    const newMarkers = markers.filter(m => !(m.type === "video_cut" && m.timestamp === chunk.start && m.cutEnd === chunk.end));
+    pushUndoSnapshot();
+    setMarkersRaw(newMarkers);
+    setChunks(newChunks);
+    setDeletedChunks(newDeleted);
+    triggerAutosave(newMarkers, newChunks, organizedSlots, currentStep, newDeleted);
   }
 
   // ── AI-suggested presentation order for Step 3 ───────────────────
@@ -3745,6 +3786,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {deletedChunks.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                {[...deletedChunks].sort((a, b) => a.start - b.start).map(c => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a0808", border: "1px solid #4a1515", borderRadius: 10, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", flexShrink: 0 }}>Deleted</span>
+                    <span style={{ fontSize: 11, color: "#a05050", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {formatTime(c.start)}–{formatTime(c.end)}{c.name ? ` · ${c.name}` : ""}
+                    </span>
+                    <button onClick={() => restoreChunk(c.id)}
+                      style={{ flexShrink: 0, background: "none", border: "1px solid #4a1515", borderRadius: 7, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#c47070", cursor: "pointer" }}>
+                      Restore
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 

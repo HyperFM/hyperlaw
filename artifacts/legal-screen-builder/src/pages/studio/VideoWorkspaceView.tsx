@@ -2867,6 +2867,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
               Save your video from your photo library to the <strong style={{ color: "#999" }}>Files app</strong> on your device first, then tap <strong style={{ color: "#999" }}>Load Video</strong> here and choose it from Files.
               <br /><br />
               Your edits and exhibit screens always save here — the video itself doesn't leave your device. Closing this case and coming back just means reloading the same file, same as any video editor whose project references outside media.
+              <br /><br />
+              <strong style={{ color: "#d97706" }}>Reload the exact same file every time.</strong> Don't trim, re-export, or re-save the video before reloading it — even a small change shifts the video's length, which throws off every moment's timestamp against the version you already labeled.
             </div>
           </div>
 

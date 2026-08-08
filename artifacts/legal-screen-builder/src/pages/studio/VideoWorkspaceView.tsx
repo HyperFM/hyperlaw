@@ -1180,6 +1180,41 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // this state is only read at Next/Done to combine and save.
   const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
+  const guidedOverlayRef = useRef<HTMLDivElement>(null);
+  // iOS's own "scroll the focused input into view" behavior has a
+  // long-standing, well-documented WebKit bug: it drags position:fixed
+  // elements along with it even though fixed elements are specifically
+  // supposed to be immune to page scroll. A single scrollTo(0,0) on focus
+  // wasn't enough — confirmed on-device (screenshots) that the whole
+  // overlay, including the video, still gets yanked up the moment the
+  // keyboard opens, because iOS does this scroll on a later tick, after
+  // that one-time correction already ran. This actively corrects BOTH
+  // known variants of the bug — actual document scroll, and the visual
+  // viewport panning independently of it — continuously for as long as
+  // the guided flow is open, directly on the DOM via a ref rather than
+  // through React state, so none of this can trigger a re-render loop the
+  // way the very first attempt at this (driving container height from
+  // visualViewport) did.
+  useEffect(() => {
+    if (!guidedChunkId) return;
+    const el = guidedOverlayRef.current;
+    if (!el) return;
+    const vv = window.visualViewport;
+    const correct = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+      el.style.transform = vv ? `translate(${-vv.offsetLeft}px, ${-vv.offsetTop}px)` : "";
+    };
+    window.addEventListener("scroll", correct, { passive: true });
+    vv?.addEventListener("resize", correct);
+    vv?.addEventListener("scroll", correct);
+    correct();
+    return () => {
+      window.removeEventListener("scroll", correct);
+      vv?.removeEventListener("resize", correct);
+      vv?.removeEventListener("scroll", correct);
+      el.style.transform = "";
+    };
+  }, [guidedChunkId]);
   const [trashDragOver, setTrashDragOver] = useState(false);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
@@ -3842,7 +3877,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               // to the moment list the instant the keyboard came up. dvh is
               // the browser's own native, well-tested answer to exactly this
               // problem — no JS, no resize listener, nothing to thrash.
-              <div style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", paddingTop: "calc(8px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                     <X size={18} color="#666" />
@@ -3904,7 +3939,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       autoFocus
                       defaultValue={guidedAnswer1Text}
                       onChange={e => setGuidedAnswer1Text(e.target.value)}
-                      onFocus={() => window.scrollTo(0, 0)}
                       placeholder="Speak or type…"
                       style={{ flex: 1, minWidth: 0, height: 68, background: "#111", border: "1px solid #252525",
                         borderRadius: 12, padding: "8px 12px", fontSize: 14, color: "#ddd", lineHeight: 1.4,
@@ -3916,7 +3950,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       autoFocus
                       defaultValue={guidedAnswer2Text}
                       onChange={e => setGuidedAnswer2Text(e.target.value)}
-                      onFocus={() => window.scrollTo(0, 0)}
                       placeholder="Speak or type…"
                       style={{ flex: 1, minWidth: 0, height: 68, background: "#111", border: "1px solid #252525",
                         borderRadius: 12, padding: "8px 12px", fontSize: 14, color: "#ddd", lineHeight: 1.4,

@@ -1345,7 +1345,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const verification = hlCase.studioProject?.jurisdictionVerification;
 
   // ── Autosave ───────────────────────────────────────────────────
-  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How many times the current save attempt has auto-retried after a
   // failure — reset to 0 the moment a save actually succeeds.
@@ -1479,8 +1479,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setMarkers(markers.map(m => (m.id === markerId ? { ...m, holdSec: sec } : m)), false);
   }
 
-  const MAX_AUTOSAVE_RETRIES = 5;
-
   function triggerAutosave(
     updatedMarkers: ExhibitMarker[],
     updatedChunks?: VideoChunk[],
@@ -1545,23 +1543,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       setAutosaveStatus("saved");
       autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
     } catch {
-      // A transient network blip shouldn't hand the user a scary "not
-      // saved" message and make them tap something — retry quietly a
-      // handful of times first (still showing "Saving…", not an error)
-      // and only surface the manual retry button if it's still failing
-      // after that, since at that point something's genuinely wrong and
-      // silently retrying forever would just hide it. Each retry re-saves
-      // the exact same studioProject object — never a new/extra version,
-      // nothing accumulates in storage from retrying.
-      if (autosaveRetryCountRef.current < MAX_AUTOSAVE_RETRIES) {
-        autosaveRetryCountRef.current += 1;
-        autosaveTimer.current = setTimeout(
-          () => runAutosave(updatedMarkers, updatedChunks, updatedSlots, updatedStep, updatedDeletedChunks),
-          4000,
-        );
-      } else {
-        setAutosaveStatus("error");
-      }
+      // No manual retry, ever — a failure just keeps retrying in the
+      // background, indefinitely, still showing "Saving…" the whole time
+      // rather than demanding a tap. Backoff grows with each consecutive
+      // failure (capped at 30s) so a real outage doesn't hammer the server,
+      // but it never gives up and never shows an alarming error state.
+      // Every retry re-saves the exact same studioProject object — never a
+      // new/extra version, nothing accumulates in storage from retrying.
+      autosaveRetryCountRef.current += 1;
+      const delay = Math.min(30000, 4000 * autosaveRetryCountRef.current);
+      autosaveTimer.current = setTimeout(
+        () => runAutosave(updatedMarkers, updatedChunks, updatedSlots, updatedStep, updatedDeletedChunks),
+        delay,
+      );
     }
   }
 
@@ -1923,8 +1917,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     // meant that if play() rejected (still buffering, not enough data yet),
     // the button would show "Pause" while the video was actually paused —
     // every subsequent press then just toggled between two wrong states.
-    if (isPlaying) { v.pause(); }
-    else { v.play().catch(() => {}); }
+    if (isPlaying) {
+      v.pause();
+    } else {
+      // Guided flow only — pressing Play after it's already run to the end
+      // of this moment (paused there by onTimeUpdate's own clamp) should
+      // replay from the start, not silently do nothing since there's no
+      // more of the clip left from where it's currently sitting.
+      if (guidedChunk && v.currentTime >= guidedChunk.end - 0.05) v.currentTime = guidedChunk.start;
+      v.play().catch(() => {});
+    }
   }
 
   function seek(t: number) {
@@ -2075,9 +2077,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedChunkId(chunk.id);
     // The video is about to get portaled into the guided overlay (see
     // mainVideoElement/activeVideoSlot) — line it up on this moment's own
-    // start rather than wherever it happened to be sitting before.
-    videoRef.current?.pause();
-    seek(chunk.start);
+    // start and play it automatically, rather than leaving it paused
+    // wherever it happened to be sitting before. Re-parenting via the
+    // portal doesn't interrupt playback, so it's safe to kick this off
+    // immediately rather than waiting for the overlay to actually open.
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      const onSeeked = () => { v.play().catch(() => {}); v.removeEventListener("seeked", onSeeked); };
+      v.addEventListener("seeked", onSeeked);
+      v.currentTime = chunk.start;
+      setCurrentTime(chunk.start);
+      currentTimeRef.current = chunk.start;
+    }
   }
 
   function advanceGuidedQuestion() {
@@ -3085,6 +3097,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       onTimeUpdate={e => {
         setCurrentTime(e.currentTarget.currentTime);
         currentTimeRef.current = e.currentTarget.currentTime;
+        // Guided flow only — stop exactly at this moment's own end instead
+        // of playing on into whatever comes next in the source video.
+        if (guidedChunk && e.currentTarget.currentTime >= guidedChunk.end) {
+          e.currentTarget.currentTime = guidedChunk.end;
+          e.currentTarget.pause();
+        }
       }}
       onDurationChange={e => {
         const v = e.currentTarget;
@@ -3162,19 +3180,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
           {videoFileName && <div style={{ fontSize: 10, color: "#444", marginTop: 1 }}>{videoFileName}</div>}
         </div>
         {/* Autosave — "Saved" only shows once the server call actually
-            succeeds (see triggerAutosave); a failure shows a real error with
-            a retry instead of silently claiming success either way. */}
-        {autosaveStatus === "error" ? (
-          <button onClick={() => triggerAutosave(markers, chunks, organizedSlots, currentStep)}
-            style={{ fontSize: 10, color: "#ef4444", fontWeight: 800, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-            <AlertCircle size={10} /> Not saved — tap to retry
-          </button>
-        ) : (
-          <div style={{ fontSize: 10, color: autosaveStatus === "saving" ? "#666" : autosaveStatus === "saved" ? "#22c55e" : "#333", fontWeight: 700, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, transition: "color 0.3s" }}>
-            {autosaveStatus === "saved" && <Check size={10} />}
-            {autosaveStatus === "saving" ? "Saving…" : autosaveStatus === "saved" ? "Saved" : ""}
-          </div>
-        )}
+            succeeds (see runAutosave). No manual retry button, ever — a
+            failure just keeps retrying with backoff in the background,
+            still showing "Saving…" throughout, never a "tap to fix this"
+            demand. Every retry re-saves the exact same studioProject
+            object, never a new/extra version. */}
+        <div style={{ fontSize: 10, color: autosaveStatus === "saving" ? "#666" : autosaveStatus === "saved" ? "#22c55e" : "#333", fontWeight: 700, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, transition: "color 0.3s" }}>
+          {autosaveStatus === "saved" && <Check size={10} />}
+          {autosaveStatus === "saving" ? "Saving…" : autosaveStatus === "saved" ? "Saved" : ""}
+        </div>
         {/* Undo / Redo */}
         <button onClick={undo} disabled={!undoStack.length} title="Undo"
           style={{ background: "none", border: "none", cursor: undoStack.length ? "pointer" : "not-allowed", padding: 4, opacity: undoStack.length ? 1 : 0.3 }}>

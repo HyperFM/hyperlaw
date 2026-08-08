@@ -3824,9 +3824,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     the main player already had open, and on real footage that
                     contended for a decoder and threw the main player into a
                     "video decoding failed" error. Fixed height in real vh
-                    (not dvh) on purpose — this should stay exactly the same
-                    size regardless of the keyboard; only the answer area
-                    below it should shrink. */}
+                    (not dvh) on purpose — this stays exactly the same size
+                    regardless of the keyboard. The answer area below is now
+                    a small fixed height too (not flex-grow), so together
+                    with the compact header/question/buttons there's always
+                    comfortable room for this without anything getting
+                    pushed off-screen when the keyboard opens. */}
                 <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", height: "34vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {chunkThumb(guidedChunk.start) ? (
                     <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
@@ -3844,13 +3847,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     : "How did it make you feel, and what would you have wanted to happen instead?"}
                 </div>
 
-                {/* Answer area — takes whatever's left. With the container on
-                    dvh, this is what actually shrinks when the keyboard opens
-                    (the video above is fixed-size and doesn't), down to a
-                    single visible line if the keyboard leaves nothing more —
-                    the textarea itself still scrolls internally, nothing is
-                    ever truly cut off, just less visible at once. */}
-                <div style={{ flex: 1, minHeight: 0, padding: "0 16px 10px", display: "flex" }}>
+                {/* Answer area — a small FIXED height (roughly 2x a button's
+                    height), not flex-grow anymore. It doesn't need to show
+                    everything being typed at once — the AI reads the full
+                    text regardless of how much is visible, and a fixed size
+                    means this never has to fight the video for space when
+                    the keyboard opens. Scrolls internally if it runs long. */}
+                <div style={{ flexShrink: 0, padding: "0 16px 8px" }}>
                   {guidedQuestionIndex === 0 ? (
                     <textarea
                       key={`${guidedChunkId}-q1`}
@@ -3858,8 +3861,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer1Text}
                       onChange={e => setGuidedAnswer1Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ flex: 1, minHeight: 28, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
+                      style={{ height: 100, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 14, padding: "10px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   ) : (
@@ -3869,26 +3872,28 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer2Text}
                       onChange={e => setGuidedAnswer2Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ flex: 1, minHeight: 28, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
+                      style={{ height: 100, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 14, padding: "10px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   )}
                 </div>
 
-                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "8px 20px calc(10px + env(safe-area-inset-bottom))" }}>
+                {/* Small, right-aligned — not full-width anymore, so this row
+                    stays compact and leaves the video its full 34vh. */}
+                <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 16px calc(10px + env(safe-area-inset-bottom))" }}>
                   {guidedQuestionIndex === 1 && (
                     <button onClick={backToGuidedQuestion1}
-                      style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                      style={{ background: "none", border: "1px solid #333", borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>
                       Back
                     </button>
                   )}
                   <button
                     onClick={guidedQuestionIndex === 0 ? advanceGuidedQuestion : saveGuidedAnswers}
                     disabled={guidedQuestionIndex === 0 ? !guidedAnswer1Text.trim() : !guidedAnswer2Text.trim()}
-                    style={{ flex: guidedQuestionIndex === 1 ? 2 : 1,
+                    style={{
                       background: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? ORANGE : "#2a2a2a",
-                      border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 800,
+                      border: "none", borderRadius: 10, padding: "9px 22px", fontSize: 13, fontWeight: 800,
                       color: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "#000" : "#666",
                       cursor: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "pointer" : "default" }}>
                     {guidedQuestionIndex === 0 ? "Next" : "Done"}

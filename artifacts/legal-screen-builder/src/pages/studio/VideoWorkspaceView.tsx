@@ -1290,6 +1290,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // ── Autosave ───────────────────────────────────────────────────
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // How many times the current save attempt has auto-retried after a
+  // failure — reset to 0 the moment a save actually succeeds.
+  const autosaveRetryCountRef = useRef(0);
 
   // ── AI Exhibit Screen ───────────────────────────────────────────
   const [showExhibitGenerator, setShowExhibitGenerator] = useState(false);
@@ -1419,6 +1422,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setMarkers(markers.map(m => (m.id === markerId ? { ...m, holdSec: sec } : m)), false);
   }
 
+  const MAX_AUTOSAVE_RETRIES = 5;
+
   function triggerAutosave(
     updatedMarkers: ExhibitMarker[],
     updatedChunks?: VideoChunk[],
@@ -1427,51 +1432,80 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     updatedDeletedChunks?: VideoChunk[],
   ) {
     setAutosaveStatus("saving");
+    autosaveRetryCountRef.current = 0;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(async () => {
-      const project = getOrCreateProject();
-      // Read from snapshotRef so we always get the latest values — calling code
-      // may have just called setState and closures still hold stale values.
-      const expiresAt = Date.now() + EXPIRY_MS;
-      const next: StudioProject = {
-        ...project,
-        videoFileName: snapshotRef.current.videoFileName,
-        videoDurationSec: snapshotRef.current.videoDurationSec,
-        markers: updatedMarkers,
-        chunks: updatedChunks ?? snapshotRef.current.chunks,
-        deletedChunks: updatedDeletedChunks ?? snapshotRef.current.deletedChunks,
-        organizedSlots: updatedSlots ?? snapshotRef.current.organizedSlots,
-        workflowStep: updatedStep ?? snapshotRef.current.workflowStep,
-        updatedAt: Date.now(),
-        expiresAt,
-      };
-      const updatedCase = { ...hlCase, studioProject: next };
-      onUpdateCase(updatedCase);
-      // Chunk & Label edits (markMoment, splitChunk, label onChange, etc.)
-      // only ever called triggerAutosave, never triggerIndexedDBSave — so
-      // the one local crash-recovery net this app has never actually caught
-      // real chunked moments, only the separate/older markers flow. Piggy-
-      // backing it onto every real save here means it now does.
-      triggerIndexedDBSave();
-      // "Saved" used to be confirmed by keepAlive succeeding — but keepAlive
-      // only refreshes this project's expiry timer, it carries no actual
-      // data. The real write (markers/chunks/labels) went through
-      // onUpdateCase above, which only reaches the server via App.tsx's own
-      // 1500ms-debounced, fire-and-forget sync — meaning "Saved" could show
-      // here while the edits themselves were still sitting unsent, and would
-      // be lost outright if the app got backgrounded/closed before that
-      // debounce fired. Awaiting the actual case upsert directly here closes
-      // both gaps: "Saved" now means the data really reached the server, and
-      // it isn't at the mercy of a timer that can die with the app.
-      try {
-        await api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>);
-        api.studioProject.keepAlive(hlCase.id).catch(() => {}); // best-effort expiry refresh, not load-bearing for correctness
-        setAutosaveStatus("saved");
-        autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
-      } catch {
+    autosaveTimer.current = setTimeout(
+      () => runAutosave(updatedMarkers, updatedChunks, updatedSlots, updatedStep, updatedDeletedChunks),
+      800,
+    );
+  }
+
+  async function runAutosave(
+    updatedMarkers: ExhibitMarker[],
+    updatedChunks?: VideoChunk[],
+    updatedSlots?: (string | null)[],
+    updatedStep?: number,
+    updatedDeletedChunks?: VideoChunk[],
+  ) {
+    const project = getOrCreateProject();
+    // Read from snapshotRef so we always get the latest values — calling code
+    // may have just called setState and closures still hold stale values.
+    const expiresAt = Date.now() + EXPIRY_MS;
+    const next: StudioProject = {
+      ...project,
+      videoFileName: snapshotRef.current.videoFileName,
+      videoDurationSec: snapshotRef.current.videoDurationSec,
+      markers: updatedMarkers,
+      chunks: updatedChunks ?? snapshotRef.current.chunks,
+      deletedChunks: updatedDeletedChunks ?? snapshotRef.current.deletedChunks,
+      organizedSlots: updatedSlots ?? snapshotRef.current.organizedSlots,
+      workflowStep: updatedStep ?? snapshotRef.current.workflowStep,
+      updatedAt: Date.now(),
+      expiresAt,
+    };
+    const updatedCase = { ...hlCase, studioProject: next };
+    onUpdateCase(updatedCase);
+    // Chunk & Label edits (markMoment, splitChunk, label onChange, etc.)
+    // only ever called triggerAutosave, never triggerIndexedDBSave — so
+    // the one local crash-recovery net this app has never actually caught
+    // real chunked moments, only the separate/older markers flow. Piggy-
+    // backing it onto every real save here means it now does.
+    triggerIndexedDBSave();
+    // "Saved" used to be confirmed by keepAlive succeeding — but keepAlive
+    // only refreshes this project's expiry timer, it carries no actual
+    // data. The real write (markers/chunks/labels) went through
+    // onUpdateCase above, which only reaches the server via App.tsx's own
+    // 1500ms-debounced, fire-and-forget sync — meaning "Saved" could show
+    // here while the edits themselves were still sitting unsent, and would
+    // be lost outright if the app got backgrounded/closed before that
+    // debounce fired. Awaiting the actual case upsert directly here closes
+    // both gaps: "Saved" now means the data really reached the server, and
+    // it isn't at the mercy of a timer that can die with the app.
+    try {
+      await api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>);
+      api.studioProject.keepAlive(hlCase.id).catch(() => {}); // best-effort expiry refresh, not load-bearing for correctness
+      autosaveRetryCountRef.current = 0;
+      setAutosaveStatus("saved");
+      autosaveTimer.current = setTimeout(() => setAutosaveStatus("idle"), 2500);
+    } catch {
+      // A transient network blip shouldn't hand the user a scary "not
+      // saved" message and make them tap something — retry quietly a
+      // handful of times first (still showing "Saving…", not an error)
+      // and only surface the manual retry button if it's still failing
+      // after that, since at that point something's genuinely wrong and
+      // silently retrying forever would just hide it. Each retry re-saves
+      // the exact same studioProject object — never a new/extra version,
+      // nothing accumulates in storage from retrying.
+      if (autosaveRetryCountRef.current < MAX_AUTOSAVE_RETRIES) {
+        autosaveRetryCountRef.current += 1;
+        autosaveTimer.current = setTimeout(
+          () => runAutosave(updatedMarkers, updatedChunks, updatedSlots, updatedStep, updatedDeletedChunks),
+          4000,
+        );
+      } else {
         setAutosaveStatus("error");
       }
-    }, 800);
+    }
   }
 
   /** Manually reset the retention clock without requiring an actual edit —
@@ -3846,6 +3880,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     ? "What happened, who was involved, and how did you respond?"
                     : "How did it make you feel, and what would you have wanted to happen instead?"}
                 </div>
+
+                {/* Flexible spacer — everything above and below this is a
+                    fixed size, so on a tall screen (or a shorter keyboard)
+                    there was empty dead space sitting between the buttons
+                    and the keyboard. This absorbs that space instead,
+                    pushing the answer box and buttons down to sit right
+                    above the keyboard, while video+question stay put at
+                    the top. */}
+                <div style={{ flex: 1, minHeight: 0 }} />
 
                 {/* Answer area — a small FIXED height (roughly 2x a button's
                     height), not flex-grow anymore. It doesn't need to show

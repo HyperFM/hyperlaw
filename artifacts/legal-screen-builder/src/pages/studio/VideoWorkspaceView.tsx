@@ -1662,9 +1662,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     // in whatever the user pastes this into — pasting it back through Paste
     // Moments (which ignores the tag) is how a deletion gets recovered.
     const deletedOrdered = [...deletedChunks].sort((a, b) => a.start - b.start);
+    // Short name is left out on purpose — the guided flow's two questions
+    // are the real content now, short names aren't part of that anymore.
     const format = (c: VideoChunk, num: number, deleted: boolean) => {
       const lines = [`Moment ${num}${deleted ? " (DELETED)" : ""} — ${formatTime(c.start)}–${formatTime(c.end)}`];
-      if (c.name?.trim()) lines.push(c.name.trim());
       if (c.label?.trim()) lines.push(c.label.trim());
       return lines.join("\n");
     };
@@ -1687,16 +1688,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   /** Parses copyAllMomentInfo's own output back into real chunks — matches
    *  on the "Moment N — start–end" header line and takes everything up to
    *  the next header (not just the next blank line) as that moment's body,
-   *  so a multi-paragraph "what happened here" doesn't get cut short. A
-   *  single leftover line is treated as the label (the field people
-   *  actually rely on); two or more treats the first as the short name and
-   *  the rest as the label, mirroring exactly what copyAllMomentInfo wrote.
-   *  Tolerates an optional "(DELETED)" tag right after the number — pasting
-   *  always recreates an active chunk regardless, since Paste Moments'
-   *  whole purpose is recovery. Also tolerant of whatever separator someone
-   *  actually typed when saving this by hand — em dash, hyphen, middle dot
-   *  (·, common when dictating/copying from other apps), or a colon — not
-   *  just the exact character copyAllMomentInfo itself writes. */
+   *  so a multi-paragraph "what happened here" doesn't get cut short. The
+   *  whole body becomes the label — short names are no longer part of
+   *  copyAllMomentInfo's own output, and pasted-in text (including older
+   *  saved notes that still have a name line from before that change)
+   *  isn't split apart guessing which line was which; it all just becomes
+   *  content. Tolerates an optional "(DELETED)" tag right after the number
+   *  — pasting always recreates an active chunk regardless, since Paste
+   *  Moments' whole purpose is recovery. Also tolerant of whatever
+   *  separator someone actually typed when saving this by hand — em dash,
+   *  hyphen, middle dot (·, common when dictating/copying from other
+   *  apps), or a colon — not just the exact character copyAllMomentInfo
+   *  itself writes. */
   function parseMomentInfo(text: string): VideoChunk[] {
     const headerRe = /Moment\s+\d+\s*(?:\(DELETED\)\s*)?[-–—·:]\s*([\d:]+)\s*[-–—·]\s*([\d:]+)/gi;
     const matches = [...text.matchAll(headerRe)];
@@ -1708,10 +1711,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       if (start == null || end == null || end <= start) continue;
       const bodyStart = (m.index ?? 0) + m[0].length;
       const bodyEnd = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
-      const lines = text.slice(bodyStart, bodyEnd).split("\n").map(l => l.trim()).filter(Boolean);
-      const name = lines.length >= 2 ? lines[0] : undefined;
-      const label = lines.length >= 2 ? lines.slice(1).join("\n") : (lines[0] ?? "");
-      results.push({ id: crypto.randomUUID(), start, end, name, label });
+      const label = text.slice(bodyStart, bodyEnd).split("\n").map(l => l.trim()).filter(Boolean).join("\n");
+      results.push({ id: crypto.randomUUID(), start, end, label });
     }
     return results;
   }

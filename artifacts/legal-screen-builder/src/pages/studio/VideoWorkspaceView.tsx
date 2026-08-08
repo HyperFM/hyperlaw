@@ -3859,11 +3859,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     contended for a decoder and threw the main player into a
                     "video decoding failed" error. Fixed height in real vh
                     (not dvh) on purpose — this stays exactly the same size
-                    regardless of the keyboard. The answer area below is now
-                    a small fixed height too (not flex-grow), so together
-                    with the compact header/question/buttons there's always
-                    comfortable room for this without anything getting
-                    pushed off-screen when the keyboard opens. */}
+                    regardless of the keyboard. Sits directly against the
+                    header and question below it, no deliberate gap — the
+                    whole top block stays visually connected. */}
                 <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", height: "34vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {chunkThumb(guidedChunk.start) ? (
                     <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
@@ -3881,31 +3879,35 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     : "How did it make you feel, and what would you have wanted to happen instead?"}
                 </div>
 
-                {/* Flexible spacer — everything above and below this is a
-                    fixed size, so on a tall screen (or a shorter keyboard)
-                    there was empty dead space sitting between the buttons
-                    and the keyboard. This absorbs that space instead,
-                    pushing the answer box and buttons down to sit right
-                    above the keyboard, while video+question stay put at
-                    the top. */}
                 <div style={{ flex: 1, minHeight: 0 }} />
 
-                {/* Answer area — a small FIXED height (roughly 2x a button's
-                    height), not flex-grow anymore. It doesn't need to show
-                    everything being typed at once — the AI reads the full
-                    text regardless of how much is visible, and a fixed size
-                    means this never has to fight the video for space when
-                    the keyboard opens. Scrolls internally if it runs long. */}
-                <div style={{ flexShrink: 0, padding: "0 16px 8px" }}>
+                {/* Answer + Back/Next/Done all in one compact row instead of
+                    stacked — a separate full-width button row underneath the
+                    answer box added a whole extra chunk of vertical height
+                    for no real reason, which was pushing this bar low enough
+                    to make iOS auto-scroll the input into view on focus and
+                    drag the fixed video/question off the top of the screen
+                    with it. One tight row at the very bottom (minimal
+                    padding, right above the keyboard) needs far less height
+                    to begin with, so there's nothing for iOS to feel it needs
+                    to scroll to reveal. */}
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "stretch", gap: 8, padding: "0 16px calc(6px + env(safe-area-inset-bottom))" }}>
+                  {guidedQuestionIndex === 1 && (
+                    <button onClick={backToGuidedQuestion1}
+                      style={{ flexShrink: 0, width: 44, background: "none", border: "1px solid #333", borderRadius: 12, fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                      Back
+                    </button>
+                  )}
                   {guidedQuestionIndex === 0 ? (
                     <textarea
                       key={`${guidedChunkId}-q1`}
                       autoFocus
                       defaultValue={guidedAnswer1Text}
                       onChange={e => setGuidedAnswer1Text(e.target.value)}
-                      placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ height: 100, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 14, padding: "10px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
+                      onFocus={() => window.scrollTo(0, 0)}
+                      placeholder="Speak or type…"
+                      style={{ flex: 1, minWidth: 0, height: 68, background: "#111", border: "1px solid #252525",
+                        borderRadius: 12, padding: "8px 12px", fontSize: 14, color: "#ddd", lineHeight: 1.4,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   ) : (
@@ -3914,29 +3916,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       autoFocus
                       defaultValue={guidedAnswer2Text}
                       onChange={e => setGuidedAnswer2Text(e.target.value)}
-                      placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ height: 100, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 14, padding: "10px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
+                      onFocus={() => window.scrollTo(0, 0)}
+                      placeholder="Speak or type…"
+                      style={{ flex: 1, minWidth: 0, height: 68, background: "#111", border: "1px solid #252525",
+                        borderRadius: 12, padding: "8px 12px", fontSize: 14, color: "#ddd", lineHeight: 1.4,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
-                  )}
-                </div>
-
-                {/* Small, right-aligned — not full-width anymore, so this row
-                    stays compact and leaves the video its full 34vh. */}
-                <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 16px calc(10px + env(safe-area-inset-bottom))" }}>
-                  {guidedQuestionIndex === 1 && (
-                    <button onClick={backToGuidedQuestion1}
-                      style={{ background: "none", border: "1px solid #333", borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>
-                      Back
-                    </button>
                   )}
                   <button
                     onClick={guidedQuestionIndex === 0 ? advanceGuidedQuestion : saveGuidedAnswers}
                     disabled={guidedQuestionIndex === 0 ? !guidedAnswer1Text.trim() : !guidedAnswer2Text.trim()}
-                    style={{
+                    style={{ flexShrink: 0, width: 64,
                       background: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? ORANGE : "#2a2a2a",
-                      border: "none", borderRadius: 10, padding: "9px 22px", fontSize: 13, fontWeight: 800,
+                      border: "none", borderRadius: 12, fontSize: 13, fontWeight: 800,
                       color: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "#000" : "#666",
                       cursor: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "pointer" : "default" }}>
                     {guidedQuestionIndex === 0 ? "Next" : "Done"}

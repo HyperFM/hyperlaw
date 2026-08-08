@@ -3878,7 +3878,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               // the browser's own native, well-tested answer to exactly this
               // problem — no JS, no resize listener, nothing to thrash.
               <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", paddingTop: "calc(8px + env(safe-area-inset-top))" }}>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 16px", paddingTop: "calc(4px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                     <X size={18} color="#666" />
                   </button>
@@ -3892,12 +3892,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     used to open its own independent decode of the same source
                     the main player already had open, and on real footage that
                     contended for a decoder and threw the main player into a
-                    "video decoding failed" error. Fixed height in real vh
-                    (not dvh) on purpose — this stays exactly the same size
-                    regardless of the keyboard. Sits directly against the
+                    "video decoding failed" error. Sits directly against the
                     header and question below it, no deliberate gap — the
-                    whole top block stays visually connected. */}
-                <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", height: "34vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    whole top block stays visually connected. Shrunk from 34vh
+                    and the surrounding padding tightened — with the keyboard
+                    open there wasn't quite enough room left for the answer
+                    bar/buttons below, which were getting clipped off the
+                    bottom of the screen entirely. */}
+                <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", height: "26vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {chunkThumb(guidedChunk.start) ? (
                     <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
                   ) : (
@@ -3908,7 +3910,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 </div>
 
                 {/* Question text — compact, right under the video */}
-                <div style={{ flexShrink: 0, padding: "10px 20px 6px", fontSize: 15, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
+                <div style={{ flexShrink: 0, padding: "6px 20px 4px", fontSize: 15, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
                   {guidedQuestionIndex === 0
                     ? "What happened, who was involved, and how did you respond?"
                     : "How did it make you feel, and what would you have wanted to happen instead?"}

@@ -1172,14 +1172,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // the overlay is closed; otherwise it's the chunk currently being answered.
   const [guidedChunkId, setGuidedChunkId] = useState<string | null>(null);
   const [guidedQuestionIndex, setGuidedQuestionIndex] = useState<0 | 1>(0);
-  // Set while "Watch this moment" is active — the guided overlay hides and
-  // the single main video player (never a second one) plays just this
-  // chunk's range. Reuses the one decoder the app already has open instead
-  // of opening another, which is exactly what caused a real crash before
-  // (see the static-thumbnail comment below). guidedAnswer1Text/2Text are
-  // untouched while this is set, so returning to the guided flow picks up
-  // exactly where it left off.
-  const [guidedWatchingChunkId, setGuidedWatchingChunkId] = useState<string | null>(null);
   // Plain state kept in sync via onChange, but the textareas themselves use
   // defaultValue (not value) — same fix as the old label input's own
   // comment explains: a fully controlled textarea re-renders on every
@@ -1197,19 +1189,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // fires, and that's almost certainly what made the overlay appear to
   // close and dump back to the moment list. Nothing below touches state.
   //
-  // 1) iOS's own "scroll the focused input into view" behavior drags
-  //    position:fixed elements along with it, even though fixed elements
-  //    are specifically supposed to be immune to page scroll — confirmed
-  //    on-device that the whole overlay, including the video, still got
-  //    yanked up the moment the keyboard opened. Corrected continuously via
-  //    a transform that cancels out both known variants (actual document
-  //    scroll, and the visual viewport panning independently of it).
+  // 1) iOS's own "scroll the focused input into view" behavior can shift
+  //    document scroll position even for a position:fixed element, which
+  //    is specifically supposed to be immune to it — corrected by forcing
+  //    scroll back to (0,0) continuously.
   // 2) 100dvh in the JSX turned out not to actually shrink with the
   //    keyboard in this WKWebView build the way it does in Safari proper —
   //    confirmed on-device the keyboard just covered the bottom of a
   //    full-height overlay instead of the layout reflowing around it. Set
   //    the real height directly from visualViewport.height instead, which
   //    does correctly reflect the keyboard here.
+  // A separate transform-based correction for visualViewport offsetTop/Left
+  // was tried alongside this height fix and made things worse — a gap
+  // opened up letting the moment list underneath show through behind the
+  // keyboard. With scroll pinned to (0,0) and height matching the real
+  // visible area, top:0 already lines up correctly on its own; stacking a
+  // second, independent correction on top of it was the bug, not the fix.
   useEffect(() => {
     if (!guidedChunkId) return;
     const el = guidedOverlayRef.current;
@@ -1217,7 +1212,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     const vv = window.visualViewport;
     const correct = () => {
       if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
-      el.style.transform = vv ? `translate(${-vv.offsetLeft}px, ${-vv.offsetTop}px)` : "";
       if (vv) el.style.height = `${vv.height}px`;
     };
     window.addEventListener("scroll", correct, { passive: true });
@@ -1228,7 +1222,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       window.removeEventListener("scroll", correct);
       vv?.removeEventListener("resize", correct);
       vv?.removeEventListener("scroll", correct);
-      el.style.transform = "";
       el.style.height = "";
     };
   }, [guidedChunkId]);
@@ -1927,6 +1920,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     if (v) { v.currentTime = t; setCurrentTime(t); }
   }
 
+  function skipMain(deltaSec: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    seek(Math.max(0, Math.min(duration || v.duration || 0, v.currentTime + deltaSec)));
+  }
+
   // ── Sequenced preview (Organize step's order → Exhibit → Clip → Exhibit → Clip) ──
   // Chunks in the order the user (or the AI) organized them in Step 2, skipping
   // any empty slots or ids that no longer resolve to a chunk. Empty when the
@@ -2064,25 +2063,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedChunkId(chunk.id);
   }
 
-  // Hides the guided overlay and plays this moment on the single main video
-  // player — reuses the one decoder already open instead of a second one.
+  // Closes the guided overlay and plays this moment on the single main
+  // video player, exactly like normal Step 1 playback — no separate
+  // "watching mode" screen or state. Whatever's been typed so far is
+  // checkpointed into the chunk first, so tapping this same moment card
+  // again later (the ordinary way back in) picks up right where this left
+  // off — no dedicated "resume" affordance needed for that to just work.
   function watchMomentFromGuidedFlow() {
     if (!guidedChunk) return;
-    setGuidedWatchingChunkId(guidedChunk.id);
+    const chunk = guidedChunk;
+    const factsAnswer = guidedAnswer1Text.trim();
+    const impactAnswer = guidedAnswer2Text.trim();
+    const label = [factsAnswer, impactAnswer].filter(Boolean).join("\n\n");
+    const updated = chunks.map(c => c.id === chunk.id ? { ...c, factsAnswer, impactAnswer, label } : c);
+    setChunks(updated);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
     setGuidedChunkId(null);
-    seek(guidedChunk.start);
-    videoRef.current?.play().catch(() => {});
-  }
-
-  // Brings the guided overlay back at the exact question the user left off
-  // on — guidedAnswer1Text/2Text were never touched while watching, so
-  // nothing typed so far is lost.
-  function resumeGuidedFlowFromWatching() {
-    if (!guidedWatchingChunkId) return;
-    videoRef.current?.pause();
-    const chunk = chunks.find(c => c.id === guidedWatchingChunkId);
-    setGuidedWatchingChunkId(null);
-    if (chunk) setGuidedChunkId(chunk.id);
+    const v = videoRef.current;
+    if (v) {
+      // Play once the seek actually lands, not immediately after setting
+      // currentTime — calling play() right away can race a big jump and
+      // silently fail to start, which is exactly why this needed a manual
+      // second tap on Play before.
+      const onSeeked = () => { v.play().catch(() => {}); v.removeEventListener("seeked", onSeeked); };
+      v.addEventListener("seeked", onSeeked);
+      v.currentTime = chunk.start;
+      setCurrentTime(chunk.start);
+      currentTimeRef.current = chunk.start;
+    }
   }
 
   function advanceGuidedQuestion() {
@@ -3333,16 +3341,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             onTimeUpdate={e => {
               setCurrentTime(e.currentTarget.currentTime);
               currentTimeRef.current = e.currentTarget.currentTime;
-              // "Watch this moment" from the guided flow — stop exactly at
-              // this chunk's own end instead of playing on into whatever
-              // comes next in the source video.
-              if (guidedWatchingChunkId) {
-                const watched = chunks.find(c => c.id === guidedWatchingChunkId);
-                if (watched && e.currentTarget.currentTime >= watched.end) {
-                  e.currentTarget.currentTime = watched.end;
-                  e.currentTarget.pause();
-                }
-              }
             }}
             onDurationChange={e => {
               const v = e.currentTarget;
@@ -3539,6 +3537,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             {thumbsLoading
               ? <Loader2 size={16} color="#555" className="animate-spin" />
               : isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
+          </button>
+          {/* ±5s — requested for reviewing a moment (e.g. after "Watch this
+              moment" from the guided flow), but generally useful any time. */}
+          <button onClick={() => skipMain(-5)} disabled={!videoUrl} title="Back 5s"
+            style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 18, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
+            <RotateCcw size={15} color={videoUrl ? "#999" : "#333"} />
+          </button>
+          <button onClick={() => skipMain(5)} disabled={!videoUrl} title="Forward 5s"
+            style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 18, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
+            <RotateCcw size={15} color={videoUrl ? "#999" : "#333"} style={{ transform: "scaleX(-1)" }} />
           </button>
           <div style={{ fontSize: 14, fontWeight: 800, color: videoUrl ? "#fff" : "#444", letterSpacing: 0.5, minWidth: 80, flexShrink: 0 }}>
             {thumbsLoading ? <PreparingVideoMessage /> : (
@@ -4029,21 +4037,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               </div>
             )}
 
-            {/* Floating "Resume" — shown while watching a moment from the
-                guided flow (see watchMomentFromGuidedFlow). The overlay
-                itself is hidden so the single main player can show the
-                video; this is the way back to it, right where the user
-                left off, answers intact. */}
-            {guidedWatchingChunkId && (
-              <button
-                onClick={resumeGuidedFlowFromWatching}
-                style={{ position: "fixed", left: 16, right: 16, bottom: "calc(16px + env(safe-area-inset-bottom))", zIndex: 860,
-                  background: ORANGE, border: "none", borderRadius: 14, padding: "14px", fontSize: 15, fontWeight: 800,
-                  color: "#000", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-                <ArrowLeft size={16} color="#000" /> Resume — Question {guidedQuestionIndex + 1} of 2
-              </button>
-            )}
 
             {framePickerChunk && videoUrl && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 300, display: "flex", alignItems: "flex-end" }}

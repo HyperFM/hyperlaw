@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, Maximize2, Minimize2,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1182,7 +1182,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
   const guidedPreviewRef = useRef<HTMLVideoElement>(null);
   const [guidedPreviewPlaying, setGuidedPreviewPlaying] = useState(false);
-  const [guidedPreviewExpanded, setGuidedPreviewExpanded] = useState(false);
+  // The overlay used a plain inset:0/100% height, which on iOS doesn't
+  // shrink when the keyboard opens — the layout just stayed the same size
+  // with the keyboard drawn on top of it, hiding the video behind it while
+  // typing. Tracking visualViewport's actual height and using that instead
+  // makes the flex layout genuinely reflow around the keyboard: the video
+  // (flex:1) shrinks to fill whatever space is left, and the compact answer
+  // bar stays pinned directly above the keyboard rather than under it.
+  const [guidedViewportHeight, setGuidedViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+  useEffect(() => {
+    if (!guidedChunkId) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setGuidedViewportHeight(vv.height);
+    vv.addEventListener("resize", onResize);
+    onResize();
+    return () => vv.removeEventListener("resize", onResize);
+  }, [guidedChunkId]);
   const [trashDragOver, setTrashDragOver] = useState(false);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
@@ -1992,7 +2008,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedAnswer1Text(hasGuidedAnswers ? (chunk.factsAnswer ?? "") : chunk.label);
     setGuidedAnswer2Text(chunk.impactAnswer ?? "");
     setGuidedQuestionIndex(0);
-    setGuidedPreviewExpanded(false);
     setGuidedPreviewPlaying(false);
     setGuidedChunkId(chunk.id);
   }
@@ -2006,19 +2021,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
 
   function toggleGuidedPreviewPlay() {
     const v = guidedPreviewRef.current;
-    if (!v) return;
-    if (v.paused) v.play().catch(() => {}); else v.pause();
+    const chunk = chunks.find(c => c.id === guidedChunkId);
+    if (!v || !chunk) return;
+    if (v.paused) {
+      // Pressing play after it's already run to the end of the moment
+      // (paused there by the timeupdate handler below) should replay from
+      // the start, not silently do nothing — there's no more of the clip
+      // left to play from where it's currently sitting.
+      if (v.currentTime >= chunk.end - 0.05) v.currentTime = chunk.start;
+      v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }
+
+  /** Clamps preview playback to the moment's own boundaries — without this
+   *  the preview just kept playing straight into whatever comes after the
+   *  chunk in the source video instead of stopping where the moment ends. */
+  function handleGuidedPreviewTimeUpdate() {
+    const v = guidedPreviewRef.current;
+    const chunk = chunks.find(c => c.id === guidedChunkId);
+    if (!v || !chunk) return;
+    if (v.currentTime >= chunk.end) {
+      v.currentTime = chunk.end;
+      v.pause();
+    }
   }
 
   function advanceGuidedQuestion() {
     if (!guidedAnswer1Text.trim()) return; // mandatory — no skipping to question 2 blank
     setGuidedQuestionIndex(1);
-    setGuidedPreviewExpanded(false);
   }
 
   function backToGuidedQuestion1() {
     setGuidedQuestionIndex(0);
-    setGuidedPreviewExpanded(false);
   }
 
   function saveGuidedAnswers() {
@@ -3834,8 +3870,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 fallback). Opens immediately after chunking, and again
                 whenever an existing moment card is tapped. ──────────────── */}
             {guidedChunk && videoUrl && (
-              <div style={{ position: "fixed", inset: 0, background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column" }}>
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", paddingTop: "calc(14px + env(safe-area-inset-top))" }}>
+              <div style={{ position: "fixed", left: 0, right: 0, top: 0, height: guidedViewportHeight, background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", paddingTop: "calc(12px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                     <X size={20} color="#666" />
                   </button>
@@ -3846,48 +3882,55 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                   <div style={{ width: 20 }} />
                 </div>
 
-                {/* Video preview — lets someone glance back at the moment while answering */}
-                <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", marginBottom: 14 }}>
+                {/* Video preview — grows to fill whatever space the header,
+                    question, answer bar, and buttons don't need, instead of a
+                    small fixed height. Shrinks automatically as the keyboard
+                    opens (guidedViewportHeight tracks that), so it never ends
+                    up hidden behind the keyboard — it just gets smaller while
+                    staying fully visible. */}
+                <div style={{ flex: 1, minHeight: 0, position: "relative", padding: "6px 16px 0" }}>
                   <video
                     key={guidedChunkId}
                     ref={guidedPreviewRef}
                     src={videoUrl}
                     playsInline
                     onLoadedMetadata={e => { e.currentTarget.currentTime = guidedChunk.start; }}
+                    onTimeUpdate={handleGuidedPreviewTimeUpdate}
                     onPlay={() => setGuidedPreviewPlaying(true)}
                     onPause={() => setGuidedPreviewPlaying(false)}
-                    style={{ width: "100%", height: guidedPreviewExpanded ? "42vh" : "130px", objectFit: "contain",
-                      borderRadius: 12, background: "#000", display: "block", transition: "height 0.2s" }}
+                    style={{ width: "100%", height: "100%", objectFit: "contain",
+                      borderRadius: 12, background: "#000", display: "block" }}
                   />
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginTop: 10 }}>
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22 }}>
                     <button onClick={() => guidedSkip(-5)} title="Back 5s"
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                      <RotateCcw size={18} color="#999" />
-                      <span style={{ fontSize: 9, color: "#666", fontWeight: 700 }}>5s</span>
+                      style={{ background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                      <RotateCcw size={16} color="#fff" />
+                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
                     </button>
                     <button onClick={toggleGuidedPreviewPlay}
-                      style={{ width: 40, height: 40, borderRadius: 20, background: "#181818", border: "1px solid #2a2a2a", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {guidedPreviewPlaying ? <Pause size={17} color="#ddd" /> : <Play size={17} color="#ddd" style={{ marginLeft: 2 }} />}
+                      style={{ width: 42, height: 42, borderRadius: 21, background: "rgba(0,0,0,0.65)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {guidedPreviewPlaying ? <Pause size={17} color="#fff" /> : <Play size={17} color="#fff" style={{ marginLeft: 2 }} />}
                     </button>
                     <button onClick={() => guidedSkip(5)} title="Forward 5s"
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                      <RotateCcw size={18} color="#999" style={{ transform: "scaleX(-1)" }} />
-                      <span style={{ fontSize: 9, color: "#666", fontWeight: 700 }}>5s</span>
-                    </button>
-                    <button onClick={() => setGuidedPreviewExpanded(v => !v)} title={guidedPreviewExpanded ? "Shrink preview" : "Expand preview"}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}>
-                      {guidedPreviewExpanded ? <Minimize2 size={16} color="#999" /> : <Maximize2 size={16} color="#999" />}
+                      style={{ background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                      <RotateCcw size={16} color="#fff" style={{ transform: "scaleX(-1)" }} />
+                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Question + answer */}
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "4px 20px", overflowY: "auto", minHeight: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: "#fff", marginBottom: 14, lineHeight: 1.35 }}>
-                    {guidedQuestionIndex === 0
-                      ? "What happened, who was involved, and how did you respond?"
-                      : "How did it make you feel, and what would you have wanted to happen instead?"}
-                  </div>
+                {/* Question text — compact, always visible above the answer bar */}
+                <div style={{ flexShrink: 0, padding: "12px 20px 8px", fontSize: 16, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
+                  {guidedQuestionIndex === 0
+                    ? "What happened, who was involved, and how did you respond?"
+                    : "How did it make you feel, and what would you have wanted to happen instead?"}
+                </div>
+
+                {/* Answer bar — a compact bubble, not a large mid-screen box,
+                    so it sits just above the keyboard instead of the keyboard
+                    covering half the screen (including the video) while
+                    someone types. */}
+                <div style={{ flexShrink: 0, padding: "0 16px" }}>
                   {guidedQuestionIndex === 0 ? (
                     <textarea
                       key={`${guidedChunkId}-q1`}
@@ -3895,8 +3938,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer1Text}
                       onChange={e => setGuidedAnswer1Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ flex: 1, minHeight: 120, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 12, padding: "14px 16px", fontSize: 15, color: "#ddd", lineHeight: 1.6,
+                      style={{ minHeight: 56, maxHeight: 96, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   ) : (
@@ -3906,14 +3949,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer2Text}
                       onChange={e => setGuidedAnswer2Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ flex: 1, minHeight: 120, width: "100%", background: "#111", border: "1px solid #252525",
-                        borderRadius: 12, padding: "14px 16px", fontSize: 15, color: "#ddd", lineHeight: 1.6,
+                      style={{ minHeight: 56, maxHeight: 96, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   )}
                 </div>
 
-                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "14px 20px calc(16px + env(safe-area-inset-bottom))" }}>
+                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "10px 20px calc(12px + env(safe-area-inset-bottom))" }}>
                   {guidedQuestionIndex === 1 && (
                     <button onClick={backToGuidedQuestion1}
                       style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>

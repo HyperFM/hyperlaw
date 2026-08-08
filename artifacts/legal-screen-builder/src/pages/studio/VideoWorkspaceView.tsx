@@ -1180,8 +1180,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // this state is only read at Next/Done to combine and save.
   const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
-  const guidedPreviewRef = useRef<HTMLVideoElement>(null);
-  const [guidedPreviewPlaying, setGuidedPreviewPlaying] = useState(false);
   // The overlay used a plain inset:0/100% height, which on iOS doesn't
   // shrink when the keyboard opens — the layout just stayed the same size
   // with the keyboard drawn on top of it, hiding the video behind it while
@@ -1959,25 +1957,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               fontSize: 10, color: selected ? ORANGE : "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
             MOMENT {displayIndex + 1} · {formatTime(c.start)}–{formatTime(c.end)}
           </button>
-          <input
-            key={`${c.id}-name`}
-            type="text"
-            defaultValue={c.name ?? ""}
-            placeholder="Short name (e.g. 'Officer arrives')"
-            onChange={e => {
-              const updated = chunks.map(x => x.id === c.id ? { ...x, name: e.target.value } : x);
-              setChunks(updated);
-              triggerAutosave(markers, updated, organizedSlots, currentStep);
-            }}
-            style={{ width: "100%", background: "#111", border: "1px solid #252525",
-              borderRadius: 8, padding: "7px 12px", fontSize: 12, color: "#f0b87a",
-              fontWeight: 700, outline: "none", boxSizing: "border-box", marginBottom: 6 }}
-          />
-          {/* The old free-text label input (with its own dictation mic
-              button) is gone — every moment now goes through the mandatory
-              two-question guided flow instead, opened here or automatically
-              right after chunking. This card just shows a read-only preview
-              of whatever was answered, or an unanswered-state prompt. */}
+          {/* No short-name field anymore — it was extra friction, and the
+              guided flow's two answers are already the full content. This
+              card just shows a read-only preview of whatever was answered
+              (both answers, combined), or an unanswered-state prompt. */}
           <button
             onClick={() => openGuidedFlow(c)}
             style={{ width: "100%", textAlign: "left", background: "#111",
@@ -2009,44 +1992,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedAnswer1Text(hasGuidedAnswers ? (chunk.factsAnswer ?? "") : chunk.label);
     setGuidedAnswer2Text(chunk.impactAnswer ?? "");
     setGuidedQuestionIndex(0);
-    setGuidedPreviewPlaying(false);
     setGuidedChunkId(chunk.id);
-  }
-
-  function guidedSkip(deltaSec: number) {
-    const v = guidedPreviewRef.current;
-    const chunk = chunks.find(c => c.id === guidedChunkId);
-    if (!v || !chunk) return;
-    v.currentTime = Math.min(chunk.end, Math.max(chunk.start, v.currentTime + deltaSec));
-  }
-
-  function toggleGuidedPreviewPlay() {
-    const v = guidedPreviewRef.current;
-    const chunk = chunks.find(c => c.id === guidedChunkId);
-    if (!v || !chunk) return;
-    if (v.paused) {
-      // Pressing play after it's already run to the end of the moment
-      // (paused there by the timeupdate handler below) should replay from
-      // the start, not silently do nothing — there's no more of the clip
-      // left to play from where it's currently sitting.
-      if (v.currentTime >= chunk.end - 0.05) v.currentTime = chunk.start;
-      v.play().catch(() => {});
-    } else {
-      v.pause();
-    }
-  }
-
-  /** Clamps preview playback to the moment's own boundaries — without this
-   *  the preview just kept playing straight into whatever comes after the
-   *  chunk in the source video instead of stopping where the moment ends. */
-  function handleGuidedPreviewTimeUpdate() {
-    const v = guidedPreviewRef.current;
-    const chunk = chunks.find(c => c.id === guidedChunkId);
-    if (!v || !chunk) return;
-    if (v.currentTime >= chunk.end) {
-      v.currentTime = chunk.end;
-      v.pause();
-    }
   }
 
   function advanceGuidedQuestion() {
@@ -3883,41 +3829,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                   <div style={{ width: 20 }} />
                 </div>
 
-                {/* Video preview — grows to fill whatever space the header,
-                    question, answer bar, and buttons don't need, instead of a
-                    small fixed height. Shrinks automatically as the keyboard
-                    opens (guidedViewportHeight tracks that), so it never ends
-                    up hidden behind the keyboard — it just gets smaller while
-                    staying fully visible. */}
-                <div style={{ flex: 1, minHeight: 0, position: "relative", padding: "6px 16px 0" }}>
-                  <video
-                    key={guidedChunkId}
-                    ref={guidedPreviewRef}
-                    src={videoUrl}
-                    playsInline
-                    onLoadedMetadata={e => { e.currentTarget.currentTime = guidedChunk.start; }}
-                    onTimeUpdate={handleGuidedPreviewTimeUpdate}
-                    onPlay={() => setGuidedPreviewPlaying(true)}
-                    onPause={() => setGuidedPreviewPlaying(false)}
-                    style={{ width: "100%", height: "100%", objectFit: "contain",
-                      borderRadius: 12, background: "#000", display: "block" }}
-                  />
-                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22 }}>
-                    <button onClick={() => guidedSkip(-5)} title="Back 5s"
-                      style={{ background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                      <RotateCcw size={16} color="#fff" />
-                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
-                    </button>
-                    <button onClick={toggleGuidedPreviewPlay}
-                      style={{ width: 42, height: 42, borderRadius: 21, background: "rgba(0,0,0,0.65)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {guidedPreviewPlaying ? <Pause size={17} color="#fff" /> : <Play size={17} color="#fff" style={{ marginLeft: 2 }} />}
-                    </button>
-                    <button onClick={() => guidedSkip(5)} title="Forward 5s"
-                      style={{ background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                      <RotateCcw size={16} color="#fff" style={{ transform: "scaleX(-1)" }} />
-                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
-                    </button>
-                  </div>
+                {/* Static thumbnail, not a second live <video> — a live preview
+                    here used to open its own independent decode of the same
+                    source the main player already has open, and on real
+                    footage that contended for a decoder and threw the main
+                    player into a "video decoding failed" error. This reuses
+                    an already-extracted frame (same source as moment card
+                    thumbnails), so there's no second decoder at all. Still
+                    grows to fill whatever space the header/question/answer
+                    bar/buttons don't need, and shrinks with the keyboard via
+                    guidedViewportHeight so it's never hidden behind it. */}
+                <div style={{ flex: 1, minHeight: 0, position: "relative", padding: "6px 16px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {chunkThumb(guidedChunk.start) ? (
+                    <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
+                  ) : (
+                    <div style={{ width: "100%", height: "100%", borderRadius: 12, background: "#111", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Clapperboard size={32} color="#333" />
+                    </div>
+                  )}
                 </div>
 
                 {/* Question text — compact, always visible above the answer bar */}

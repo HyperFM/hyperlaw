@@ -1180,23 +1180,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // this state is only read at Next/Done to combine and save.
   const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
-  // The overlay used a plain inset:0/100% height, which on iOS doesn't
-  // shrink when the keyboard opens — the layout just stayed the same size
-  // with the keyboard drawn on top of it, hiding the video behind it while
-  // typing. Tracking visualViewport's actual height and using that instead
-  // makes the flex layout genuinely reflow around the keyboard: the video
-  // (flex:1) shrinks to fill whatever space is left, and the compact answer
-  // bar stays pinned directly above the keyboard rather than under it.
-  const [guidedViewportHeight, setGuidedViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
-  useEffect(() => {
-    if (!guidedChunkId) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onResize = () => setGuidedViewportHeight(vv.height);
-    vv.addEventListener("resize", onResize);
-    onResize();
-    return () => vv.removeEventListener("resize", onResize);
-  }, [guidedChunkId]);
   const [trashDragOver, setTrashDragOver] = useState(false);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
@@ -3817,29 +3800,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 fallback). Opens immediately after chunking, and again
                 whenever an existing moment card is tapped. ──────────────── */}
             {guidedChunk && videoUrl && (
-              <div style={{ position: "fixed", left: 0, right: 0, top: 0, height: guidedViewportHeight, background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", paddingTop: "calc(12px + env(safe-area-inset-top))" }}>
+              // 100dvh (dynamic viewport height), not a JS-computed
+              // visualViewport height — that approach fired a resize event
+              // (sometimes several, mid-animation) on every keyboard open/
+              // close and re-rendered this whole overlay each time, which is
+              // almost certainly what made it appear to close and dump back
+              // to the moment list the instant the keyboard came up. dvh is
+              // the browser's own native, well-tested answer to exactly this
+              // problem — no JS, no resize listener, nothing to thrash.
+              <div style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", paddingTop: "calc(8px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-                    <X size={20} color="#666" />
+                    <X size={18} color="#666" />
                   </button>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: "#666", letterSpacing: 0.5, textAlign: "center" }}>
-                    QUESTION {guidedQuestionIndex + 1} OF 2
-                    <div style={{ color: ORANGE, marginTop: 2 }}>{formatTime(guidedChunk.start)}–{formatTime(guidedChunk.end)}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#666", letterSpacing: 0.5 }}>
+                    QUESTION {guidedQuestionIndex + 1} OF 2 <span style={{ color: ORANGE }}>· {formatTime(guidedChunk.start)}–{formatTime(guidedChunk.end)}</span>
                   </div>
-                  <div style={{ width: 20 }} />
+                  <div style={{ width: 18 }} />
                 </div>
 
-                {/* Static thumbnail, not a second live <video> — a live preview
-                    here used to open its own independent decode of the same
-                    source the main player already has open, and on real
-                    footage that contended for a decoder and threw the main
-                    player into a "video decoding failed" error. This reuses
-                    an already-extracted frame (same source as moment card
-                    thumbnails), so there's no second decoder at all. Still
-                    grows to fill whatever space the header/question/answer
-                    bar/buttons don't need, and shrinks with the keyboard via
-                    guidedViewportHeight so it's never hidden behind it. */}
-                <div style={{ flex: 1, minHeight: 0, position: "relative", padding: "6px 16px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {/* Static thumbnail, not a live <video> — a live preview here
+                    used to open its own independent decode of the same source
+                    the main player already had open, and on real footage that
+                    contended for a decoder and threw the main player into a
+                    "video decoding failed" error. Fixed height in real vh
+                    (not dvh) on purpose — this should stay exactly the same
+                    size regardless of the keyboard; only the answer area
+                    below it should shrink. */}
+                <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", height: "34vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {chunkThumb(guidedChunk.start) ? (
                     <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
                   ) : (
@@ -3849,18 +3837,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                   )}
                 </div>
 
-                {/* Question text — compact, always visible above the answer bar */}
-                <div style={{ flexShrink: 0, padding: "12px 20px 8px", fontSize: 16, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
+                {/* Question text — compact, right under the video */}
+                <div style={{ flexShrink: 0, padding: "10px 20px 6px", fontSize: 15, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
                   {guidedQuestionIndex === 0
                     ? "What happened, who was involved, and how did you respond?"
                     : "How did it make you feel, and what would you have wanted to happen instead?"}
                 </div>
 
-                {/* Answer bar — a compact bubble, not a large mid-screen box,
-                    so it sits just above the keyboard instead of the keyboard
-                    covering half the screen (including the video) while
-                    someone types. */}
-                <div style={{ flexShrink: 0, padding: "0 16px" }}>
+                {/* Answer area — takes whatever's left. With the container on
+                    dvh, this is what actually shrinks when the keyboard opens
+                    (the video above is fixed-size and doesn't), down to a
+                    single visible line if the keyboard leaves nothing more —
+                    the textarea itself still scrolls internally, nothing is
+                    ever truly cut off, just less visible at once. */}
+                <div style={{ flex: 1, minHeight: 0, padding: "0 16px 10px", display: "flex" }}>
                   {guidedQuestionIndex === 0 ? (
                     <textarea
                       key={`${guidedChunkId}-q1`}
@@ -3868,7 +3858,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer1Text}
                       onChange={e => setGuidedAnswer1Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ minHeight: 56, maxHeight: 96, width: "100%", background: "#111", border: "1px solid #252525",
+                      style={{ flex: 1, minHeight: 28, width: "100%", background: "#111", border: "1px solid #252525",
                         borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
@@ -3879,14 +3869,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                       defaultValue={guidedAnswer2Text}
                       onChange={e => setGuidedAnswer2Text(e.target.value)}
                       placeholder="Speak (tap the mic on your keyboard) or type here…"
-                      style={{ minHeight: 56, maxHeight: 96, width: "100%", background: "#111", border: "1px solid #252525",
+                      style={{ flex: 1, minHeight: 28, width: "100%", background: "#111", border: "1px solid #252525",
                         borderRadius: 14, padding: "12px 14px", fontSize: 15, color: "#ddd", lineHeight: 1.5,
                         outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
                     />
                   )}
                 </div>
 
-                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "10px 20px calc(12px + env(safe-area-inset-bottom))" }}>
+                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "8px 20px calc(10px + env(safe-area-inset-bottom))" }}>
                   {guidedQuestionIndex === 1 && (
                     <button onClick={backToGuidedQuestion1}
                       style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>

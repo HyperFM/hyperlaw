@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { FilePicker } from "@capawesome/capacitor-file-picker";
 import { Filesystem } from "@capacitor/filesystem";
@@ -1180,6 +1181,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // this state is only read at Next/Done to combine and save.
   const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
+  // The ONE main <video> element gets portaled between these two slots
+  // depending on whether the guided flow is open — never a second video
+  // element. That earlier crash ("video decoding failed") came from two
+  // simultaneous decoders on the same source; a portal moves the same
+  // decoder/element around instead of creating another one, so the guided
+  // flow gets the real, live, scrubbable player (bigger, per what was
+  // actually asked for) with zero risk of that crash recurring. Callback
+  // refs (not plain useRef) because rendering has to react to the slot
+  // actually mounting before the portal has anywhere to render into.
+  const [normalVideoSlot, setNormalVideoSlot] = useState<HTMLDivElement | null>(null);
+  const [guidedVideoSlot, setGuidedVideoSlot] = useState<HTMLDivElement | null>(null);
   const guidedOverlayRef = useRef<HTMLDivElement>(null);
   // Two separate iOS/WKWebView issues handled here, both fixed by acting
   // directly on the DOM through a ref rather than through React state — the
@@ -2061,36 +2073,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedAnswer2Text(chunk.impactAnswer ?? "");
     setGuidedQuestionIndex(0);
     setGuidedChunkId(chunk.id);
-  }
-
-  // Closes the guided overlay and plays this moment on the single main
-  // video player, exactly like normal Step 1 playback — no separate
-  // "watching mode" screen or state. Whatever's been typed so far is
-  // checkpointed into the chunk first, so tapping this same moment card
-  // again later (the ordinary way back in) picks up right where this left
-  // off — no dedicated "resume" affordance needed for that to just work.
-  function watchMomentFromGuidedFlow() {
-    if (!guidedChunk) return;
-    const chunk = guidedChunk;
-    const factsAnswer = guidedAnswer1Text.trim();
-    const impactAnswer = guidedAnswer2Text.trim();
-    const label = [factsAnswer, impactAnswer].filter(Boolean).join("\n\n");
-    const updated = chunks.map(c => c.id === chunk.id ? { ...c, factsAnswer, impactAnswer, label } : c);
-    setChunks(updated);
-    triggerAutosave(markers, updated, organizedSlots, currentStep);
-    setGuidedChunkId(null);
-    const v = videoRef.current;
-    if (v) {
-      // Play once the seek actually lands, not immediately after setting
-      // currentTime — calling play() right away can race a big jump and
-      // silently fail to start, which is exactly why this needed a manual
-      // second tap on Play before.
-      const onSeeked = () => { v.play().catch(() => {}); v.removeEventListener("seeked", onSeeked); };
-      v.addEventListener("seeked", onSeeked);
-      v.currentTime = chunk.start;
-      setCurrentTime(chunk.start);
-      currentTimeRef.current = chunk.start;
-    }
+    // The video is about to get portaled into the guided overlay (see
+    // mainVideoElement/activeVideoSlot) — line it up on this moment's own
+    // start rather than wherever it happened to be sitting before.
+    videoRef.current?.pause();
+    seek(chunk.start);
   }
 
   function advanceGuidedQuestion() {
@@ -3078,6 +3065,88 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
 
+  // The single main <video> element — portaled into either normalVideoSlot
+  // (Step 1's own layout) or guidedVideoSlot (the guided moment flow) below,
+  // never rendered twice. All handlers are exactly as before; only the size
+  // changes between the two slots.
+  const inGuidedFlow = !!guidedChunkId;
+  const mainVideoElement = (
+    <video
+      ref={videoRef as React.RefObject<HTMLVideoElement>}
+      playsInline
+      // "auto" instead of "metadata" — the source is a local blob, not
+      // a network fetch, so there's no bandwidth cost to buffering it
+      // ahead of time, and it means play() doesn't have to kick off
+      // buffering from a cold start on every press.
+      preload="auto"
+      style={inGuidedFlow
+        ? { width: "100%", height: "100%", borderRadius: 12, background: "#000", display: "block", objectFit: "contain" }
+        : { width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
+      onTimeUpdate={e => {
+        setCurrentTime(e.currentTarget.currentTime);
+        currentTimeRef.current = e.currentTarget.currentTime;
+      }}
+      onDurationChange={e => {
+        const v = e.currentTarget;
+        const d = v.duration;
+        if (!isFinite(d)) {
+          // Some MP4s (recorded/exported without a proper duration atom
+          // in their metadata) report Infinity here. Seeking near the
+          // end can force the browser to scan and resolve the real
+          // duration — but on some browsers durationchange just keeps
+          // re-firing Infinity afterward instead of resolving, and
+          // repeating the seek on every one of those re-fires yanks the
+          // live player to a bogus position mid-playback, which looks
+          // exactly like "plays a couple seconds, then stops for good."
+          // Only ever try this once per video.
+          if (!infinityProbeAttemptedRef.current) {
+            infinityProbeAttemptedRef.current = true;
+            v.currentTime = 1e101;
+          }
+          return;
+        }
+        if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above
+        setDuration(d);
+        snapshotRef.current.videoDurationSec = d;
+        triggerAutosave(markers);
+        if (expectedDurationRef.current != null) {
+          const expected = expectedDurationRef.current;
+          expectedDurationRef.current = null; // only ever check once per load
+          if (Math.abs(d - expected) > 2) {
+            const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+            setVideoMismatchWarning(
+              `This video is ${fmt(d)} long, but your saved moments were made against a ${fmt(expected)} video. If this isn't the exact same file, your timestamps will point at the wrong parts.`
+            );
+          }
+        }
+      }}
+      onLoadedMetadata={() => setVideoLoading(false)}
+      onCanPlay={() => setVideoLoading(false)}
+      onLoadedData={() => setVideoLoading(false)}
+      onPlay={() => { pushDebug(`[PLAYBACK] video onPlay currentTime=${videoRef.current?.currentTime.toFixed(2)}`); setIsPlaying(true); }}
+      onPause={() => { pushDebug(`[PLAYBACK] video onPause currentTime=${videoRef.current?.currentTime.toFixed(2)} readyState=${videoRef.current?.readyState} networkState=${videoRef.current?.networkState}`); setIsPlaying(false); }}
+      onWaiting={() => pushDebug(`[PLAYBACK] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+      onStalled={() => pushDebug(`[PLAYBACK] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+      onSuspend={() => pushDebug(`[PLAYBACK] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
+      onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
+      onError={e => {
+        const v = e.currentTarget;
+        const code = v.error?.code;
+        pushDebug(`[PLAYBACK] video onError code=${code} message="${v.error?.message}"`);
+        const msgs: Record<number, string> = {
+          1: "Load aborted.",
+          2: "Network error loading video.",
+          3: "Video decoding failed — the file may be corrupted.",
+          4: "Format not supported by this browser. Try MP4 (H.264).",
+        };
+        setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
+        setVideoLoading(false);
+        setIsPlaying(false);
+      }}
+    />
+  );
+  const activeVideoSlot = inGuidedFlow ? guidedVideoSlot : normalVideoSlot;
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#050505" }}>
 
@@ -3303,7 +3372,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
         {/* ── Video area ─────────────────────────────────────────────
              The <video> element is ALWAYS in the DOM so videoRef.current
              is never null when loadVideo() fires inside the gesture handler.
-             iOS silently ignores video.load() calls made outside a gesture. */}
+             iOS silently ignores video.load() calls made outside a gesture.
+             The actual <video> JSX now lives in mainVideoElement below and
+             gets portaled in here (normalVideoSlot) — this div is just an
+             empty placeholder that reserves the same layout space. */}
         <div style={{ marginBottom: 12, position: "relative", display: videoUrl ? "block" : "none" }}>
           {/* Thumbnail extractor — MUST be IN-VIEWPORT: iOS Safari only
                presents decoded frames for elements inside the viewport.
@@ -3329,77 +3401,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               borderRadius: 12,
             }}
           />
-          <video
-            ref={videoRef as React.RefObject<HTMLVideoElement>}
-            playsInline
-            // "auto" instead of "metadata" — the source is a local blob, not
-            // a network fetch, so there's no bandwidth cost to buffering it
-            // ahead of time, and it means play() doesn't have to kick off
-            // buffering from a cold start on every press.
-            preload="auto"
-            style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
-            onTimeUpdate={e => {
-              setCurrentTime(e.currentTarget.currentTime);
-              currentTimeRef.current = e.currentTarget.currentTime;
-            }}
-            onDurationChange={e => {
-              const v = e.currentTarget;
-              const d = v.duration;
-              if (!isFinite(d)) {
-                // Some MP4s (recorded/exported without a proper duration atom
-                // in their metadata) report Infinity here. Seeking near the
-                // end can force the browser to scan and resolve the real
-                // duration — but on some browsers durationchange just keeps
-                // re-firing Infinity afterward instead of resolving, and
-                // repeating the seek on every one of those re-fires yanks the
-                // live player to a bogus position mid-playback, which looks
-                // exactly like "plays a couple seconds, then stops for good."
-                // Only ever try this once per video.
-                if (!infinityProbeAttemptedRef.current) {
-                  infinityProbeAttemptedRef.current = true;
-                  v.currentTime = 1e101;
-                }
-                return;
-              }
-              if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above
-              setDuration(d);
-              snapshotRef.current.videoDurationSec = d;
-              triggerAutosave(markers);
-              if (expectedDurationRef.current != null) {
-                const expected = expectedDurationRef.current;
-                expectedDurationRef.current = null; // only ever check once per load
-                if (Math.abs(d - expected) > 2) {
-                  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-                  setVideoMismatchWarning(
-                    `This video is ${fmt(d)} long, but your saved moments were made against a ${fmt(expected)} video. If this isn't the exact same file, your timestamps will point at the wrong parts.`
-                  );
-                }
-              }
-            }}
-            onLoadedMetadata={() => setVideoLoading(false)}
-            onCanPlay={() => setVideoLoading(false)}
-            onLoadedData={() => setVideoLoading(false)}
-            onPlay={() => { pushDebug(`[PLAYBACK] video onPlay currentTime=${videoRef.current?.currentTime.toFixed(2)}`); setIsPlaying(true); }}
-            onPause={() => { pushDebug(`[PLAYBACK] video onPause currentTime=${videoRef.current?.currentTime.toFixed(2)} readyState=${videoRef.current?.readyState} networkState=${videoRef.current?.networkState}`); setIsPlaying(false); }}
-            onWaiting={() => pushDebug(`[PLAYBACK] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-            onStalled={() => pushDebug(`[PLAYBACK] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-            onSuspend={() => pushDebug(`[PLAYBACK] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-            onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
-            onError={e => {
-              const v = e.currentTarget;
-              const code = v.error?.code;
-              pushDebug(`[PLAYBACK] video onError code=${code} message="${v.error?.message}"`);
-              const msgs: Record<number, string> = {
-                1: "Load aborted.",
-                2: "Network error loading video.",
-                3: "Video decoding failed — the file may be corrupted.",
-                4: "Format not supported by this browser. Try MP4 (H.264).",
-              };
-              setVideoError(msgs[code ?? 0] ?? "Unknown video error.");
-              setVideoLoading(false);
-              setIsPlaying(false);
-            }}
-          />
+          <div ref={setNormalVideoSlot} style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }} />
+          {activeVideoSlot && createPortal(mainVideoElement, activeVideoSlot)}
           {/* Preview mode badge */}
           {isPreviewMode && (
             <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
@@ -3537,16 +3540,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             {thumbsLoading
               ? <Loader2 size={16} color="#555" className="animate-spin" />
               : isPlaying ? <Pause size={16} color="#000" /> : <Play size={16} color={videoUrl ? "#000" : "#555"} />}
-          </button>
-          {/* ±5s — requested for reviewing a moment (e.g. after "Watch this
-              moment" from the guided flow), but generally useful any time. */}
-          <button onClick={() => skipMain(-5)} disabled={!videoUrl} title="Back 5s"
-            style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 18, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
-            <RotateCcw size={15} color={videoUrl ? "#999" : "#333"} />
-          </button>
-          <button onClick={() => skipMain(5)} disabled={!videoUrl} title="Forward 5s"
-            style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 18, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
-            <RotateCcw size={15} color={videoUrl ? "#999" : "#333"} style={{ transform: "scaleX(-1)" }} />
           </button>
           <div style={{ fontSize: 14, fontWeight: 800, color: videoUrl ? "#fff" : "#444", letterSpacing: 0.5, minWidth: 80, flexShrink: 0 }}>
             {thumbsLoading ? <PreparingVideoMessage /> : (
@@ -3925,15 +3918,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 fallback). Opens immediately after chunking, and again
                 whenever an existing moment card is tapped. ──────────────── */}
             {guidedChunk && videoUrl && (
-              // 100dvh (dynamic viewport height), not a JS-computed
-              // visualViewport height — that approach fired a resize event
-              // (sometimes several, mid-animation) on every keyboard open/
-              // close and re-rendered this whole overlay each time, which is
-              // almost certainly what made it appear to close and dump back
-              // to the moment list the instant the keyboard came up. dvh is
-              // the browser's own native, well-tested answer to exactly this
-              // problem — no JS, no resize listener, nothing to thrash.
-              <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <>
+                {/* Oversized, static backdrop — deliberately taller than the
+                    viewport in both directions and NOT driven by any JS
+                    positioning, unlike the content layer below it. Whatever
+                    residual imperfection is left in correcting iOS's
+                    scroll-jump behavior on the content layer, this backdrop
+                    can't be dragged out of place by it, so the moment list
+                    underneath can never show through a gap — worst case the
+                    content shifts a little, the background never does. */}
+                <div style={{ position: "fixed", left: 0, right: 0, top: "-50vh", height: "200vh", background: "#0a0a0a", zIndex: 849 }} />
+                {/* 100dvh (dynamic viewport height), not a JS-computed
+                    visualViewport height — that approach fired a resize event
+                    (sometimes several, mid-animation) on every keyboard open/
+                    close and re-rendered this whole overlay each time, which is
+                    almost certainly what made it appear to close and dump back
+                    to the moment list the instant the keyboard came up. dvh is
+                    the browser's own native, well-tested answer to exactly this
+                    problem — no JS, no resize listener, nothing to thrash. */}
+                <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "transparent", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 16px", paddingTop: "calc(4px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                     <X size={18} color="#666" />
@@ -3944,35 +3947,32 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                   <div style={{ width: 18 }} />
                 </div>
 
-                {/* Static thumbnail, not a live <video> — a live preview here
-                    used to open its own independent decode of the same source
-                    the main player already had open, and on real footage that
-                    contended for a decoder and threw the main player into a
-                    "video decoding failed" error. Sits directly against the
-                    header and question below it, no deliberate gap — the
-                    whole top block stays visually connected. Shrunk from 34vh
-                    and the surrounding padding tightened — with the keyboard
-                    open there wasn't quite enough room left for the answer
-                    bar/buttons below, which were getting clipped off the
-                    bottom of the screen entirely. Tapping it hides this
-                    overlay and plays the moment on the single main player
-                    instead of embedding a second live one here. */}
-                <button
-                  onClick={watchMomentFromGuidedFlow}
-                  style={{ flexShrink: 0, position: "relative", margin: "0 16px", padding: 0, height: "26vh", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {chunkThumb(guidedChunk.start) ? (
-                    <img src={chunkThumb(guidedChunk.start)!} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }} />
-                  ) : (
-                    <div style={{ width: "100%", height: "100%", borderRadius: 12, background: "#111", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Clapperboard size={32} color="#333" />
-                    </div>
-                  )}
-                  <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.15)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 24, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Play size={20} color="#fff" style={{ marginLeft: 3 }} />
-                    </div>
+                {/* The real, live video — portaled in from the single main
+                    player (mainVideoElement/activeVideoSlot near the top of
+                    the component), never a second <video> element. That's
+                    exactly what avoids the earlier "video decoding failed"
+                    crash, which came from two simultaneous decoders on the
+                    same source — this reuses the one that's already open
+                    and just displays it bigger here. Play/pause and ±5s
+                    live right here on the moment editor, not on the plain
+                    Step 1 controls, since scrubbing this exact moment while
+                    answering is the point. */}
+                <div style={{ flexShrink: 0, position: "relative", margin: "0 16px", height: "30vh" }}>
+                  <div ref={setGuidedVideoSlot} style={{ width: "100%", height: "100%", borderRadius: 12, background: "#000" }} />
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, pointerEvents: "none" }}>
+                    <button onClick={() => skipMain(-5)} title="Back 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                      <RotateCcw size={16} color="#fff" />
+                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
+                    </button>
+                    <button onClick={togglePlay} style={{ pointerEvents: "auto", width: 42, height: 42, borderRadius: 21, background: "rgba(0,0,0,0.65)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {isPlaying ? <Pause size={17} color="#fff" /> : <Play size={17} color="#fff" style={{ marginLeft: 2 }} />}
+                    </button>
+                    <button onClick={() => skipMain(5)} title="Forward 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                      <RotateCcw size={16} color="#fff" style={{ transform: "scaleX(-1)" }} />
+                      <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
+                    </button>
                   </div>
-                </button>
+                </div>
 
                 {/* Question text — compact, right under the video */}
                 <div style={{ flexShrink: 0, padding: "6px 20px 4px", fontSize: 15, fontWeight: 900, color: "#fff", lineHeight: 1.3 }}>
@@ -4034,7 +4034,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     {guidedQuestionIndex === 0 ? "Next" : "Done"}
                   </button>
                 </div>
-              </div>
+                </div>
+              </>
             )}
 
 

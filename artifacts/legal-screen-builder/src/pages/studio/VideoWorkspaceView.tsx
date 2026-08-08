@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, HelpCircle, Bandage, Camera, Copy, ClipboardPaste,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, Maximize2, Minimize2,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1165,6 +1165,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // Shared between the timeline segments and the Step 1 "MOMENT N" cards, so
   // selecting either one rings the same chunk on the timeline.
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  // ── Guided moment flow — replaces the old inline label input entirely.
+  // Every chunk now goes through two mandatory full-screen questions (no
+  // free-form skip) instead of one open-ended field, because open-ended
+  // labels were how information got forgotten. guidedChunkId is null when
+  // the overlay is closed; otherwise it's the chunk currently being answered.
+  const [guidedChunkId, setGuidedChunkId] = useState<string | null>(null);
+  const [guidedQuestionIndex, setGuidedQuestionIndex] = useState<0 | 1>(0);
+  // Plain state kept in sync via onChange, but the textareas themselves use
+  // defaultValue (not value) — same fix as the old label input's own
+  // comment explains: a fully controlled textarea re-renders on every
+  // keystroke and fights iOS's native dictation, cutting it off after a
+  // word or two. defaultValue lets the DOM own the live value while typing;
+  // this state is only read at Next/Done to combine and save.
+  const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
+  const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
+  const guidedPreviewRef = useRef<HTMLVideoElement>(null);
+  const [guidedPreviewPlaying, setGuidedPreviewPlaying] = useState(false);
+  const [guidedPreviewExpanded, setGuidedPreviewExpanded] = useState(false);
   const [trashDragOver, setTrashDragOver] = useState(false);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
@@ -1200,24 +1218,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       healableBoundaries.push({ time: last.end, leftChunkId: last.id, kind: "trail" });
     }
   }
-  const labelInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-  useEffect(() => {
-    if (!lastChunkedId) return;
-    labelInputRefs.current.get(lastChunkedId)?.focus();
-  }, [lastChunkedId]);
-
-  // ── Free dictation (Web Speech API) for the label field, Chrome/Android only ──
-  const [listeningChunkId, setListeningChunkId] = useState<string | null>(null);
-  const [showDictationHelp, setShowDictationHelp] = useState(false);
-  const chunkRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  useEffect(() => () => chunkRecognitionRef.current?.stop(), []); // stop mic if the view unmounts mid-listen
-
   // ── Moment-card frame picker — pick the exact frame for a moment's thumbnail,
   // independent of the auto-picked opening frame the timeline uses ──────────
   const [framePickerChunkId, setFramePickerChunkId] = useState<string | null>(null);
   const [framePickerTime, setFramePickerTime] = useState(0);
   const framePickerVideoRef = useRef<HTMLVideoElement>(null);
   const framePickerChunk = chunks.find(c => c.id === framePickerChunkId) ?? null;
+  const guidedChunk = chunks.find(c => c.id === guidedChunkId) ?? null;
 
   function openFramePicker(chunkId: string, start: number) {
     setFramePickerChunkId(chunkId);
@@ -1240,43 +1247,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setFramePickerChunkId(null);
   }
 
-  function toggleDictation(chunkId: string) {
-    if (!SpeechRecognitionCtor) { labelInputRefs.current.get(chunkId)?.focus(); return; }
-    if (listeningChunkId === chunkId) { chunkRecognitionRef.current?.stop(); return; }
-    chunkRecognitionRef.current?.stop();
-    const recognition = new SpeechRecognitionCtor();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    let finalText = chunks.find(c => c.id === chunkId)?.label ?? "";
-    recognition.onresult = e => {
-      let transcript = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const result = e.results[i];
-        if (result.isFinal) transcript += result[0].transcript;
-      }
-      if (!transcript.trim()) return;
-      finalText = (finalText ? finalText + " " : "") + transcript.trim();
-      const text = finalText;
-      const updated = chunks.map(x => x.id === chunkId ? { ...x, label: text } : x);
-      setChunks(updated);
-      triggerAutosave(markers, updated, organizedSlots, currentStep);
-      // The label input is uncontrolled now (defaultValue, not value — see
-      // its own comment for why), so React won't reflect this state update
-      // into the DOM on its own. Write it directly through the ref instead,
-      // on the platforms where SpeechRecognition actually exists to reach
-      // this code at all (iOS never does — see the !SpeechRecognitionCtor
-      // branch above).
-      const inputEl = labelInputRefs.current.get(chunkId);
-      if (inputEl) inputEl.value = text;
-    };
-    recognition.onerror = () => setListeningChunkId(null);
-    recognition.onend = () => setListeningChunkId(null);
-    chunkRecognitionRef.current = recognition;
-    setListeningChunkId(chunkId);
-    labelInputRefs.current.get(chunkId)?.focus();
-    recognition.start();
-  }
   // ── Video thumbnails ───────────────────────────────────────────
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbsLoading, setThumbsLoading] = useState(false);
@@ -1986,59 +1956,108 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               borderRadius: 8, padding: "7px 12px", fontSize: 12, color: "#f0b87a",
               fontWeight: 700, outline: "none", boxSizing: "border-box", marginBottom: 6 }}
           />
-          <div style={{ position: "relative", marginBottom: 8 }}>
-            {/* defaultValue, not value — a fully React-controlled input here
-                fights iOS's native dictation: every keystroke re-render
-                rewrites the DOM's value out from under dictation's own
-                progressive text insertion, which is exactly why dictation
-                (and even fast manual typing) got a word in and then closed
-                the keyboard. Uncontrolled lets the DOM own the value while
-                typing; onChange still keeps chunks state in sync. Safe
-                because each chunk row already has a stable key={c.id} above
-                (confirmed before making this change) — switching to a
-                genuinely different chunk always mounts a fresh input rather
-                than reusing this one with stale defaultValue. */}
-            <input
-              key={`${c.id}-label`}
-              ref={el => {
-                if (el) labelInputRefs.current.set(c.id, el);
-                else labelInputRefs.current.delete(c.id);
-              }}
-              type="text"
-              defaultValue={c.label}
-              placeholder="What happened here?"
-              onChange={e => {
-                const updated = chunks.map(x => x.id === c.id ? { ...x, label: e.target.value } : x);
-                setChunks(updated);
-                triggerAutosave(markers, updated, organizedSlots, currentStep);
-              }}
-              style={{ width: "100%", background: "#111", border: `1px solid ${listeningChunkId === c.id ? "#ef4444" : "#252525"}`,
-                borderRadius: 8, padding: "9px 56px 9px 12px", fontSize: 13, color: "#ddd",
-                fontWeight: 600, outline: "none", boxSizing: "border-box" }}
-            />
-            <button
-              type="button"
-              onClick={() => toggleDictation(c.id)}
-              title={speechSupported ? "Tap to dictate" : "Tap, then press Control (or Fn) twice to dictate"}
-              style={{ position: "absolute", right: 26, top: "50%", transform: "translateY(-50%)",
-                background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-              <Mic size={15} color={listeningChunkId === c.id ? "#ef4444" : ORANGE} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDictationHelp(true)}
-              title="Dictation help"
-              style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
-                background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-              <HelpCircle size={13} color="#4a4038" />
-            </button>
-          </div>
-          {listeningChunkId === c.id && (
-            <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 700 }}>🔴 Listening…</div>
-          )}
+          {/* The old free-text label input (with its own dictation mic
+              button) is gone — every moment now goes through the mandatory
+              two-question guided flow instead, opened here or automatically
+              right after chunking. This card just shows a read-only preview
+              of whatever was answered, or an unanswered-state prompt. */}
+          <button
+            onClick={() => openGuidedFlow(c)}
+            style={{ width: "100%", textAlign: "left", background: "#111",
+              border: `1px solid ${c.label.trim() ? "#252525" : `${ORANGE}66`}`,
+              borderRadius: 8, padding: "9px 12px", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.4,
+              color: c.label.trim() ? "#ddd" : ORANGE,
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {c.label.trim() || "Tap to answer — what happened here?"}
+            </span>
+            <Mic size={14} color={c.label.trim() ? "#555" : ORANGE} style={{ flexShrink: 0 }} />
+          </button>
         </div>
       </div>
     );
+  }
+
+  // ── Guided moment flow ────────────────────────────────────────────
+  // Takes a chunk object directly (not an id to look up) — markMoment calls
+  // this in the same breath as setChunks, and `chunks` in that closure is
+  // still the pre-update array until the next render, so looking the new
+  // chunk back up by id here would fail to find it.
+  function openGuidedFlow(chunk: VideoChunk) {
+    // Old chunks (made before this flow existed) or ones hand-edited
+    // outside it only have `label` — start question 1 with that content
+    // rather than losing it, instead of presenting a blank slate.
+    const hasGuidedAnswers = chunk.factsAnswer != null || chunk.impactAnswer != null;
+    setGuidedAnswer1Text(hasGuidedAnswers ? (chunk.factsAnswer ?? "") : chunk.label);
+    setGuidedAnswer2Text(chunk.impactAnswer ?? "");
+    setGuidedQuestionIndex(0);
+    setGuidedPreviewExpanded(false);
+    setGuidedPreviewPlaying(false);
+    setGuidedChunkId(chunk.id);
+  }
+
+  function guidedSkip(deltaSec: number) {
+    const v = guidedPreviewRef.current;
+    const chunk = chunks.find(c => c.id === guidedChunkId);
+    if (!v || !chunk) return;
+    v.currentTime = Math.min(chunk.end, Math.max(chunk.start, v.currentTime + deltaSec));
+  }
+
+  function toggleGuidedPreviewPlay() {
+    const v = guidedPreviewRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  }
+
+  function advanceGuidedQuestion() {
+    if (!guidedAnswer1Text.trim()) return; // mandatory — no skipping to question 2 blank
+    setGuidedQuestionIndex(1);
+    setGuidedPreviewExpanded(false);
+  }
+
+  function backToGuidedQuestion1() {
+    setGuidedQuestionIndex(0);
+    setGuidedPreviewExpanded(false);
+  }
+
+  function saveGuidedAnswers() {
+    if (!guidedChunkId || !guidedAnswer2Text.trim()) return; // mandatory — no finishing without both
+    const factsAnswer = guidedAnswer1Text.trim();
+    const impactAnswer = guidedAnswer2Text.trim();
+    // label stays the single combined string every other part of the app
+    // already reads (Organize, Exhibit AI prompt, Copy All Moment Info,
+    // Paste Moments, crash recovery) — none of them need to know this
+    // guided flow exists, they just see richer content in the same field.
+    const label = [factsAnswer, impactAnswer].filter(Boolean).join("\n\n");
+    const updated = chunks.map(c => c.id === guidedChunkId ? { ...c, factsAnswer, impactAnswer, label } : c);
+    pushUndoSnapshot();
+    setChunks(updated);
+    setGuidedChunkId(null);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
+  }
+
+  // Closing without finishing: if this chunk never had any content (a brand
+  // new one, seconds old), delete it outright rather than leaving an empty
+  // unanswered moment sitting in the list — an empty moment serves no
+  // purpose and undermines the whole point of making this mandatory.
+  // Re-editing an already-answered moment just discards the in-progress
+  // edit instead, since real content already exists to fall back to.
+  function cancelGuidedMoment() {
+    if (!guidedChunkId) return;
+    const chunk = chunks.find(c => c.id === guidedChunkId);
+    const hadContent = chunk && (chunk.factsAnswer || chunk.impactAnswer || chunk.label.trim());
+    if (hadContent) {
+      setGuidedChunkId(null);
+      return;
+    }
+    const updated = chunks.filter(c => c.id !== guidedChunkId);
+    const newSlots = organizedSlots.map(s => s === guidedChunkId ? null : s);
+    pushUndoSnapshot();
+    setChunks(updated);
+    setOrganizedSlots(newSlots);
+    setGuidedChunkId(null);
+    triggerAutosave(markers, updated, newSlots, currentStep);
   }
 
   // ── Mark Moment — bookmarks from lastMark to playhead as a chunk ──
@@ -2054,6 +2073,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setChunks(updated);
     setLastChunkedId(id);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
+    openGuidedFlow(newChunk);
   }
 
   // ── Split a chunk at the current playhead position ─────────────
@@ -3809,27 +3829,106 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               </div>
             )}
 
-            {showDictationHelp && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
-                onClick={() => setShowDictationHelp(false)}>
-                <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 22px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
-                  <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
-                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>🎙️ Mic not working?</div>
-                  <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
-                    That's normal on some browsers — the dictate button only works in Chrome. Two easy options:
+            {/* ── Guided moment flow — full-screen, two mandatory questions,
+                replaces the old inline label input entirely (no free-form
+                fallback). Opens immediately after chunking, and again
+                whenever an existing moment card is tapped. ──────────────── */}
+            {guidedChunk && videoUrl && (
+              <div style={{ position: "fixed", inset: 0, background: "#0a0a0a", zIndex: 850, display: "flex", flexDirection: "column" }}>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", paddingTop: "calc(14px + env(safe-area-inset-top))" }}>
+                  <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+                    <X size={20} color="#666" />
+                  </button>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#666", letterSpacing: 0.5, textAlign: "center" }}>
+                    QUESTION {guidedQuestionIndex + 1} OF 2
+                    <div style={{ color: ORANGE, marginTop: 2 }}>{formatTime(guidedChunk.start)}–{formatTime(guidedChunk.end)}</div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-                    <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 12, padding: "12px 14px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, marginBottom: 4 }}>Switch to Chrome</div>
-                      <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5 }}>Open this page in Chrome and the mic button will work directly.</div>
-                    </div>
-                    <div style={{ background: "#0d0d0d", border: "1px solid #222", borderRadius: 12, padding: "12px 14px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, marginBottom: 4 }}>Or use your phone</div>
-                      <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5 }}>Speak into your phone's Notes app, then copy the text and paste it in here — easy, and you don't have to stop what you're doing.</div>
-                    </div>
+                  <div style={{ width: 20 }} />
+                </div>
+
+                {/* Video preview — lets someone glance back at the moment while answering */}
+                <div style={{ flexShrink: 0, position: "relative", padding: "0 16px", marginBottom: 14 }}>
+                  <video
+                    key={guidedChunkId}
+                    ref={guidedPreviewRef}
+                    src={videoUrl}
+                    playsInline
+                    onLoadedMetadata={e => { e.currentTarget.currentTime = guidedChunk.start; }}
+                    onPlay={() => setGuidedPreviewPlaying(true)}
+                    onPause={() => setGuidedPreviewPlaying(false)}
+                    style={{ width: "100%", height: guidedPreviewExpanded ? "42vh" : "130px", objectFit: "contain",
+                      borderRadius: 12, background: "#000", display: "block", transition: "height 0.2s" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginTop: 10 }}>
+                    <button onClick={() => guidedSkip(-5)} title="Back 5s"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      <RotateCcw size={18} color="#999" />
+                      <span style={{ fontSize: 9, color: "#666", fontWeight: 700 }}>5s</span>
+                    </button>
+                    <button onClick={toggleGuidedPreviewPlay}
+                      style={{ width: 40, height: 40, borderRadius: 20, background: "#181818", border: "1px solid #2a2a2a", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {guidedPreviewPlaying ? <Pause size={17} color="#ddd" /> : <Play size={17} color="#ddd" style={{ marginLeft: 2 }} />}
+                    </button>
+                    <button onClick={() => guidedSkip(5)} title="Forward 5s"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      <RotateCcw size={18} color="#999" style={{ transform: "scaleX(-1)" }} />
+                      <span style={{ fontSize: 9, color: "#666", fontWeight: 700 }}>5s</span>
+                    </button>
+                    <button onClick={() => setGuidedPreviewExpanded(v => !v)} title={guidedPreviewExpanded ? "Shrink preview" : "Expand preview"}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}>
+                      {guidedPreviewExpanded ? <Minimize2 size={16} color="#999" /> : <Maximize2 size={16} color="#999" />}
+                    </button>
                   </div>
-                  <button onClick={() => setShowDictationHelp(false)} style={{ width: "100%", padding: "13px", background: `linear-gradient(90deg, ${ORANGE}, #FF7A1A)`, border: "none", borderRadius: 12, color: "#0a0908", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
-                    Got it
+                </div>
+
+                {/* Question + answer */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "4px 20px", overflowY: "auto", minHeight: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "#fff", marginBottom: 14, lineHeight: 1.35 }}>
+                    {guidedQuestionIndex === 0
+                      ? "What happened, who was involved, and how did you respond?"
+                      : "How did it make you feel, and what would you have wanted to happen instead?"}
+                  </div>
+                  {guidedQuestionIndex === 0 ? (
+                    <textarea
+                      key={`${guidedChunkId}-q1`}
+                      autoFocus
+                      defaultValue={guidedAnswer1Text}
+                      onChange={e => setGuidedAnswer1Text(e.target.value)}
+                      placeholder="Speak (tap the mic on your keyboard) or type here…"
+                      style={{ flex: 1, minHeight: 120, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 12, padding: "14px 16px", fontSize: 15, color: "#ddd", lineHeight: 1.6,
+                        outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
+                    />
+                  ) : (
+                    <textarea
+                      key={`${guidedChunkId}-q2`}
+                      autoFocus
+                      defaultValue={guidedAnswer2Text}
+                      onChange={e => setGuidedAnswer2Text(e.target.value)}
+                      placeholder="Speak (tap the mic on your keyboard) or type here…"
+                      style={{ flex: 1, minHeight: 120, width: "100%", background: "#111", border: "1px solid #252525",
+                        borderRadius: 12, padding: "14px 16px", fontSize: 15, color: "#ddd", lineHeight: 1.6,
+                        outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
+                    />
+                  )}
+                </div>
+
+                <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "14px 20px calc(16px + env(safe-area-inset-bottom))" }}>
+                  {guidedQuestionIndex === 1 && (
+                    <button onClick={backToGuidedQuestion1}
+                      style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                      Back
+                    </button>
+                  )}
+                  <button
+                    onClick={guidedQuestionIndex === 0 ? advanceGuidedQuestion : saveGuidedAnswers}
+                    disabled={guidedQuestionIndex === 0 ? !guidedAnswer1Text.trim() : !guidedAnswer2Text.trim()}
+                    style={{ flex: guidedQuestionIndex === 1 ? 2 : 1,
+                      background: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? ORANGE : "#2a2a2a",
+                      border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 800,
+                      color: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "#000" : "#666",
+                      cursor: (guidedQuestionIndex === 0 ? guidedAnswer1Text.trim() : guidedAnswer2Text.trim()) ? "pointer" : "default" }}>
+                    {guidedQuestionIndex === 0 ? "Next" : "Done"}
                   </button>
                 </div>
               </div>

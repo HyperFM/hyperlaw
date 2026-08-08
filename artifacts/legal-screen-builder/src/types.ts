@@ -259,8 +259,20 @@ export interface VideoChunk {
   end: number;
   /** Short nickname — a quick, easy-to-scan name for this moment (e.g. "Officer arrives") */
   name?: string;
-  /** Short plain-language label set in Step 2 */
+  /** Combined plain-language content for this moment — the actual text every
+   *  other part of the app reads (Organize, Exhibit AI prompt, Copy All
+   *  Moment Info, Paste Moments, crash recovery). Always kept as
+   *  `factsAnswer + "\n\n" + impactAnswer` when both are answered through the
+   *  guided flow, so nothing downstream needs to know the guided flow
+   *  exists at all — it only ever sees one combined string, same as before. */
   label: string;
+  /** Guided question 1 — "What happened, who was involved, and how did you
+   *  respond?" Undefined for chunks made before the guided flow existed, or
+   *  chunks whose label was hand-edited outside it. */
+  factsAnswer?: string;
+  /** Guided question 2 — "How did it make you feel, and what would you have
+   *  wanted to happen instead?" */
+  impactAnswer?: string;
   /** Optional tag set in Step 2 */
   tag?: "consistency" | "contradiction" | "escalation" | "no_cause";
   /** User-picked frame (data URL) for this moment's card thumbnail — overrides

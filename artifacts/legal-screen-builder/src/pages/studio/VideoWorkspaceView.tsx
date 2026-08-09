@@ -1165,6 +1165,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // Shared between the timeline segments and the Step 1 "MOMENT N" cards, so
   // selecting either one rings the same chunk on the timeline.
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  // ── Cut tool — tap once to mark where a cut starts (armed), tap again
+  // after moving the playhead to cut everything between the two points.
+  // Independent of the moment/chunk system entirely; just marks a raw
+  // timeline range as a video_cut, same primitive removeChunk already
+  // uses, which the app already skips live during playback/export and
+  // already reflects in the export time estimate — no new plumbing there.
+  const [cutRangeStart, setCutRangeStart] = useState<number | null>(null);
   // ── Guided moment flow — replaces the old inline label input entirely.
   // Every chunk now goes through two mandatory full-screen questions (no
   // free-form skip) instead of one open-ended field, because open-ended
@@ -1259,7 +1266,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       }
     };
   }, [guidedChunkId]);
-  const [trashDragOver, setTrashDragOver] = useState(false);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
   // corners on that snapshot with an ugly black/square fringe around them.
@@ -1542,7 +1548,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     };
     const updatedCase = { ...hlCase, studioProject: next };
     onUpdateCase(updatedCase);
-    // Chunk & Label edits (markMoment, splitChunk, label onChange, etc.)
+    // Chunk & Label edits (markMoment, cutRange, label onChange, etc.)
     // only ever called triggerAutosave, never triggerIndexedDBSave — so
     // the one local crash-recovery net this app has never actually caught
     // real chunked moments, only the separate/older markers flow. Piggy-
@@ -2055,12 +2061,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
           </div>
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <button
-            onClick={() => setSelectedChunkId(v => v === c.id ? null : c.id)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-              fontSize: 10, color: selected ? ORANGE : "#3a3a3a", fontWeight: 700, marginBottom: 7 }}>
-            MOMENT {displayIndex + 1} · {formatTime(c.start)}–{formatTime(c.end)}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
+            <button
+              onClick={() => setSelectedChunkId(v => v === c.id ? null : c.id)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                fontSize: 10, color: selected ? ORANGE : "#3a3a3a", fontWeight: 700 }}>
+              MOMENT {displayIndex + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+            </button>
+            {/* Deletes the whole moment — the cut tool up in the toolbar is
+                for raw unlabeled footage, not this. Goes to the recoverable
+                "Deleted" list below with a Restore option, same as before. */}
+            <button
+              onClick={() => removeChunk(c.id)}
+              title="Delete this moment"
+              style={{ flexShrink: 0, background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}>
+              <Trash2 size={12} color="#5a3030" />
+            </button>
+          </div>
           {/* No short-name field anymore — it was extra friction, and the
               guided flow's two answers are already the full content. This
               card just shows a read-only preview of whatever was answered
@@ -2176,19 +2193,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     openGuidedFlow(newChunk);
   }
 
-  // ── Split a chunk at the current playhead position ─────────────
-  function splitChunk(id: string, at: number) {
-    const chunk = chunks.find(c => c.id === id);
-    if (!chunk || at <= chunk.start + 0.3 || at >= chunk.end - 0.3) return;
-    const a: VideoChunk = { ...chunk, end: at };
-    const b: VideoChunk = { id: crypto.randomUUID(), start: at, end: chunk.end, label: "", tag: chunk.tag };
-    const idx = chunks.findIndex(c => c.id === id);
-    const updated = [...chunks.slice(0, idx), a, b, ...chunks.slice(idx + 1)];
-    pushUndoSnapshot();
-    setChunks(updated);
-    triggerAutosave(markers, updated, organizedSlots, currentStep);
-  }
-
   // ── Unchunk — merges a chunk forward into the one ahead of it (not the one
   // before it), so a mis-split moment can be undone permanently, unlike
   // undo/redo which resets the moment you leave and come back to the app. ──
@@ -2276,6 +2280,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setChunks(newChunks);
     setDeletedChunks(newDeleted);
     triggerAutosave(newMarkers, newChunks, organizedSlots, currentStep, newDeleted);
+  }
+
+  // ── Cut tool — tap once at the playhead to arm it, tap again after
+  // moving the playhead to cut everything between the two points out for
+  // good. Reuses the exact same video_cut marker primitive removeChunk
+  // creates for a deleted moment — already skipped live during playback
+  // (see the effect below), already skipped during export, already
+  // reflected in the export time estimate — but not tied to any chunk;
+  // this is for raw dead footage the user never turns into a moment at
+  // all. Tapping again in nearly the same spot (no real range) cancels
+  // instead of creating a zero-length cut.
+  const MIN_CUT_SEC = 0.3;
+  function cutRange(start: number, end: number) {
+    const cutMarker: ExhibitMarker = {
+      id: crypto.randomUUID(), timestamp: start, cutEnd: end,
+      label: "Cut", dictation: "", whyItMatters: "",
+      status: "ready", createdAt: Date.now(), type: "video_cut",
+    };
+    const newMarkers = [...markers, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
+    pushUndoSnapshot();
+    setMarkersRaw(newMarkers);
+    triggerAutosave(newMarkers, chunks, organizedSlots, currentStep, deletedChunks);
+    seek(end); // land right where playback resumes, past the gap
+  }
+  function handleCutToolTap() {
+    if (cutRangeStart == null) {
+      setCutRangeStart(currentTime);
+      return;
+    }
+    const a = cutRangeStart;
+    const b = currentTime;
+    setCutRangeStart(null);
+    if (Math.abs(b - a) < MIN_CUT_SEC) return; // no real range moved to — treat as cancel
+    cutRange(Math.min(a, b), Math.max(a, b));
   }
 
   // ── AI-suggested presentation order for Step 3 ───────────────────
@@ -3096,6 +3134,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // Badge count: number of things the user should know about (jurisdiction missing = 1)
   const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
+  // Total time actually removed by video_cut markers (the cut tool, and
+  // deleted moments) — subtracted from the raw duration so the time shown
+  // next to the play button matches what actually plays, not the length
+  // of the untouched source file.
+  const totalCutSec = markers
+    .filter(m => m.type === "video_cut" && m.cutEnd != null)
+    .reduce((s, m) => s + (m.cutEnd! - m.timestamp), 0);
+  const effectiveDuration = Math.max(0, duration - totalCutSec);
 
   // The single main <video> element — always in this one spot in the DOM
   // (Step 1's own layout), never re-parented. When the guided flow is open
@@ -3576,7 +3622,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             {thumbsLoading ? <PreparingVideoMessage /> : (
               <>
                 {formatTime(currentTime)}
-                <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(duration) : "--:--"}</span>
+                <span style={{ color: "#444", fontWeight: 400 }}> / {duration ? formatTime(effectiveDuration) : "--:--"}</span>
               </>
             )}
           </div>
@@ -3613,36 +3659,37 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             </button>
           )}
 
-          {/* Split + delete-by-drag for the selected moment — both tucked in the
-              toolbar (not on the segment itself) so neither can be fat-fingered. */}
-          {selectedChunkId && (
+          {/* Cut tool — tap once to mark where a cut starts, tap again after
+              moving the playhead to remove everything in between for good.
+              Replaces the old Split button and the old drag-a-moment-to-
+              trash control with one combined tool; unlike those, this one
+              works on any raw stretch of footage, not just a selected
+              moment. Deleting a whole labeled moment now lives directly on
+              its own card in the list below instead. */}
+          {videoUrl && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 10 }}>
-              <button onClick={() => { splitChunk(selectedChunkId, currentTime); setSelectedChunkId(null); }}
-                title="Split the selected moment at the playhead"
-                style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 7, padding: "4px 8px",
-                  display: "flex", alignItems: "center", gap: 4, cursor: "pointer", color: "#ccc", fontSize: 10, fontWeight: 700 }}>
-                <Scissors size={11} /> Split
-              </button>
-              <span style={{ fontSize: 9, color: "#7a6a5c", fontWeight: 700, whiteSpace: "nowrap" }}>Drag to delete</span>
-              <div
-                onDragOver={e => { e.preventDefault(); setTrashDragOver(true); }}
-                onDragLeave={() => setTrashDragOver(false)}
-                onDrop={e => {
-                  e.preventDefault();
-                  setTrashDragOver(false);
-                  try {
-                    const data = JSON.parse(e.dataTransfer.getData("text/plain")) as { chunkId?: string };
-                    if (data.chunkId) { removeChunk(data.chunkId); setSelectedChunkId(null); }
-                  } catch { /* ignore malformed payload */ }
-                }}
-                title="Drag a moment here to delete it"
+              <button
+                onClick={handleCutToolTap}
+                title={cutRangeStart == null
+                  ? "Cut — tap here, move the playhead, then tap again to remove everything in between"
+                  : "Tap again to cut from here back to where you started"}
                 style={{
-                  width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                  background: trashDragOver ? "#ef4444" : "#2a1010", border: `1.5px solid ${trashDragOver ? "#ff8080" : "#5a2020"}`,
-                  boxShadow: trashDragOver ? "0 0 10px #ef444488" : "none", transition: "all 0.12s",
+                  position: "relative", width: 30, height: 30, borderRadius: 8,
+                  background: cutRangeStart != null ? "#ef4444" : "#2a1010",
+                  border: `1.5px solid ${cutRangeStart != null ? "#ff8080" : "#5a2020"}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", flexShrink: 0,
+                  boxShadow: cutRangeStart != null ? "0 0 10px #ef444488" : "none",
+                  transition: "all 0.12s",
                 }}>
-                <Trash2 size={13} color={trashDragOver ? "#fff" : "#ef4444"} />
-              </div>
+                <Trash2 size={16} color={cutRangeStart != null ? "#fff" : "#ef4444"} style={{ position: "absolute", opacity: 0.5 }} />
+                <Scissors size={11} color={cutRangeStart != null ? "#fff" : "#ef4444"} style={{ position: "relative" }} />
+              </button>
+              {cutRangeStart != null && (
+                <span style={{ fontSize: 9, color: "#ff8080", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  Cutting from {formatTime(cutRangeStart)} — move playhead, tap again
+                </span>
+              )}
             </div>
           )}
 

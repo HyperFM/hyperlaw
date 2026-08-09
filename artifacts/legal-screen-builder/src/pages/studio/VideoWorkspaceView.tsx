@@ -993,6 +993,31 @@ function PreparingVideoMessage() {
   );
 }
 
+// ── Guards a single exhibit-screen render — Step 3 now renders every
+// existing exhibit_screen marker inline (the moment→screen swap list), so a
+// single malformed or legacy-shaped one (e.g. content saved before a layout
+// component's schema changed) could otherwise throw during render and take
+// the whole Step 3 view down with it on every visit. Class component because
+// error boundaries require getDerivedStateFromError, which has no hook form.
+class ExhibitPreviewBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error("[exhibit-preview] render failed", error);
+  }
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
+}
+
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
 function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDone: () => void }) {
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
@@ -1001,7 +1026,11 @@ function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDon
     const scale = Math.min(vw / 1920, vh / 1080);
     return (
       <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <ExhibitRenderer content={marker.exhibitScreen.content} scale={scale} />
+        <ExhibitPreviewBoundary fallback={
+          <div style={{ color: "#ef4444", fontSize: 14, textAlign: "center", padding: 24 }}>Couldn't preview this screen.</div>
+        }>
+          <ExhibitRenderer content={marker.exhibitScreen.content} scale={scale} />
+        </ExhibitPreviewBoundary>
         <button onClick={onDone}
           style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
           Skip
@@ -4358,7 +4387,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                         style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
                           display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
                         <div style={{ borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
-                          <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.18} />
+                          <ExhibitPreviewBoundary fallback={
+                            <div style={{ width: 1920 * 0.18, height: 1080 * 0.18, background: "#1a0000", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
+                              <span style={{ fontSize: 10, color: "#ef4444", textAlign: "center" }}>Couldn't preview</span>
+                            </div>
+                          }>
+                            <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.18} />
+                          </ExhibitPreviewBoundary>
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4 }}>

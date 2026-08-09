@@ -1772,6 +1772,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       .catch(() => showInsertToast("Couldn't copy — try again"));
   }
 
+  // ── Copy All Edit Info — the reload banner's own copy button, deliberately
+  // different from copyAllMomentInfo above (which stays exactly as it is,
+  // unchanged, for the loaded-video screen). This one also includes raw
+  // cut-tool ranges — footage removed without ever becoming a moment, so
+  // copyAllMomentInfo has no record of it at all — interleaved among the
+  // moments in chronological order as plain "Cut" lines. A deleted MOMENT's
+  // own cut isn't repeated here as a bare Cut line since it's already fully
+  // represented below with its original label, same as copyAllMomentInfo.
+  function copyAllEditInfo() {
+    const ordered = [...chunks].sort((a, b) => a.start - b.start);
+    const deletedOrdered = [...deletedChunks].sort((a, b) => a.start - b.start);
+    const format = (c: VideoChunk, num: number, deleted: boolean) => {
+      const lines = [`Moment ${num}${deleted ? " (DELETED)" : ""} — ${formatTime(c.start)}–${formatTime(c.end)}`];
+      if (c.label?.trim()) lines.push(c.label.trim());
+      return lines.join("\n");
+    };
+    const deletedCutKeys = new Set(deletedChunks.map(c => `${c.start}-${c.end}`));
+    const rawCuts = markers
+      .filter(m => m.type === "video_cut" && m.cutEnd != null && !deletedCutKeys.has(`${m.timestamp}-${m.cutEnd}`))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const momentLines = ordered.map((c, i) => ({ start: c.start, text: format(c, i + 1, false) }));
+    const cutLines = rawCuts.map(m => ({ start: m.timestamp, text: `Cut — ${formatTime(m.timestamp)}–${formatTime(m.cutEnd!)}` }));
+    const interleaved = [...momentLines, ...cutLines].sort((a, b) => a.start - b.start).map(e => e.text);
+
+    const text = [
+      ...interleaved,
+      ...deletedOrdered.map((c, i) => format(c, ordered.length + i + 1, true)),
+    ].join("\n\n");
+    navigator.clipboard.writeText(text)
+      .then(() => showInsertToast("Copied all edit info"))
+      .catch(() => showInsertToast("Couldn't copy — try again"));
+  }
+
   /** Inverse of formatTime — "1:02:03" / "2:03" / "45" -> seconds. */
   function parseTimeToSeconds(str: string): number | null {
     const parts = str.trim().split(":").map(p => parseInt(p, 10));
@@ -1794,9 +1828,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
    *  hyphen, middle dot (·, common when dictating/copying from other
    *  apps), or a colon — not just the exact character copyAllMomentInfo
    *  itself writes. */
-  function parseMomentInfo(text: string): VideoChunk[] {
+  function parseMomentInfo(text: string): { chunks: VideoChunk[]; cuts: { start: number; end: number }[] } {
+    // "Cut" lines (from Copy All Edit Info) pulled out and stripped from the
+    // text FIRST — they have no body/label the way a moment does, so if left
+    // in place they'd get swallowed into whatever moment precedes them as
+    // part of its label.
+    const cutRe = /^\s*Cut\s*[-–—·:]\s*([\d:]+)\s*[-–—·]\s*([\d:]+)\s*$/gim;
+    const cuts: { start: number; end: number }[] = [];
+    for (const m of text.matchAll(cutRe)) {
+      const start = parseTimeToSeconds(m[1]);
+      const end = parseTimeToSeconds(m[2]);
+      if (start != null && end != null && end > start) cuts.push({ start, end });
+    }
+    const textWithoutCuts = text.replace(cutRe, "");
+
     const headerRe = /Moment\s+\d+\s*(?:\(DELETED\)\s*)?[-–—·:]\s*([\d:]+)\s*[-–—·]\s*([\d:]+)/gi;
-    const matches = [...text.matchAll(headerRe)];
+    const matches = [...textWithoutCuts.matchAll(headerRe)];
     const results: VideoChunk[] = [];
     for (let i = 0; i < matches.length; i++) {
       const m = matches[i];
@@ -1804,26 +1851,43 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       const end = parseTimeToSeconds(m[2]);
       if (start == null || end == null || end <= start) continue;
       const bodyStart = (m.index ?? 0) + m[0].length;
-      const bodyEnd = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
-      const label = text.slice(bodyStart, bodyEnd).split("\n").map(l => l.trim()).filter(Boolean).join("\n");
+      const bodyEnd = i + 1 < matches.length ? (matches[i + 1].index ?? textWithoutCuts.length) : textWithoutCuts.length;
+      const label = textWithoutCuts.slice(bodyStart, bodyEnd).split("\n").map(l => l.trim()).filter(Boolean).join("\n");
       results.push({ id: crypto.randomUUID(), start, end, label });
     }
-    return results;
+    return { chunks: results, cuts };
   }
 
   function importPastedMoments() {
-    const parsed = parseMomentInfo(pasteMomentsText);
-    if (parsed.length === 0) {
+    const { chunks: parsedChunks, cuts: parsedCuts } = parseMomentInfo(pasteMomentsText);
+    if (parsedChunks.length === 0 && parsedCuts.length === 0) {
       showInsertToast("Couldn't find any moments in that text — check it matches the copied format");
       return;
     }
     pushUndoSnapshot();
-    const updated = [...chunks, ...parsed].sort((a, b) => a.start - b.start);
-    setChunks(updated);
+    const updatedChunks = [...chunks, ...parsedChunks].sort((a, b) => a.start - b.start);
+    // Skip any cut that already exists (same start/end) so re-pasting the
+    // same text twice doesn't stack duplicate cuts on top of each other.
+    const existingCutKeys = new Set(
+      markers.filter(m => m.type === "video_cut" && m.cutEnd != null).map(m => `${m.timestamp}-${m.cutEnd}`)
+    );
+    const newCutMarkers: ExhibitMarker[] = parsedCuts
+      .filter(c => !existingCutKeys.has(`${c.start}-${c.end}`))
+      .map(c => ({
+        id: crypto.randomUUID(), timestamp: c.start, cutEnd: c.end,
+        label: "Cut", dictation: "", whyItMatters: "",
+        status: "ready", createdAt: Date.now(), type: "video_cut",
+      }));
+    const updatedMarkers = newCutMarkers.length > 0 ? [...markers, ...newCutMarkers].sort((a, b) => a.timestamp - b.timestamp) : markers;
+    setChunks(updatedChunks);
+    if (newCutMarkers.length > 0) setMarkersRaw(updatedMarkers);
     setShowPasteMoments(false);
     setPasteMomentsText("");
-    triggerAutosave(markers, updated, organizedSlots, currentStep);
-    showInsertToast(`Imported ${parsed.length} moment${parsed.length !== 1 ? "s" : ""}`);
+    triggerAutosave(updatedMarkers, updatedChunks, organizedSlots, currentStep);
+    const parts: string[] = [];
+    if (parsedChunks.length > 0) parts.push(`${parsedChunks.length} moment${parsedChunks.length !== 1 ? "s" : ""}`);
+    if (newCutMarkers.length > 0) parts.push(`${newCutMarkers.length} cut${newCutMarkers.length !== 1 ? "s" : ""}`);
+    showInsertToast(`Imported ${parts.join(" and ")}`);
   }
 
   // Raw HTML <input type="file"> inside a Capacitor WKWebView is a known,
@@ -3602,7 +3666,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 <strong style={{ color: "#7ab0e0" }}>Only edits are saved here.</strong>{" "}
                 Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
                 <div style={{ marginTop: 6, color: "#5a7aa0" }}>
-                  Make sure it's the exact same video — same length, no trims or re-exports — or moments will point at the wrong parts. Not sure it still matches? No worries, copy all your moments below first, just in case.
+                  Make sure it's the exact same video — same length, no trims or re-exports — or moments will point at the wrong parts. Not sure it still matches? No worries, copy all your edit info below first, just in case.
                 </div>
               </div>
               <button onClick={() => openFilePicker(fileInputRef)}
@@ -3610,28 +3674,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 Reload
               </button>
             </div>
-            {/* Available with no video loaded at all — these two only ever
-                touch `chunks`/`deletedChunks` state, never the video file
-                itself, so there's no reason to make someone reload first
-                just to grab their own text back out. */}
-            <div style={{ display: "flex", gap: 8 }}>
-              {chunks.length > 0 && (
-                <button onClick={copyAllMomentInfo}
-                  style={{ flex: 1, background: "none", border: "1px solid #1a3060", borderRadius: 10,
-                    padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: 7, cursor: "pointer", fontWeight: 800, fontSize: 12, color: "#7ab0e0" }}>
-                  <Copy size={12} color="#7ab0e0" />
-                  Copy All Moment Info
-                </button>
-              )}
-              <button onClick={() => setShowPasteMoments(true)}
-                style={{ flex: 1, background: "none", border: "1px solid #1a3060", borderRadius: 10,
+            {/* Copy only, no Paste, here — with no video loaded there's
+                nothing to paste moments onto yet (no duration to validate
+                timestamps against). Paste Moments lives on the loaded-video
+                screen instead, once they've reuploaded and can see the
+                result. This one covers everything Copy All Moment Info does
+                plus raw cut-tool ranges (interleaved in order) — deliberately
+                more than that button does, since this is the "just in case"
+                safety copy before risking a reload. */}
+            {(chunks.length > 0 || deletedChunks.length > 0 || markers.some(m => m.type === "video_cut")) && (
+              <button onClick={copyAllEditInfo}
+                style={{ background: "none", border: "1px solid #1a3060", borderRadius: 10,
                   padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "center",
                   gap: 7, cursor: "pointer", fontWeight: 800, fontSize: 12, color: "#7ab0e0" }}>
-                <ClipboardPaste size={12} color="#7ab0e0" />
-                Paste Moments
+                <Copy size={12} color="#7ab0e0" />
+                Copy All Edit Info
               </button>
-            </div>
+            )}
           </div>
         )}
 
@@ -3645,7 +3704,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
               <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>Paste Moments</div>
               <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
-                Paste text you copied with "Copy All Moment Info" — it'll rebuild each moment with its exact original timestamp, short name, and label. Added alongside anything already here, not replacing it.
+                Paste text you copied with "Copy All Moment Info" or "Copy All Edit Info" — it'll rebuild each moment with its exact original timestamp and label, plus any cuts included in the text. Added alongside anything already here, not replacing it.
               </div>
               <textarea
                 autoFocus

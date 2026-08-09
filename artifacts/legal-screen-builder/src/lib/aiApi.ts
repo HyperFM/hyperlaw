@@ -947,6 +947,18 @@ export const aiApi = {
   }> {
     return aiFetch("/exhibit/generate", { method: "POST", body: JSON.stringify(input) });
   },
+
+  /** Illustrative Aid Script tool — lightly copyedits each moment's own raw
+   *  text (repetition/filler removed, punctuation added) into a script the
+   *  litigant can read aloud in court while the video plays. Deliberately
+   *  NOT the exhibit slide generator — this never rewrites or summarizes,
+   *  just cleans up what they already said in their own words. */
+  generateCourtScript(input: {
+    caseId: string;
+    moments: Array<{ id: string; start: number; end: number; label: string }>;
+  }): Promise<{ scripts: Array<{ id: string; text: string }> }> {
+    return aiFetch("/exhibit/court-script", { method: "POST", body: JSON.stringify(input) });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

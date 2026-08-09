@@ -123,6 +123,102 @@ RETURN FORMAT — valid JSON only, no preamble:
   "recommendationReason": "<one or two sentences explaining why this candidate is the strongest of the set>"
 }`;
 
+// ── Court script (Illustrative Aid Script tool) ─────────────────────────────────
+// A LITIGANT-FACING reading script, generated from the same raw moment text as
+// the exhibit slides, but deliberately NOT the same output — exhibit slides are
+// written for on-screen display; this is meant to be read aloud in court while
+// the video plays, so it has to still sound like the person actually talking,
+// word for word, just legible. Kept intentionally conservative: copyediting
+// only, never rewriting, summarizing, or "elevating" the language.
+
+const COURT_SCRIPT_SYSTEM_PROMPT = `You are a court-reading script formatter for HyperLaw. You are given a self-represented litigant's own raw, dictated description of a moment of video evidence, exactly as they said it (repetition, false starts, and all). Your ONLY job is light copyediting so it reads naturally aloud in court — you are NOT a writer, summarizer, or legal drafter, and this is NOT the text that appears on the exhibit slide on screen.
+
+STRICT RULES — read carefully, these are not suggestions:
+- Keep every substantive word and phrase the person used. Do not replace their vocabulary with different words, and do not make the tone more legal, formal, or polished than a lightly cleaned transcript.
+- Do not summarize, shorten, condense, or drop any statement, fact, or detail they included.
+- Do not add any new facts, claims, framing, or interpretation that wasn't already there.
+- DO remove: filler words (um, uh, like, you know — only when clearly meaningless filler), exact word/phrase repetition caused by dictation stutter (e.g. "he he hit me hit me" → "he hit me"), false starts that were clearly abandoned mid-sentence.
+- DO add: correct punctuation, capitalization, and paragraph/sentence breaks so it reads clearly aloud. Nothing else.
+- The result must still sound like the same person, in their own words and voice — a clean transcript, never a lawyer's rewrite. If a passage is already clean, return it nearly unchanged.
+- Process every moment provided, independently, in the same order they're given.
+
+Return ONLY valid JSON, no preamble: { "scripts": [ { "id": "<the moment id exactly as given>", "text": "<cleaned text>" }, ... ] }`;
+
+function fmtMMSS(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ── POST /exhibit/court-script ──────────────────────────────────────────────
+router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { caseId, moments } = req.body as {
+    caseId: string;
+    moments: Array<{ id: string; start: number; end: number; label: string }>;
+  };
+
+  if (!Array.isArray(moments) || moments.length === 0) {
+    res.status(400).json({ error: "No moments provided" });
+    return;
+  }
+
+  const [caseRow] = await db
+    .select()
+    .from(casesTable)
+    .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+
+  if (!caseRow) {
+    res.status(404).json({ error: "Case not found" });
+    return;
+  }
+
+  const userMessage = moments
+    .map(m => `MOMENT ${m.id} (${fmtMMSS(m.start)}–${fmtMMSS(m.end)}):\n${m.label}`)
+    .join("\n\n---\n\n");
+
+  const start = Date.now();
+  const response = await (aiService as unknown as { client: { messages: { create: (args: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> } } }).client.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    system: COURT_SCRIPT_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userMessage }],
+  });
+
+  const rawText = response.content.find((b) => b.type === "text")?.text ?? "";
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    res.status(500).json({ error: "AI did not return valid JSON" });
+    return;
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+  } catch {
+    res.status(500).json({ error: "AI returned malformed JSON" });
+    return;
+  }
+
+  const rawScripts = Array.isArray(parsed.scripts) ? parsed.scripts : [];
+  const scripts = rawScripts.filter(
+    (s): s is { id: string; text: string } =>
+      !!s && typeof s === "object" && typeof (s as Record<string, unknown>).id === "string" && typeof (s as Record<string, unknown>).text === "string",
+  );
+
+  if (scripts.length === 0) {
+    res.status(500).json({ error: "AI response missing required fields" });
+    return;
+  }
+
+  const responseMs = Date.now() - start;
+  console.log(`[exhibit-court-script] moments=${moments.length} returned=${scripts.length} ms=${responseMs}`);
+
+  res.json({ scripts });
+});
+
 // ── POST /exhibit/generate ────────────────────────────────────────────────────
 
 router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response) => {

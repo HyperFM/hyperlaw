@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -25,6 +25,7 @@ import { assignNickname } from "./lib/nicknames";
 import { downscaleCasePhoto } from "./lib/casePhoto";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
+import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
@@ -489,8 +490,13 @@ const TOOLS_MARQUEE_REPEATS = 8;
 const TOOLS_MARQUEE_GLOW_STAGGER = 0.35;
 const TOOLS_MARQUEE_GLOW_CYCLE = 10 * TOOLS_MARQUEE_GLOW_STAGGER;
 
-function ToolsView() {
+function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c: HLCase) => void }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [scriptOpen, setScriptOpen] = useState(false);
+
+  if (scriptOpen) {
+    return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
+  }
 
   // Inject the marquee/glow keyframes once
   (() => {
@@ -554,6 +560,22 @@ function ToolsView() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 360, margin: "0 auto", textAlign: "left" }}>
+        {/* Illustrative Aid Script — the one real, working tool in this list;
+            everything in TOOL_BUBBLES below is still vision-only ("Coming
+            soon"). Navigates for real instead of just expanding detail text. */}
+        <button onClick={() => setScriptOpen(true)}
+          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <ScrollText size={17} color={ORANGE} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Illustrative Aid Script</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>A script to read from in court while your video plays.</div>
+            </div>
+            <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
+          </div>
+        </button>
         {TOOL_BUBBLES.map(tool => {
           const open = openId === tool.id;
           const Icon = tool.icon;
@@ -5632,7 +5654,7 @@ export default function App() {
     }
 
     if (navTab === "tools") {
-      return <ToolsView />;
+      return <ToolsView cases={data.cases} onUpdateCase={c => setData(updateCase(data, c))} />;
     }
 
     if (navTab === "profile") {

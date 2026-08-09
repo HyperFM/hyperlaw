@@ -280,6 +280,14 @@ export interface VideoChunk {
   thumbnailOverride?: string;
   /** Set only on entries living in StudioProject.deletedChunks — when it was deleted. */
   deletedAt?: number;
+  /** Illustrative Aid Script tool's output for this moment — the same
+   *  content as `label`, lightly copyedited (repetition/filler removed,
+   *  punctuation added) for the litigant to read aloud in court while the
+   *  video plays. Deliberately NOT the same text as the exhibit slide
+   *  content, which is written for on-screen display, not being read
+   *  aloud. Undefined until generated; stale after `label` is edited
+   *  again until the user regenerates. */
+  courtScriptText?: string;
 }
 
 export interface StudioProject {

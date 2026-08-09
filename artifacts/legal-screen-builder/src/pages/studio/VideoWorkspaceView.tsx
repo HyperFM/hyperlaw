@@ -3999,7 +3999,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     not on the plain Step 1 controls, since scrubbing this
                     exact moment while answering is the point. */}
                 <div style={{ flexShrink: 0, position: "relative", margin: "0 16px", height: "30vh" }}>
-                  <div ref={guidedVideoSlotRef} style={{ width: "100%", height: "100%", borderRadius: 12, background: "#000" }} />
+                  {/* No background here — this is a pure layout placeholder
+                      (its rect is measured to position the real video on
+                      top of it). Now that this overlay's z-index sits above
+                      the video's, an opaque background here would paint
+                      right over the video instead of just reserving space
+                      for it. */}
+                  <div ref={guidedVideoSlotRef} style={{ width: "100%", height: "100%", borderRadius: 12 }} />
                   <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, pointerEvents: "none" }}>
                     <button onClick={() => skipMain(-5)} title="Back 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
                       <RotateCcw size={16} color="#fff" />

@@ -35,6 +35,7 @@ import AdminPanel from "./components/AdminPanel";
 import WelcomeModal from "./components/WelcomeModal";
 import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
+import GuidanceMascot from "./components/GuidanceMascot";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import UserChatDrawer from "./components/UserChatDrawer";
@@ -2694,7 +2695,7 @@ function HoldToRebuildIndexButton({ onComplete, disabled }: { onComplete: () => 
           />
         )}
       </svg>
-      <Brain size={22} color={ORANGE} style={{ filter: `drop-shadow(0 0 ${holding ? 10 + p * 8 : 6}px ${ORANGE})` }} />
+      <GuidanceMascot size={38} state={holding ? "thinking" : "idle"} />
     </button>
   );
 }
@@ -3558,7 +3559,7 @@ function HoldToAnalyzeButton({ onComplete }: { onComplete: () => void }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: `0 0 12px ${ORANGE}33`,
           }}>
-            <Brain size={22} color={ORANGE} />
+            <GuidanceMascot size={38} state="idle" />
           </div>
           <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE, letterSpacing: 0.3 }}>
             Hold to Analyze Document
@@ -3584,7 +3585,7 @@ function HoldToAnalyzeButton({ onComplete }: { onComplete: () => void }) {
               display: "flex", alignItems: "center", justifyContent: "center",
               flexDirection: "column", gap: 2,
             }}>
-              <Brain size={18} color={ORANGE} style={{ filter: `drop-shadow(0 0 6px ${ORANGE})` }} />
+              <GuidanceMascot size={30} state="thinking" />
               <div style={{ fontSize: 13, fontWeight: 900, color: ORANGE, lineHeight: 1 }}>{secsLeft}s</div>
             </div>
           </div>

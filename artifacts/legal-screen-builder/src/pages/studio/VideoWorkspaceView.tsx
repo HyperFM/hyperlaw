@@ -1157,6 +1157,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   });
   const [aiOrganizing, setAiOrganizing] = useState(false);
   const [aiOrganizeReason, setAiOrganizeReason] = useState<string | null>(null);
+  // Step 3's batch exhibit-screen generation — one AI call per moment,
+  // sequential (not parallel) so each screen's "existingExhibits" context
+  // includes every screen generated so far this run, same narrative-
+  // consistency signal the old one-at-a-time generator already passed.
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [batchErrors, setBatchErrors] = useState<string[]>([]);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -1395,7 +1402,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const [pendingFilePickerRef, setPendingFilePickerRef] = useState<React.RefObject<HTMLInputElement | null> | null>(null);
 
   // ── Media inserts ───────────────────────────────────────────────
-  const [showMediaPicker, setShowMediaPicker] = useState(false);
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
   const [insertToast, setInsertToast] = useState<string | null>(null);
   const insertToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2985,30 +2991,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     startDictation(id);
   }
 
-  // ── Media insert ────────────────────────────────────────────────
-  function insertMediaMarker(file: File, kind: "photo" | "clip") {
-    const blobUrl = URL.createObjectURL(file);
-    mediaBlobUrlsRef.current.push(blobUrl); // track for cleanup on unmount
-    const id = crypto.randomUUID();
-    const mediaNum = markers.filter(m => m.type === "media_insert").length + 1;
-    const newMarker: ExhibitMarker = {
-      id,
-      timestamp: currentTime,
-      label: `${kind === "photo" ? "Photo" : "Clip"} ${mediaNum}`,
-      dictation: "", whyItMatters: "",
-      status: "ready",
-      holdSec: kind === "photo" ? 5 : undefined, // photos show for holdSec; clips play to natural end
-      createdAt: Date.now(),
-      type: "media_insert",
-      mediaInsert: { kind, blobUrl, fileName: file.name } satisfies MediaInsert,
-    };
-    if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
-    setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
-    setActiveMarkerId(id);
-    setShowMediaPicker(false);
-    showInsertToast(kind === "photo" ? "📷 Photo added to timeline" : "🎬 Clip added to timeline");
-  }
-
   // ── Cut screen insertion ────────────────────────────────────────
   function handleCutInsert(time: number, screenData: ScreenInsert, holdSec: number) {
     const id = crypto.randomUUID();
@@ -3053,6 +3035,77 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setMarkers([...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp));
     setActiveMarkerId(id);
     setShowExhibitGenerator(false);
+  }
+
+  // ── Generate Screens — one exhibit screen per moment, all at once ──
+  // Every moment already has its own answers from Chunk & Label; there's no
+  // reason to make someone re-describe each one by hand here too. Reuses the
+  // exact same /exhibit/generate call the old one-at-a-time generator used
+  // (dictation = the moment's own label), just auto-picking the AI's own
+  // recommended candidate instead of putting a human review step in the way
+  // of 17 of these in a row. Skips any moment that already has a screen, so
+  // re-running this never duplicates or clobbers existing work.
+  async function generateAllExhibitScreens() {
+    if (batchGenerating) return;
+    const hasFullOrder = organizedSlots.some(Boolean);
+    const fromSlots = hasFullOrder
+      ? organizedSlots.filter((id): id is string => !!id).map(id => chunks.find(c => c.id === id)).filter((c): c is VideoChunk => !!c)
+      : [];
+    const ordered = fromSlots.length === chunks.length && fromSlots.length > 0
+      ? fromSlots
+      : [...chunks].sort((a, b) => a.start - b.start);
+    const targets = ordered.filter(c =>
+      c.label.trim() && !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id)
+    );
+    if (targets.length === 0) {
+      showInsertToast(chunks.length === 0 ? "Chunk and label some moments first." : "Every moment already has an exhibit screen.");
+      return;
+    }
+    pushUndoSnapshot(); // one undo step for the whole batch, not one per moment
+    setBatchGenerating(true);
+    setBatchProgress({ done: 0, total: targets.length });
+    setBatchErrors([]);
+    const errors: string[] = [];
+    let workingMarkers = markers;
+    for (let i = 0; i < targets.length; i++) {
+      const chunk = targets[i];
+      try {
+        const existingExhibits = workingMarkers
+          .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
+          .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+        const result = await aiApi.generateExhibitScreen({
+          caseId: hlCase.id,
+          timestamp: formatTime(chunk.start),
+          dictation: chunk.label,
+          existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+        });
+        const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+        if (!picked) throw new Error("No screen returned");
+        const id = crypto.randomUUID();
+        const screenNum = workingMarkers.filter(m => m.type === "exhibit_screen").length + 1;
+        const newMarker: ExhibitMarker = {
+          id, timestamp: chunk.start, chunkId: chunk.id,
+          label: `AI Screen ${screenNum}`,
+          dictation: "", whyItMatters: "",
+          status: "ready", holdSec: 8, createdAt: Date.now(),
+          type: "exhibit_screen",
+          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults },
+        };
+        workingMarkers = [...workingMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
+        setMarkers(workingMarkers, false); // saves as it goes — a mid-batch interruption doesn't lose what's already done
+      } catch (err) {
+        errors.push(`Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}`);
+      }
+      setBatchProgress({ done: i + 1, total: targets.length });
+    }
+    setBatchGenerating(false);
+    setBatchErrors(errors);
+    const succeeded = targets.length - errors.length;
+    showInsertToast(
+      errors.length === 0
+        ? `Generated ${succeeded} exhibit screen${succeeded !== 1 ? "s" : ""}.`
+        : `Generated ${succeeded} of ${targets.length} — ${errors.length} failed, see below.`
+    );
   }
 
   // ── Dictation ──────────────────────────────────────────────────
@@ -4339,87 +4392,47 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     })}
                   </div>
                 </div>
+                <button
+                  onClick={() => { setCurrentStep(3); triggerAutosave(markers, chunks, organizedSlots, 3); }}
+                  style={{ width: "100%", marginTop: 14, background: ORANGE, border: "none", borderRadius: 12,
+                    padding: "14px 12px", fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                  Next
+                </button>
               </>
             )}
           </div>
         )}
 
-        {/* ── Step 3: Exhibit, Media, Mic ───────────────────────────── */}
+        {/* ── Step 3: Exhibit ──────────────────────────────────────────
+            Every moment already has its own answers from Chunk & Label —
+            no per-moment dictation/photo/mic here anymore, just one button
+            that generates a screen for every moment that doesn't have one
+            yet, all at once. */}
         {currentStep === 3 && (
-          <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          <div style={{ marginBottom: 20 }}>
             <button
-              onClick={() => {
-                if (!videoUrl) return;
-                if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
-                setShowExhibitGenerator(true);
-              }}
-              disabled={!videoUrl}
-              style={{ flex: 1, background: videoUrl ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12,
+              onClick={generateAllExhibitScreens}
+              disabled={!videoUrl || batchGenerating}
+              style={{ width: "100%", background: !videoUrl || batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
                 padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
-                gap: 7, cursor: videoUrl ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13,
-                color: videoUrl ? "#000" : "#444", minWidth: 100 }}>
-              <Wand2 size={15} /> Exhibit
+                gap: 8, cursor: !videoUrl || batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
+                color: !videoUrl || batchGenerating ? "#666" : "#000" }}>
+              {batchGenerating
+                ? <><Loader2 size={15} className="animate-spin" /> Generating {batchProgress?.done ?? 0} of {batchProgress?.total ?? 0}…</>
+                : <><Wand2 size={15} /> Generate Screens</>}
             </button>
-
-            {/* Media insert */}
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => { if (!videoUrl) return; setShowMediaPicker(v => !v); }}
-                disabled={!videoUrl}
-                title="Insert photo or clip"
-                style={{ width: 50, height: 50, borderRadius: 12, background: showMediaPicker ? "#2a1a4a" : "#111",
-                  border: `1px solid ${showMediaPicker ? "#a78bfa" : videoUrl ? "#a78bfa55" : "#222"}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: videoUrl ? "pointer" : "not-allowed" }}>
-                <ImageIcon size={18} color={videoUrl ? "#a78bfa" : "#444"} />
-              </button>
-              {showMediaPicker && (
-                <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setShowMediaPicker(false)} />
-                  <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, background: "#1a1a1a",
-                    border: "1px solid #2a2a2a", borderRadius: 10, overflow: "hidden", zIndex: 50, minWidth: 148 }}>
-                    <label htmlFor="studio-media-photo-input"
-                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
-                        cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                      <ImageIcon size={13} color="#a78bfa" /> Photo
-                    </label>
-                    <div style={{ height: 1, background: "#222" }} />
-                    <label htmlFor="studio-media-clip-input"
-                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
-                        cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#ccc" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                      <Film size={13} color="#a78bfa" /> Video Clip
-                    </label>
-                  </div>
-                </>
-              )}
-              <input id="studio-media-photo-input" type="file" accept="image/*" style={{ display: "none" }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "photo"); e.target.value = ""; }} />
-              <input id="studio-media-clip-input" type="file" accept="video/*" style={{ display: "none" }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) insertMediaMarker(f, "clip"); e.target.value = ""; }} />
-            </div>
-
-            {/* Mic */}
-            <button
-              onClick={() => {
-                if (activeMarkerId) {
-                  const m = markers.find(x => x.id === activeMarkerId);
-                  if (m && m.type !== "screen_cut" && m.type !== "video_cut" && !isDictating) startDictation(activeMarkerId);
-                } else if (videoUrl) {
-                  if (videoRef.current && isPlaying) { videoRef.current.pause(); setIsPlaying(false); }
-                  setShowExhibitGenerator(true);
-                }
-              }}
-              disabled={!videoUrl}
-              style={{ width: 50, height: 50, borderRadius: 12, background: isDictating ? "#1a0000" : "#111",
-                border: `1px solid ${isDictating ? "#ef4444" : "#2a2a2a"}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: videoUrl ? "pointer" : "not-allowed", flexShrink: 0 }}>
-              {isDictating ? <MicOff size={18} color="#ef4444" /> : <Mic size={18} color="#888" />}
-            </button>
+            {batchErrors.length > 0 && (
+              <div style={{ marginTop: 10, background: "#1a0000", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", marginBottom: 6 }}>
+                  {batchErrors.length} screen{batchErrors.length !== 1 ? "s" : ""} didn't generate — everything else was saved
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {batchErrors.map((e, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "#c06060" }}>{e}</div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -479,8 +479,8 @@ const TOOL_BUBBLES = [
     id: "evidence-organizer",
     icon: ScanText,
     title: "Evidence Organizer",
-    tagline: "Photograph your paper evidence — AI sorts it into stacks.",
-    detail: "Take a photo of each piece of paper evidence (or a few related pages together, like matching medical records). AI reads all of it against your case's own complaint — names, parties, what happened — and groups it into categories (e.g. diagnosis records, arresting officer, transactions). Generates a printable cover sheet for each category to stamp on top of the matching physical stack, so your paperwork walks into court organized and separate from your video exhibits.",
+    tagline: "Photograph your paper evidence — AI builds one organized packet.",
+    detail: "Take a neat photo of each piece of paper evidence, one by one — keep the originals, no need to sort or stack them yourself first. AI reads all of it against your case's own complaint — names, parties, what happened — and organizes it into one single document, grouped and separated by category (e.g. diagnosis records, arresting officer, transactions). Print that one document and you have your whole paper evidence packet, organized, separate from your video exhibits.",
   },
 ] as const;
 

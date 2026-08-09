@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -475,11 +475,26 @@ const TOOL_BUBBLES = [
     tagline: "Divorce, custody, and support — organized.",
     detail: "Divorce & dissolution (asset division, spousal support, settlement agreements) · Child custody & visitation (parenting plans, custody schedules, best-interest-of-child documentation) · Child support calculations · Protective orders.",
   },
+  {
+    id: "evidence-organizer",
+    icon: ScanText,
+    title: "Evidence Organizer",
+    tagline: "Photograph your paper evidence — AI sorts it into stacks.",
+    detail: "Take a photo of each piece of paper evidence (or a few related pages together, like matching medical records). AI reads all of it against your case's own complaint — names, parties, what happened — and groups it into categories (e.g. diagnosis records, arresting officer, transactions). Generates a printable cover sheet for each category to stamp on top of the matching physical stack, so your paperwork walks into court organized and separate from your video exhibits.",
+  },
 ] as const;
+
+// Icons for the decorative scrolling marquee — every tool, including
+// Illustrative Aid Script, the one real/working tool, which isn't part of
+// TOOL_BUBBLES itself since it navigates instead of expanding a detail card.
+const MARQUEE_ICONS = [
+  { id: "illustrative-aid-script", icon: ScrollText },
+  ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
+];
 
 const TOOLS_MARQUEE_BUBBLE_SIZE = 56;
 const TOOLS_MARQUEE_GAP = 16;
-const TOOLS_MARQUEE_SET_WIDTH = TOOL_BUBBLES.length * (TOOLS_MARQUEE_BUBBLE_SIZE + TOOLS_MARQUEE_GAP);
+const TOOLS_MARQUEE_SET_WIDTH = MARQUEE_ICONS.length * (TOOLS_MARQUEE_BUBBLE_SIZE + TOOLS_MARQUEE_GAP);
 // Enough copies that the strip is always wider than the viewport at any
 // scroll offset — with only a handful of tools, 2 copies runs out of
 // content before one full loop, leaving a visible gap.
@@ -532,7 +547,7 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
       {/* Sliding tool-icon marquee — the actual tools, with a glow that chases down the strip */}
       <div style={{ overflow: "hidden", margin: "36px auto 24px", width: "100%" }}>
         <div style={{ display: "flex", gap: TOOLS_MARQUEE_GAP, width: "max-content", animation: `hlToolsMarquee ${TOOLS_MARQUEE_REPEATS * 7}s linear infinite` }}>
-          {Array.from({ length: TOOLS_MARQUEE_REPEATS }, () => TOOL_BUBBLES).flat().map((tool, i) => {
+          {Array.from({ length: TOOLS_MARQUEE_REPEATS }, () => MARQUEE_ICONS).flat().map((tool, i) => {
             const Icon = tool.icon;
             const glowDelay = `${i * TOOLS_MARQUEE_GLOW_STAGGER}s`;
             return (

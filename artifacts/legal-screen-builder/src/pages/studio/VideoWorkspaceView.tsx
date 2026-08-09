@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { FilePicker } from "@capawesome/capacitor-file-picker";
 import { Filesystem } from "@capacitor/filesystem";
@@ -1181,18 +1180,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // this state is only read at Next/Done to combine and save.
   const [guidedAnswer1Text, setGuidedAnswer1Text] = useState("");
   const [guidedAnswer2Text, setGuidedAnswer2Text] = useState("");
-  // The ONE main <video> element gets portaled between these two slots
-  // depending on whether the guided flow is open — never a second video
-  // element. That earlier crash ("video decoding failed") came from two
-  // simultaneous decoders on the same source; a portal moves the same
-  // decoder/element around instead of creating another one, so the guided
-  // flow gets the real, live, scrubbable player (bigger, per what was
-  // actually asked for) with zero risk of that crash recurring. Callback
-  // refs (not plain useRef) because rendering has to react to the slot
-  // actually mounting before the portal has anywhere to render into.
-  const [normalVideoSlot, setNormalVideoSlot] = useState<HTMLDivElement | null>(null);
-  const [guidedVideoSlot, setGuidedVideoSlot] = useState<HTMLDivElement | null>(null);
   const guidedOverlayRef = useRef<HTMLDivElement>(null);
+  // Empty placeholder inside the guided overlay that just reserves layout
+  // space — the real <video> element stays put in its one permanent DOM
+  // spot (Step 1's own layout) and gets popped visually on top of this
+  // slot via fixed positioning, measured fresh off this ref. Never moved
+  // in the DOM (a portal did that before and silently broke playback).
+  const guidedVideoSlotRef = useRef<HTMLDivElement>(null);
   // Two separate iOS/WKWebView issues handled here, both fixed by acting
   // directly on the DOM through a ref rather than through React state — the
   // very first attempt at any of this drove container height off React
@@ -1222,9 +1216,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     const el = guidedOverlayRef.current;
     if (!el) return;
     const vv = window.visualViewport;
+    const video = videoRef.current;
     const correct = () => {
       if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
       if (vv) el.style.height = `${vv.height}px`;
+      // Pop the single, permanent <video> element out on top of the slot
+      // below — never re-parented, just repositioned via fixed + a rect
+      // measured fresh every time (after the height correction above, so
+      // it reflects the settled layout, not a stale one mid-keyboard-
+      // animation).
+      const slot = guidedVideoSlotRef.current;
+      if (slot && video) {
+        const r = slot.getBoundingClientRect();
+        video.style.position = "fixed";
+        video.style.top = `${r.top}px`;
+        video.style.left = `${r.left}px`;
+        video.style.width = `${r.width}px`;
+        video.style.height = `${r.height}px`;
+        video.style.maxHeight = "none";
+        video.style.zIndex = "851";
+        video.style.objectFit = "contain";
+      }
     };
     window.addEventListener("scroll", correct, { passive: true });
     vv?.addEventListener("resize", correct);
@@ -1235,6 +1247,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       vv?.removeEventListener("resize", correct);
       vv?.removeEventListener("scroll", correct);
       el.style.height = "";
+      if (video) {
+        video.style.position = "";
+        video.style.top = "";
+        video.style.left = "";
+        video.style.width = "";
+        video.style.height = "";
+        video.style.maxHeight = "";
+        video.style.zIndex = "";
+        video.style.objectFit = "";
+      }
     };
   }, [guidedChunkId]);
   const [trashDragOver, setTrashDragOver] = useState(false);
@@ -2075,12 +2097,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setGuidedAnswer2Text(chunk.impactAnswer ?? "");
     setGuidedQuestionIndex(0);
     setGuidedChunkId(chunk.id);
-    // The video is about to get portaled into the guided overlay (see
-    // mainVideoElement/activeVideoSlot) — line it up on this moment's own
-    // start and play it automatically, rather than leaving it paused
-    // wherever it happened to be sitting before. Re-parenting via the
-    // portal doesn't interrupt playback, so it's safe to kick this off
-    // immediately rather than waiting for the overlay to actually open.
+    // The video's CSS position pops into the guided overlay's slot (see
+    // the guidedChunkId-conditional styling below) — line it up on this
+    // moment's own start and play it automatically, rather than leaving
+    // it paused wherever it happened to be sitting before.
     const v = videoRef.current;
     if (v) {
       v.pause();
@@ -3077,11 +3097,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
 
-  // The single main <video> element — portaled into either normalVideoSlot
-  // (Step 1's own layout) or guidedVideoSlot (the guided moment flow) below,
-  // never rendered twice. All handlers are exactly as before; only the size
-  // changes between the two slots.
-  const inGuidedFlow = !!guidedChunkId;
+  // The single main <video> element — always in this one spot in the DOM
+  // (Step 1's own layout), never re-parented. When the guided flow is open
+  // it pops out visually on top of the guided overlay's slot via the
+  // fixed-position styles applied imperatively in the effect above; these
+  // are the DEFAULT (Step 1) styles that apply whenever that effect's
+  // cleanup has reset them.
   const mainVideoElement = (
     <video
       ref={videoRef as React.RefObject<HTMLVideoElement>}
@@ -3091,9 +3112,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       // ahead of time, and it means play() doesn't have to kick off
       // buffering from a cold start on every press.
       preload="auto"
-      style={inGuidedFlow
-        ? { width: "100%", height: "100%", borderRadius: 12, background: "#000", display: "block", objectFit: "contain" }
-        : { width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
+      style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
       onTimeUpdate={e => {
         setCurrentTime(e.currentTarget.currentTime);
         currentTimeRef.current = e.currentTarget.currentTime;
@@ -3163,7 +3182,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       }}
     />
   );
-  const activeVideoSlot = inGuidedFlow ? guidedVideoSlot : normalVideoSlot;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#050505" }}>
@@ -3387,9 +3405,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
              The <video> element is ALWAYS in the DOM so videoRef.current
              is never null when loadVideo() fires inside the gesture handler.
              iOS silently ignores video.load() calls made outside a gesture.
-             The actual <video> JSX now lives in mainVideoElement below and
-             gets portaled in here (normalVideoSlot) — this div is just an
-             empty placeholder that reserves the same layout space. */}
+             It's rendered directly here (mainVideoElement, defined above) —
+             this is its one permanent home; the guided flow pops it out
+             visually via fixed positioning instead of moving it. */}
         <div style={{ marginBottom: 12, position: "relative", display: videoUrl ? "block" : "none" }}>
           {/* Thumbnail extractor — MUST be IN-VIEWPORT: iOS Safari only
                presents decoded frames for elements inside the viewport.
@@ -3415,8 +3433,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               borderRadius: 12,
             }}
           />
-          <div ref={setNormalVideoSlot} style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }} />
-          {activeVideoSlot && createPortal(mainVideoElement, activeVideoSlot)}
+          {mainVideoElement}
           {/* Preview mode badge */}
           {isPreviewMode && (
             <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
@@ -3961,18 +3978,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                   <div style={{ width: 18 }} />
                 </div>
 
-                {/* The real, live video — portaled in from the single main
-                    player (mainVideoElement/activeVideoSlot near the top of
-                    the component), never a second <video> element. That's
-                    exactly what avoids the earlier "video decoding failed"
-                    crash, which came from two simultaneous decoders on the
-                    same source — this reuses the one that's already open
-                    and just displays it bigger here. Play/pause and ±5s
-                    live right here on the moment editor, not on the plain
-                    Step 1 controls, since scrubbing this exact moment while
-                    answering is the point. */}
+                {/* The real, live video shows here — not rendered in this
+                    subtree, just visually popped on top of it. The single
+                    permanent <video> element (mainVideoElement, Step 1's own
+                    layout) stays exactly where it is in the DOM; a
+                    useEffect measures this slot's rect and applies fixed
+                    positioning directly to the video element so it appears
+                    right here, bigger. Never a second <video> element —
+                    that's what caused the earlier "video decoding failed"
+                    crash (two simultaneous decoders on the same source).
+                    Play/pause and ±5s live right here on the moment editor,
+                    not on the plain Step 1 controls, since scrubbing this
+                    exact moment while answering is the point. */}
                 <div style={{ flexShrink: 0, position: "relative", margin: "0 16px", height: "30vh" }}>
-                  <div ref={setGuidedVideoSlot} style={{ width: "100%", height: "100%", borderRadius: 12, background: "#000" }} />
+                  <div ref={guidedVideoSlotRef} style={{ width: "100%", height: "100%", borderRadius: 12, background: "#000" }} />
                   <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, pointerEvents: "none" }}>
                     <button onClick={() => skipMain(-5)} title="Back 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
                       <RotateCcw size={16} color="#fff" />

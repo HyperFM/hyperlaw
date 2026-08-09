@@ -3967,7 +3967,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                     to the moment list the instant the keyboard came up. dvh is
                     the browser's own native, well-tested answer to exactly this
                     problem — no JS, no resize listener, nothing to thrash. */}
-                <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "transparent", zIndex: 850, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* zIndex 852 — deliberately ABOVE the popped-out video's
+                    851 (see the guidedChunkId effect above). The video is a
+                    separate fixed element elsewhere in the DOM, not a
+                    descendant of this div, so its z-index competes directly
+                    with this div's own — if this weren't higher, the video
+                    would render on top of and hide this overlay's own
+                    play/±5s buttons, which sit visually over the video's
+                    slot but are still real descendants of this div. */}
+                <div ref={guidedOverlayRef} style={{ position: "fixed", left: 0, right: 0, top: 0, height: "100dvh", background: "transparent", zIndex: 852, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 16px", paddingTop: "calc(4px + env(safe-area-inset-top))" }}>
                   <button onClick={cancelGuidedMoment} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
                     <X size={18} color="#666" />

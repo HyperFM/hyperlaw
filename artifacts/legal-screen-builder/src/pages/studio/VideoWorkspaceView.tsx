@@ -13,9 +13,9 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
+import { saveStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
 import { downscaleCasePhoto } from "../../lib/casePhoto";
-import type { ExportSettings, StudioSnapshot } from "./studioIndexedDB";
+import type { ExportSettings } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
 
@@ -55,15 +55,6 @@ function formatTime(sec: number): string {
   const s = Math.floor(sec % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function relativeTime(ms: number): string {
-  const diff = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (diff < 60) return `${diff} second${diff !== 1 ? "s" : ""} ago`;
-  const mins = Math.floor(diff / 60);
-  if (mins < 60) return `${mins} minute${mins !== 1 ? "s" : ""} ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs} hour${hrs !== 1 ? "s" : ""} ago`;
 }
 
 // ── Jurisdiction verify hold button ─────────────────────────────────────────
@@ -1164,6 +1155,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const [batchErrors, setBatchErrors] = useState<string[]>([]);
+  // Tap-to-view for a single generated exhibit screen in Step 3's list — its
+  // own state, deliberately separate from previewOverlayMarkerId (the old
+  // Preview-mode sequenced walkthrough): that one auto-resumes video
+  // playback when dismissed, which isn't wanted here.
+  const [viewingScreenMarkerId, setViewingScreenMarkerId] = useState<string | null>(null);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -1422,8 +1418,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     resKey: "1080", fps: 30, format: "mp4", includeAudio: true,
   });
 
-  // ── IndexedDB recovery ─────────────────────────────────────────
-  const [recoverySnapshot, setRecoverySnapshot] = useState<StudioSnapshot | null>(null);
   const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentTimeRef = useRef(0);
   // snapshotRef holds latest values so the debounced IDB write always sees fresh data
@@ -1621,22 +1615,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
         exportSettings: snapshotRef.current.exportSettings,
       });
     }, 3000);
-  }
-
-  async function handleRestore() {
-    if (!recoverySnapshot) return;
-    setMarkersRaw(recoverySnapshot.markers);
-    setChunks(recoverySnapshot.chunks);
-    setExportSettings(recoverySnapshot.exportSettings);
-    setRecoverySnapshot(null);
-    await clearStudioSnapshot(hlCase.id);
-    // Immediately persist restored markers/chunks to server
-    triggerAutosave(recoverySnapshot.markers, recoverySnapshot.chunks);
-  }
-
-  async function handleDiscard() {
-    setRecoverySnapshot(null);
-    await clearStudioSnapshot(hlCase.id);
   }
 
   function undo() {
@@ -3037,6 +3015,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     setShowExhibitGenerator(false);
   }
 
+  // Moments in the order the video will actually play (Organize step's
+  // order, if it accounts for every chunk) — used both to pick generation
+  // order and to lay out Step 3's list, so the list's order always matches
+  // what Generate Screens actually processes.
+  function orderedChunksForExhibit(): VideoChunk[] {
+    const hasFullOrder = organizedSlots.some(Boolean);
+    const fromSlots = hasFullOrder
+      ? organizedSlots.filter((id): id is string => !!id).map(id => chunks.find(c => c.id === id)).filter((c): c is VideoChunk => !!c)
+      : [];
+    return fromSlots.length === chunks.length && fromSlots.length > 0
+      ? fromSlots
+      : [...chunks].sort((a, b) => a.start - b.start);
+  }
+
   // ── Generate Screens — one exhibit screen per moment, all at once ──
   // Every moment already has its own answers from Chunk & Label; there's no
   // reason to make someone re-describe each one by hand here too. Reuses the
@@ -3047,13 +3039,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // re-running this never duplicates or clobbers existing work.
   async function generateAllExhibitScreens() {
     if (batchGenerating) return;
-    const hasFullOrder = organizedSlots.some(Boolean);
-    const fromSlots = hasFullOrder
-      ? organizedSlots.filter((id): id is string => !!id).map(id => chunks.find(c => c.id === id)).filter((c): c is VideoChunk => !!c)
-      : [];
-    const ordered = fromSlots.length === chunks.length && fromSlots.length > 0
-      ? fromSlots
-      : [...chunks].sort((a, b) => a.start - b.start);
+    const ordered = orderedChunksForExhibit();
     const targets = ordered.filter(c =>
       c.label.trim() && !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id)
     );
@@ -3207,25 +3193,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     }
   }
 
-  // ── Recovery check on mount ─────────────────────────────────────
-  useEffect(() => {
-    loadStudioSnapshot(hlCase.id).then(snapshot => {
-      if (!snapshot) return;
-      const serverUpdatedAt = hlCase.studioProject?.updatedAt ?? 0;
-      const serverMarkersJson = JSON.stringify(hlCase.studioProject?.markers ?? []);
-      // chunks (Chunk & Label's real moments) used to be left out of this
-      // comparison entirely, so a locally-recoverable difference there never
-      // surfaced this banner at all — only marker differences did, and this
-      // app's actual workflow barely uses markers.
-      const serverChunksJson = JSON.stringify(hlCase.studioProject?.chunks ?? []);
-      const markersDiffer = JSON.stringify(snapshot.markers) !== serverMarkersJson;
-      const chunksDiffer = JSON.stringify(snapshot.chunks ?? []) !== serverChunksJson;
-      if (snapshot.savedAt > serverUpdatedAt && (markersDiffer || chunksDiffer)) {
-        setRecoverySnapshot(snapshot);
-      }
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Nothing to restore on mount — the video isn't stored anywhere but this
   // browser tab's memory for the current session (see loadVideo's header
   // comment). If this case was worked on before, `videoFileName` is already
@@ -3256,6 +3223,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // Badge count: number of things the user should know about (jurisdiction missing = 1)
   const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
+  const viewingScreenMarker = markers.find(m => m.id === viewingScreenMarkerId) ?? null;
   // Total time actually removed by video_cut markers (the cut tool, and
   // deleted moments) — subtracted from the raw duration so the time shown
   // next to the play button matches what actually plays, not the length
@@ -3543,32 +3511,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
       {/* ── Scrollable content ─────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 140px" }}>
 
-        {/* ── Recovery banner ───────────────────────────────────────── */}
-        {recoverySnapshot && (
-          <div style={{ background: "#1a1000", border: "1px solid #6b4a00", borderRadius: 12, padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <RotateCcw size={15} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#f59e0b", marginBottom: 3 }}>
-                Unsaved workspace recovered
-              </div>
-              <div style={{ fontSize: 12, color: "#a37a00", lineHeight: 1.55, marginBottom: 10 }}>
-                {recoverySnapshot.chunks?.length ?? 0} moment{(recoverySnapshot.chunks?.length ?? 0) !== 1 ? "s" : ""}
-                {recoverySnapshot.markers.length > 0 ? ` and ${recoverySnapshot.markers.length} marker${recoverySnapshot.markers.length !== 1 ? "s" : ""}` : ""} from {relativeTime(recoverySnapshot.savedAt)} — restore to pick up where you left off.
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={handleRestore}
-                  style={{ background: "#f59e0b", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer" }}>
-                  Restore
-                </button>
-                <button onClick={handleDiscard}
-                  style={{ background: "none", border: "1px solid #4a3000", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, color: "#7a5a00", cursor: "pointer" }}>
-                  Discard
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── Video area ─────────────────────────────────────────────
              The <video> element is ALWAYS in the DOM so videoRef.current
              is never null when loadVideo() fires inside the gesture handler.
@@ -3801,36 +3743,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
           </div>
           <div style={{ flex: 1 }} />
 
-          {/* Preview mode toggle */}
-          {videoUrl && markers.some(m => m.type === "screen_cut" || m.type === "exhibit_screen") && (
-            <button
-              onClick={() => {
-                if (isPreviewMode) {
-                  if (sequencedHoldTimerRef.current) clearTimeout(sequencedHoldTimerRef.current);
-                  setPreviewSeqIndex(null);
-                  setPreviewOverlayMarkerId(null);
-                  setIsPreviewMode(false);
-                } else if (previewSequence.length > 0) {
-                  // Organized order exists — play it as Exhibit → Clip → Exhibit → Clip
-                  // instead of the raw video's own chronological order.
-                  setIsPreviewMode(true);
-                  playSequencedStep(0);
-                } else {
-                  previewTriggeredRef.current = new Set();
-                  seek(0);
-                  setIsPreviewMode(true);
-                  setTimeout(() => {
-                    const v = videoRef.current;
-                    if (v) v.play().catch(() => {});
-                  }, 150);
-                }
-              }}
-              title={isPreviewMode ? "Exit preview" : previewSequence.length > 0 ? "Preview in your organized order" : "Preview with screen cuts"}
-              style={{ background: isPreviewMode ? ORANGE : "#111", border: `1px solid ${isPreviewMode ? ORANGE : "#222"}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: isPreviewMode ? "#000" : "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-              {isPreviewMode ? <StopCircle size={12} /> : <PlayCircle size={12} />}
-              {isPreviewMode ? "Stop Preview" : "Preview"}
-            </button>
-          )}
+          {/* Preview mode toggle removed — clicking it while the video was
+              still loading/preparing thumbnails threw a hard error with no
+              good recovery. Step 3 now shows generated screens inline as
+              they're made instead of needing a separate preview pass. The
+              underlying isPreviewMode/previewSequence machinery is left in
+              place (unreachable via UI) rather than torn out here — it's a
+              large, separate subsystem not otherwise touched by this change. */}
 
           {/* Cut tool — tap once to mark where a cut starts, tap again after
               moving the playhead to remove everything in between for good.
@@ -4433,6 +4352,36 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 </div>
               </div>
             )}
+            {/* Moments in the same order Generate Screens processes them —
+                each one starts as its ordinary moment card (renderMomentCard,
+                same as Step 1) and swaps for the generated screen the instant
+                it's ready, live, while the batch keeps running. Tap a
+                finished screen to view it larger. */}
+            {chunks.length > 0 && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                {orderedChunksForExhibit().map((c, i) => {
+                  const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
+                  if (screenMarker?.exhibitScreen) {
+                    return (
+                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
+                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                        <div style={{ borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+                          <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.18} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4 }}>
+                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view</div>
+                        </div>
+                      </button>
+                    );
+                  }
+                  return renderMomentCard(c, i);
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -4517,6 +4466,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
               if (v) v.play().catch(() => {});
             }
           }}
+        />
+      )}
+
+      {/* ── Step 3's own "tap to view a generated screen" — no video-resume
+          side effect, unlike the overlay above. ─────────────────────── */}
+      {viewingScreenMarkerId && viewingScreenMarker && (
+        <PreviewScreenOverlay
+          marker={viewingScreenMarker}
+          onDone={() => setViewingScreenMarkerId(null)}
         />
       )}
 

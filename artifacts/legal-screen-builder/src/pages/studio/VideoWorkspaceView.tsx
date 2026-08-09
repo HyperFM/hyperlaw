@@ -515,11 +515,14 @@ function VideoTimeline({
 }
 
 // ── Slot Cell (Step 3 Organize track) ─────────────────────────────────────────
-function SlotCell({ index, chunk, onDrop, onClear }: {
+// No clear/remove control here on purpose — organizing only ever moves a
+// moment around (drag a different one onto this slot to replace it, or drag
+// this one elsewhere), it never deletes. Deleting a moment only happens back
+// in Chunk & Label.
+function SlotCell({ index, chunk, onDrop }: {
   index: number;
   chunk: VideoChunk | null;
   onDrop: (chunkId: string) => void;
-  onClear: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -536,19 +539,12 @@ function SlotCell({ index, chunk, onDrop, onClear }: {
         display: "flex", alignItems: "center", justifyContent: "center",
         transition: "all 0.12s", cursor: "default", overflow: "hidden" }}>
       {chunk ? (
-        <>
-          <div style={{ padding: "6px 8px", fontSize: 9, fontWeight: 800, color: "#bbb",
-            textAlign: "center", lineHeight: 1.35,
-            overflow: "hidden", display: "-webkit-box",
-            WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
-            {chunk.label || `Moment`}
-          </div>
-          <button onClick={e => { e.stopPropagation(); onClear(); }}
-            style={{ position: "absolute", top: 3, right: 3, background: "none", border: "none",
-              cursor: "pointer", padding: 2, lineHeight: 0 }}>
-            <X size={10} color="#444" />
-          </button>
-        </>
+        <div style={{ padding: "6px 8px", fontSize: 9, fontWeight: 800, color: "#bbb",
+          textAlign: "center", lineHeight: 1.35,
+          overflow: "hidden", display: "-webkit-box",
+          WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
+          {chunk.label || `Moment`}
+        </div>
       ) : (
         <div style={{ fontSize: 11, color: "#252525", fontWeight: 800 }}>{index + 1}</div>
       )}
@@ -4299,11 +4295,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                             // Auto-expand if last slot is filled
                             const lastFilled = newSlots.reduce((acc, s, idx) => s ? idx : acc, -1);
                             if (lastFilled >= newSlots.length - 1) { newSlots.push(null); newSlots.push(null); }
-                            setOrganizedSlots(newSlots);
-                            triggerAutosave(markers, chunks, newSlots, currentStep);
-                          }}
-                          onClear={() => {
-                            const newSlots = organizedSlots.map((s, idx) => idx === i ? null : s);
                             setOrganizedSlots(newSlots);
                             triggerAutosave(markers, chunks, newSlots, currentStep);
                           }} />

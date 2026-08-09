@@ -2342,9 +2342,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
     }
   }
 
-  // ── Skip video_cut regions during playback ──────────────────────
+  // ── Skip video_cut regions on ANY seek, playing or not ──────────────
+  // Used to only fire while playing — but a manual scrub (paused) could
+  // still land inside a cut range and show/hear "deleted" footage, which
+  // is exactly backwards from a cut range being deleted, and also meant
+  // the raw video's last few seconds stayed reachable by dragging the
+  // scrubber even after they'd been cut, contradicting the (correctly
+  // shortened) duration shown next to the play button.
   useEffect(() => {
-    if (!isPlaying) return;
     for (const m of markers) {
       if (m.type === "video_cut" && m.cutEnd != null) {
         if (currentTime >= m.timestamp && currentTime < m.cutEnd) {
@@ -3590,22 +3595,78 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
             always safe, you just need to point the app back at the source
             file each time you open it (see loadVideo's header comment). ── */}
         {!videoUrl && videoFileName && (
-          <div style={{ background: markers.length > 0 ? "#081020" : "#1a0e00", border: `1px solid ${markers.length > 0 ? "#1a3060" : "#4a2800"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: markers.length > 0 ? "#4a80c0" : "#cc6600" }}>
-            <AlertCircle size={14} color={markers.length > 0 ? "#4a80c0" : "#cc6600"} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ flex: 1, lineHeight: 1.55 }}>
-              {markers.length > 0 ? (
-                <>
-                  <strong style={{ color: "#7ab0e0" }}>Your {markers.length} saved edit{markers.length !== 1 ? "s" : ""} are here.</strong>{" "}
-                  Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
-                </>
-              ) : (
-                <>Reload <strong>{videoFileName}</strong> to continue.</>
-              )}
+          <div style={{ background: "#081020", border: "1px solid #1a3060", borderRadius: 10, padding: "12px 14px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, color: "#4a80c0" }}>
+              <AlertCircle size={14} color="#4a80c0" style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1, lineHeight: 1.55 }}>
+                <strong style={{ color: "#7ab0e0" }}>Only edits are saved here.</strong>{" "}
+                Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
+                <div style={{ marginTop: 6, color: "#5a7aa0" }}>
+                  Make sure it's the exact same video — same length, no trims or re-exports — or moments will point at the wrong parts. Not sure it still matches? No worries, copy all your moments below first, just in case.
+                </div>
+              </div>
+              <button onClick={() => openFilePicker(fileInputRef)}
+                style={{ background: "#3b82f6", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
+                Reload
+              </button>
             </div>
-            <button onClick={() => openFilePicker(fileInputRef)}
-              style={{ background: markers.length > 0 ? "#3b82f6" : ORANGE, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0 }}>
-              Reload
-            </button>
+            {/* Available with no video loaded at all — these two only ever
+                touch `chunks`/`deletedChunks` state, never the video file
+                itself, so there's no reason to make someone reload first
+                just to grab their own text back out. */}
+            <div style={{ display: "flex", gap: 8 }}>
+              {chunks.length > 0 && (
+                <button onClick={copyAllMomentInfo}
+                  style={{ flex: 1, background: "none", border: "1px solid #1a3060", borderRadius: 10,
+                    padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "center",
+                    gap: 7, cursor: "pointer", fontWeight: 800, fontSize: 12, color: "#7ab0e0" }}>
+                  <Copy size={12} color="#7ab0e0" />
+                  Copy All Moment Info
+                </button>
+              )}
+              <button onClick={() => setShowPasteMoments(true)}
+                style={{ flex: 1, background: "none", border: "1px solid #1a3060", borderRadius: 10,
+                  padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: 7, cursor: "pointer", fontWeight: 800, fontSize: 12, color: "#7ab0e0" }}>
+                <ClipboardPaste size={12} color="#7ab0e0" />
+                Paste Moments
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Paste Moments modal — lives here, outside the videoUrl-gated Step 1
+            block, so the reload-banner's own Paste Moments button above (usable
+            with no video loaded at all) can open it too. */}
+        {showPasteMoments && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
+            onClick={() => setShowPasteMoments(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 22px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+              <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
+              <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>Paste Moments</div>
+              <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
+                Paste text you copied with "Copy All Moment Info" — it'll rebuild each moment with its exact original timestamp, short name, and label. Added alongside anything already here, not replacing it.
+              </div>
+              <textarea
+                autoFocus
+                value={pasteMomentsText}
+                onChange={e => setPasteMomentsText(e.target.value)}
+                placeholder={"Moment 1 — 0:00–0:12\nOfficer arrives\n..."}
+                style={{ width: "100%", minHeight: 140, background: "#111", border: "1px solid #252525",
+                  borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", fontFamily: "monospace",
+                  outline: "none", boxSizing: "border-box", marginBottom: 14, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setShowPasteMoments(false)}
+                  style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={importPastedMoments} disabled={!pasteMomentsText.trim()}
+                  style={{ flex: 1, background: pasteMomentsText.trim() ? ORANGE : "#2a2a2a", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 800, color: pasteMomentsText.trim() ? "#000" : "#666", cursor: pasteMomentsText.trim() ? "pointer" : "default" }}>
+                  Import
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -3941,38 +4002,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
                 Paste Moments
               </button>
             </div>
-
-            {showPasteMoments && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 300, display: "flex", alignItems: "flex-end" }}
-                onClick={() => setShowPasteMoments(false)}>
-                <div onClick={e => e.stopPropagation()} style={{ background: "#161311", borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 22px calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
-                  <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 20px" }} />
-                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", marginBottom: 10 }}>Paste Moments</div>
-                  <div style={{ fontSize: 13, color: "#aaa", lineHeight: 1.7, marginBottom: 16 }}>
-                    Paste text you copied with "Copy All Moment Info" — it'll rebuild each moment with its exact original timestamp, short name, and label. Added alongside anything already here, not replacing it.
-                  </div>
-                  <textarea
-                    autoFocus
-                    value={pasteMomentsText}
-                    onChange={e => setPasteMomentsText(e.target.value)}
-                    placeholder={"Moment 1 — 0:00–0:12\nOfficer arrives\n..."}
-                    style={{ width: "100%", minHeight: 140, background: "#111", border: "1px solid #252525",
-                      borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", fontFamily: "monospace",
-                      outline: "none", boxSizing: "border-box", marginBottom: 14, resize: "vertical" }}
-                  />
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button onClick={() => setShowPasteMoments(false)}
-                      style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
-                      Cancel
-                    </button>
-                    <button onClick={importPastedMoments} disabled={!pasteMomentsText.trim()}
-                      style={{ flex: 1, background: pasteMomentsText.trim() ? ORANGE : "#2a2a2a", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 800, color: pasteMomentsText.trim() ? "#000" : "#666", cursor: pasteMomentsText.trim() ? "pointer" : "default" }}>
-                      Import
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {deletedChunks.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>

@@ -14,6 +14,7 @@ import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
+import { pushDebug } from "../../lib/debugLog";
 import { downscaleCasePhoto } from "../../lib/casePhoto";
 import type { ExportSettings } from "./studioIndexedDB";
 
@@ -1078,13 +1079,9 @@ interface Props {
   hlCase: HLCase;
   onUpdateCase: (c: HLCase) => void;
   onBack: () => void;
-  /** Admin/tester accounts only — the diagnostic overlay dumps raw internal
-   *  state (file paths, playback events, picker results) that regular users
-   *  have no use for and shouldn't see. */
-  showDebug?: boolean;
 }
 
-export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showDebug = false }: Props) {
+export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Props) {
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
@@ -1365,25 +1362,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
   // instead of re-running the whole seek-by-seek capture pass. Cleared after
   // being consumed once so a later "Change video" doesn't reuse stale frames.
   const cachedThumbsRef = useRef<string[] | null>(null);
-  // ── On-screen debug log (thumbnail + native-picker diagnostics) ──
-  // Kept on permanently as a pull-out sidebar (not a fixed overlay) with a
-  // copy button, so it's available for reporting future issues without
-  // getting in the way of normal use (the console [thumbs]/[PICKER] logs
-  // always run regardless of this flag). Admin/tester accounts only — see
-  // showDebug's own doc comment on Props.
-  const THUMB_DEBUG = showDebug;
-  const [debugLog, setDebugLog] = useState<string[]>([]);
-  const debugLogRef = useRef<string[]>([]);
-  const pushDebug = useCallback((line: string) => {
-    if (!THUMB_DEBUG) return;
-    debugLogRef.current = [...debugLogRef.current, line];
-    setDebugLog([...debugLogRef.current]);
-  }, [THUMB_DEBUG]);
-  // Closed by default — a pull-tab on the edge opens it as a sidebar instead
-  // of a fixed bottom overlay always covering part of the screen.
-  const [debugSidebarOpen, setDebugSidebarOpen] = useState(false);
-  const [debugCopied, setDebugCopied] = useState(false);
-
   // ── Preview mode ───────────────────────────────────────────────
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewOverlayMarkerId, setPreviewOverlayMarkerId] = useState<string | null>(null);
@@ -4661,85 +4639,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, showD
         </div>
       )}
 
-      {/* ── Diagnostics pull-tab — always available (once there's anything
-          logged) without covering the screen the way a fixed bottom overlay
-          did. Tap to slide the sidebar out. ── */}
-      {debugLog.length > 0 && !debugSidebarOpen && (
-        <button
-          onClick={() => setDebugSidebarOpen(true)}
-          style={{
-            position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 9998,
-            background: "#0a0a0a", border: "1px solid #333", borderRight: "none",
-            borderRadius: "8px 0 0 8px", padding: "10px 6px", cursor: "pointer",
-            writingMode: "vertical-rl", fontFamily: "monospace", fontSize: 10, fontWeight: 700,
-            color: "#0f0", letterSpacing: 1,
-          }}>
-          DEBUG ({debugLog.length})
-        </button>
-      )}
-
-      {/* ── Diagnostics panel — a centered square, not a full-height sidebar
-          (which stretched under the status bar and made Copy/X unreachable). ── */}
-      {debugSidebarOpen && (
-        <div
-          onClick={() => setDebugSidebarOpen(false)}
-          style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              width: "min(320px, 85vw)", height: "min(320px, 85vw)",
-              background: "rgba(0,0,0,0.94)", border: "1px solid #333", borderRadius: 14,
-              display: "flex", flexDirection: "column",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
-            }}>
-            <div style={{
-              flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
-              padding: "10px 10px", borderBottom: "1px solid #222",
-            }}>
-              <div style={{ flex: 1, fontWeight: 700, color: "#ff0", fontSize: 11, fontFamily: "monospace" }}>
-                DIAGNOSTICS ({debugLog.length})
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(debugLog.join("\n")).then(() => {
-                    setDebugCopied(true);
-                    setTimeout(() => setDebugCopied(false), 1500);
-                  });
-                }}
-                style={{ background: debugCopied ? "#1a3a1a" : "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: debugCopied ? "#4ade80" : "#aaa", fontFamily: "monospace" }}>
-                {debugCopied ? "Copied!" : "Copy all"}
-              </button>
-              <button
-                onClick={() => {
-                  // debugLogRef is what pushDebug actually appends onto — clearing
-                  // only the displayed debugLog state and not this too would mean
-                  // the very next log line resurrects everything "cleared" right
-                  // alongside it, since pushDebug does [...debugLogRef.current, line].
-                  debugLogRef.current = [];
-                  setDebugLog([]);
-                }}
-                style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, fontWeight: 700, color: "#aaa", fontFamily: "monospace" }}>
-                Clear
-              </button>
-              <button onClick={() => setDebugSidebarOpen(false)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-                <X size={14} color="#888" />
-              </button>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px", fontFamily: "monospace", fontSize: 10, color: "#0f0", lineHeight: 1.5 }}>
-              {debugLog.map((line, i) => (
-                <div key={i} style={{ color: line.startsWith("[4]") || line.startsWith("[ERR]") ? "#f55" : "#0f0", wordBreak: "break-all" }}>
-                  {line}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

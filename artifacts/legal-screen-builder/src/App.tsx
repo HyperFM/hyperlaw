@@ -36,6 +36,7 @@ import WelcomeModal from "./components/WelcomeModal";
 import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import GuidanceMascot from "./components/GuidanceMascot";
+import DebugPanel from "./components/DebugPanel";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import UserChatDrawer from "./components/UserChatDrawer";
@@ -5696,7 +5697,6 @@ export default function App() {
             hlCase={studioCase}
             onUpdateCase={c => setData(updateCase(data, c))}
             onBack={() => setView({ type: "home" })}
-            showDebug={bypassPaywalls}
           />
         );
       }
@@ -5789,6 +5789,11 @@ export default function App() {
       {isMobile && view.type !== "document_intake" && (
         <BottomNavBar active={navTab} onChange={handleNavChange} caseCount={data.cases.length} />
       )}
+
+      {/* Admin/tester diagnostic log — mounted once here (not per-view) so it's
+          present on every page and the log survives navigating between them,
+          instead of only existing inside the Studio and disappearing on leaving it. */}
+      <DebugPanel enabled={bypassPaywalls} />
 
       {showNewIncident && (
         <NewIncidentOverlay

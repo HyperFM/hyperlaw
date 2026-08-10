@@ -342,10 +342,21 @@ router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Resp
   try {
     response = await aiService.createMessage({
       model: MODEL,
-      max_tokens: 8000,
+      // Was 8000 — this asks for a full polished spoken paragraph PER
+      // MOMENT, for every moment in the case, in ONE call (unlike
+      // /exhibit/generate, which is one call per moment). A real case
+      // with 15-17+ moments plus quotes/status-notes/corrections per
+      // moment can easily exceed 8000 output tokens, truncating mid-JSON
+      // and failing with "AI did not return valid JSON" — confirmed as
+      // the likely cause of this endpoint "not working" on a real 17-
+      // moment case. Raising the ceiling costs nothing extra unless
+      // actually used (billed by tokens generated, not the cap).
+      max_tokens: 16000,
       system: COURT_SCRIPT_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
-    });
+      // Raised alongside max_tokens above — a full-case script can
+      // legitimately take longer than the default 90s to generate.
+    }, { timeoutMs: 180_000 });
   } catch (err) {
     // Previously unguarded — a thrown error here (rate limit, overloaded,
     // bad API key) skipped straight to Express's default HTML error page,

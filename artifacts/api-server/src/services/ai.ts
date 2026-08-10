@@ -322,9 +322,14 @@ export class AiService {
   /** Public escape hatch for routes outside this service (exhibit.ts) that
    *  need a raw Claude call — gets the same retry-on-429/5xx behavior every
    *  method in this class already gets via withRetry, instead of reaching
-   *  around the private client with an unsafe cast and no retry at all. */
-  async createMessage(args: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
-    return withRetry(() => this.client.messages.create(args));
+   *  around the private client with an unsafe cast and no retry at all.
+   *  timeoutMs overrides the client's default 90s for one call — needed
+   *  for court-script, whose max_tokens (16000, covering every moment in
+   *  one call) can genuinely take longer than 90s to generate; raising
+   *  max_tokens without also raising this would just trade a truncated-
+   *  JSON failure for a timeout failure instead. */
+  async createMessage(args: Anthropic.MessageCreateParamsNonStreaming, opts?: { timeoutMs?: number }): Promise<Anthropic.Message> {
+    return withRetry(() => this.client.messages.create(args, opts?.timeoutMs ? { timeout: opts.timeoutMs } : undefined));
   }
 
   /** Cache-aware cost estimate for a raw createMessage() response — plain

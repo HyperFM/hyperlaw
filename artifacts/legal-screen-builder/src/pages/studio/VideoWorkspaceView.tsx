@@ -3777,14 +3777,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
 
       {/* ── Top Bar ──────────────────────────────────────────────── */}
       <div style={{ flexShrink: 0, background: "#0a0a0a", borderBottom: "1px solid #151515", padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+        {/* Leaving Studio entirely (this button, or the bottom nav bar
+            below) unmounts this whole view mid-generation — the call
+            still finishes and saves in the background (it's a direct
+            server save, not tied to this screen staying open), but
+            there's no way to see it finish or know it worked, which is
+            exactly what was reported. Disabled outright while generating,
+            same fix as the Illustrative Aid Script screen. */}
+        <button onClick={onBack} disabled={batchGenerating}
+          style={{ background: "none", border: "none", cursor: batchGenerating ? "not-allowed" : "pointer", padding: 4, display: "flex", alignItems: "center", opacity: batchGenerating ? 0.4 : 1 }}>
           <ArrowLeft size={18} color="#666" />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {hlCase.title}
+            {batchGenerating ? "Generating — stay on this screen…" : hlCase.title}
           </div>
-          {videoFileName && <div style={{ fontSize: 10, color: "#444", marginTop: 1 }}>{videoFileName}</div>}
+          {!batchGenerating && videoFileName && <div style={{ fontSize: 10, color: "#444", marginTop: 1 }}>{videoFileName}</div>}
         </div>
         {/* Autosave — "Saved" only shows once the server call actually
             succeeds (see runAutosave). No manual retry button, ever — a
@@ -5609,6 +5617,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         }}>
           {insertToast}
         </div>
+      )}
+
+      {/* Full-screen click guard while generating — the top-bar back button
+          above is disabled, but the app's bottom nav bar (Home/Builder/
+          Tutor/Profile, zIndex 100) stays visible and tappable during
+          Studio work and lives outside this component entirely, so
+          disabling this screen's own button isn't enough on its own to
+          stop someone switching tabs mid-generation and losing sight of
+          it. Sits above the nav bar (zIndex 950) and swallows every tap;
+          transparent, so the progress UI underneath stays fully visible. */}
+      {batchGenerating && (
+        <div
+          onClick={e => e.stopPropagation()}
+          onTouchMove={e => e.preventDefault()}
+          style={{ position: "fixed", inset: 0, zIndex: 950, background: "transparent", touchAction: "none" }}
+        />
       )}
 
     </div>

@@ -1242,6 +1242,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const [batchErrors, setBatchErrors] = useState<string[]>([]);
+  // Hard cap on retries per moment — a moment that fails 3 times in a row
+  // gets skipped automatically (Generate Next Screen moves on to the next
+  // one) instead of being something a person could keep re-tapping
+  // indefinitely. Session-only (a ref, not saved) — resets on reload.
+  const generationAttemptsRef = useRef<Record<string, number>>({});
+  const MAX_GENERATION_ATTEMPTS = 3;
   // Live elapsed-seconds counter while a generation call is in flight — the
   // button otherwise just says "Generating…" with no way to tell it's
   // actually still working versus silently stuck, which is exactly what
@@ -3216,9 +3222,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     if (batchGenerating) return;
     const ordered = orderedChunksForExhibit();
     const labeled = ordered.filter(c => c.label.trim());
-    const targets = labeled.filter(c => !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id));
+    const unscreened = labeled.filter(c => !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id));
+    // Skip anything that's already hit the retry cap — moves on to the next
+    // moment instead of getting stuck offering to retry the same failing
+    // one forever.
+    const targets = unscreened.filter(c => (generationAttemptsRef.current[c.id] ?? 0) < MAX_GENERATION_ATTEMPTS);
     if (targets.length === 0) {
-      showInsertToast(chunks.length === 0 ? "Chunk and label some moments first." : "Every moment already has an exhibit screen.");
+      if (unscreened.length > 0) {
+        const stuckIndices = unscreened.map(c => ordered.indexOf(c) + 1);
+        showInsertToast(`${unscreened.length} moment${unscreened.length !== 1 ? "s" : ""} failed ${MAX_GENERATION_ATTEMPTS} times and stopped retrying (moment${stuckIndices.length !== 1 ? "s" : ""} ${stuckIndices.join(", ")}) — use Emergency Fallback for those.`);
+      } else {
+        showInsertToast(chunks.length === 0 ? "Chunk and label some moments first." : "Every moment already has an exhibit screen.");
+      }
       return;
     }
     const chunk = targets[0];
@@ -3261,7 +3276,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       setBatchProgress({ done: doneSoFar + 1, total: labeled.length });
       showInsertToast(`Generated screen ${doneSoFar + 1} of ${labeled.length}.`);
     } catch (err) {
-      setBatchErrors([`Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}`]);
+      const attempts = (generationAttemptsRef.current[chunk.id] ?? 0) + 1;
+      generationAttemptsRef.current[chunk.id] = attempts;
+      const atCap = attempts >= MAX_GENERATION_ATTEMPTS;
+      setBatchErrors([
+        `Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}${atCap ? ` — failed ${attempts} times, won't auto-retry again. Use Emergency Fallback for this one.` : ` (attempt ${attempts}/${MAX_GENERATION_ATTEMPTS})`}`,
+      ]);
     } finally {
       setBatchGenerating(false);
     }

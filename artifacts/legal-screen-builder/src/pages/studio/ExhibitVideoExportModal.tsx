@@ -321,6 +321,31 @@ export default function ExhibitVideoExportModal({
 
             {/* ── Exhibit hold durations ── */}
             <SectionLabel>EXHIBIT HOLD LENGTH</SectionLabel>
+            {/* Set-all shortcut — editing each screen's hold time by hand
+                doesn't scale past a couple of exhibits, and hold time is a
+                real, direct lever on total export time/memory risk (every
+                second here is a second of real-time recording). */}
+            {displayMarkers.length > 1 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, color: "#666", fontWeight: 700 }}>Set all to</span>
+                <input
+                  type="number" min={1} max={120}
+                  defaultValue={DEFAULT_HOLD_SEC}
+                  id="export-set-all-hold"
+                  style={{ width: 52, background: "#0a0a0a", border: "1px solid #262626", borderRadius: 8, padding: "6px 8px", color: "#fff", fontSize: 13, fontWeight: 700, textAlign: "center", outline: "none" }}
+                />
+                <span style={{ fontSize: 11, color: "#666", fontWeight: 700 }}>sec</span>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById("export-set-all-hold") as HTMLInputElement | null;
+                    const n = Math.max(1, Math.min(120, Math.round(Number(el?.value) || DEFAULT_HOLD_SEC)));
+                    displayMarkers.forEach(m => onUpdateHold(m.id, n));
+                  }}
+                  style={{ background: "#141414", border: "1px solid #2a2a2a", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 800, color: ORANGE, cursor: "pointer" }}>
+                  Apply to all {displayMarkers.length}
+                </button>
+              </div>
+            )}
             {displayMarkers.length === 0 ? (
               <div style={{ fontSize: 12, color: "#555", lineHeight: 1.6, marginBottom: 8 }}>
                 No exhibits marked yet. Add exhibits on the timeline, then export — each holds on screen for its set number of seconds.

@@ -4357,7 +4357,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         })()}
 
         {/* ── Step Navigation ───────────────────────────────────────── */}
-        {videoUrl && (
+        {/* Was gated on videoUrl alone — Organize/Exhibit/Verification
+            Export all work purely off already-saved chunks/markers and
+            never touch the live video, so that gate meant re-picking and
+            re-copying a multi-gigabyte file into the app was a hard
+            prerequisite just to reach Generate Screens or Export, every
+            single time the app restarted. Now available whenever there's
+            already saved work to act on, video loaded or not — Step 1
+            (Chunk & Label) still needs the live video for its own step
+            block below, unaffected by this. */}
+        {(videoUrl || chunks.length > 0) && (
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
             {(["Chunk & Label", "Organize", "Exhibit", "Verification Export"] as const).map((label, i) => {
               const s = i + 1;
@@ -4743,11 +4752,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               </button>
               <button
                 onClick={generateAllExhibitScreens}
-                disabled={!videoUrl || batchGenerating}
-                style={{ flex: 1, background: !videoUrl || batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
+                // generateAllExhibitScreens only ever reads chunks (already
+                // saved) and calls the AI directly — it never touches
+                // videoRef/videoUrl at all. Gating it on the video being
+                // loaded meant re-picking and re-copying a multi-gigabyte
+                // file into the app was a hard prerequisite for something
+                // that never needed it, every single time the app restarted.
+                disabled={batchGenerating}
+                style={{ flex: 1, background: batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
                   padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
-                  gap: 8, cursor: !videoUrl || batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
-                  color: !videoUrl || batchGenerating ? "#666" : "#000" }}>
+                  gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
+                  color: batchGenerating ? "#666" : "#000" }}>
                 {batchGenerating
                   ? <><Loader2 size={15} className="animate-spin" /> <GeneratingScreensMessage done={batchProgress?.done ?? 0} total={batchProgress?.total ?? 0} /></>
                   : <><Wand2 size={15} /> Generate Screens</>}

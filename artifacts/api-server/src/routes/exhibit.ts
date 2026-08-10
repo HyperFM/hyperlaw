@@ -609,13 +609,23 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
   try {
     response = await aiService.createMessage({
       model: MODEL,
-      max_tokens: 8000,
+      // Was 8000 — same truncation risk as /exhibit/court-script (fixed
+      // above): this asks for 2-3 full candidate layouts per moment, each
+      // with its own header/headline/findings/citations, and a complex
+      // case (lots of parties, claims, quotes to verify against) can push
+      // a single moment's response past 8000 tokens, truncating mid-JSON.
+      // Confirmed live: moment 3 failed twice in a row with exactly that
+      // symptom. Raised to match court-script; costs nothing extra unless
+      // actually needed.
+      max_tokens: 16000,
       system: systemPrompt,
       messages: [{
         role: "user",
         content: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}\n\n${dynamicBlock}`,
       }],
-    });
+      // Raised alongside max_tokens — a bigger allowed response can
+      // legitimately take longer than the shared 90s default to finish.
+    }, { timeoutMs: 120_000 });
   } catch (err) {
     // Previously unguarded — a thrown error here (rate limit, overloaded,
     // bad API key) skipped straight to Express's default HTML error page,

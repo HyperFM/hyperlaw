@@ -261,15 +261,18 @@ function buildStructuredCaseBlock(cd: Record<string, unknown>): string | null {
   return parts.length > 0 ? `CASE SUMMARY / KEY FACTS / CLAIMS (from case organization):\n${parts.join("\n\n")}` : null;
 }
 
-/** Uploaded documents (the complaint, discovery, etc.) — was truncated to
- *  2000 chars each, then 12000, both well below the 150000-char storage cap
- *  on uploadedDocumentsTable.extractedText, so a real multi-page complaint
- *  (the actual target use case) was still getting cut off before generation
- *  ever saw the back half of it. Raised to match the storage cap; still
- *  capped so a huge document can't blow out the context budget on its own. */
+/** Uploaded documents (the complaint, discovery, etc.) — was 2000, then
+ *  12000, then briefly 60000 to match the storage cap. 60000 was wrong for
+ *  THIS function specifically: /exhibit/generate calls it once PER MOMENT,
+ *  sequentially (each screen's own AI call), so every extra character here
+ *  gets resent and reprocessed on every single one of those calls — with
+ *  ~17+ moments in a batch, that's 17x the latency cost of raising it here,
+ *  unlike a one-shot endpoint. Settled on a middle ground: real gain over
+ *  the original 12000 for source verification, without the multiplied
+ *  slowdown 60000 caused on a real batch tonight. */
 function buildDocumentBlocks(docs: Array<{ text: string | null; fileName: string | null }>): string[] {
   return docs.map((d, i) =>
-    `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 60000)}`
+    `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 20000)}`
   );
 }
 

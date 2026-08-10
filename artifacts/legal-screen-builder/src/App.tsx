@@ -5451,6 +5451,27 @@ export default function App() {
     if (view.type === "studio_workspace") syncCasesFromServer();
   }, [view.type === "studio_workspace" ? view.caseId : null, syncCasesFromServer]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A device can be left parked on Studio for a case indefinitely (a laptop
+  // sitting open while all the real editing happens on a phone). Without
+  // this, that tab never looks at the server again after the effect above
+  // fires once on entry — it just sits there showing whatever it had at
+  // that moment, no matter how much newer work lands elsewhere. Poll while
+  // parked, and also re-check immediately whenever the tab/window regains
+  // focus, since that's exactly the moment someone switches devices to
+  // check on progress made on the other one.
+  useEffect(() => {
+    if (view.type !== "studio_workspace") return;
+    const interval = setInterval(syncCasesFromServer, 15000);
+    function onFocus() { if (!document.hidden) syncCasesFromServer(); }
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [view.type === "studio_workspace" ? view.caseId : null, syncCasesFromServer]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Auto-trigger Organization Engine when assembly completes ─────────────────
   useEffect(() => {
     data.cases.forEach(c => {

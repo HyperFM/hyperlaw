@@ -12,6 +12,7 @@ export interface ExhibitCandidate {
   rationale: string;
   verificationResults: FieldVerificationResult[];
   confidenceFlags: string[];
+  corrections: Array<{ field: string; from: string; to: string }>;
 }
 
 interface GenerateResult {

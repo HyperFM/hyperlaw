@@ -71,6 +71,40 @@ function verifySourceClaims(
   return results;
 }
 
+// ── Shared rule text — used by BOTH /exhibit/generate and /exhibit/court-script.
+// Deliberately defined once here rather than duplicated in each prompt string,
+// so a fix to one applies to both outputs the same way, from the same source
+// of truth. Neither endpoint calls the other — they stay independent so the
+// court-script tool keeps working even if slide generation is broken (that
+// independence is the whole point of the Emergency Fallback button) — but
+// the actual rule text and case-context building underneath both is shared.
+
+const STATUS_CLAIM_RULE = `STATUS-CLAIM RULE — this is read/shown on its own, not in the context of the whole video, so it must never assert something as a permanent fact when it was only true at this one moment. Any claim about charged/not-yet-charged, arrested/not-arrested, in-custody/released, guilty/not-guilty, or any other status that can change over the course of events MUST either (a) be explicitly time-qualified ("at this point," "up to this moment," "as of this stop") rather than stated as an absolute, or (b) if a FULL VIDEO TIMELINE / other moments in this same video are visible to you and show this status changing later, get flagged instead of asserted unqualified. Never generate a bare absolute like "NEVER CHARGED" or "NO CHARGES" when the only evidence for it is this one moment — you do not know what happens later unless you can see it, and if you can and it contradicts this moment's framing, that is exactly what the flags are for.`;
+
+const QUOTE_FIDELITY_RULE = `QUOTE-FIDELITY RULE — when characterizing what a named person "said," "claimed," "admitted," or "denied," the paraphrase must preserve the actual TYPE of claim being made, not just its punch. "No records or documentation exist" is a claim about paperwork — it is NOT the same as "they said it never happened," which is a denial of the underlying event. Collapsing a documentation-gap statement into an event-denial statement is a mischaracterization even if it sounds more dramatic. When genuinely uncertain which the source quote means, use the narrower, more literal paraphrase — accurate but less punchy is always preferable to punchier but overstated. Never sacrifice claim-type accuracy for impact.`;
+
+const NAME_CORRECTION_RULE = `NAME-CORRECTION RULE — dictation and hand-typed notes routinely misspell or mishear the same person's name multiple different ways across a case (e.g. "Hernton" / "Herndon" / "DeHurnton" for one officer). Before finalizing, check every name you're about to output against the PARTIES IN THIS CASE list using fuzzy/phonetic matching, not just exact-string matching — near-misses like the example above must be caught. For each name:
+- HIGH CONFIDENCE (the raw form is clearly a near-miss for exactly one party — a typo, misheard spelling, or phonetic variant, and no other party it could plausibly be): silently use the party's official spelling from the list in your output text, but ALSO report the change in a "corrections" array so the change is never invisible: {"field": "<where in your output>", "from": "<raw form>", "to": "<corrected form>"}.
+- LOW CONFIDENCE OR AMBIGUOUS (could plausibly match more than one party, or doesn't clearly match any): do NOT auto-correct — leave the raw text as given, and instead add an entry to confidence_flags naming the specific ambiguity (e.g. "'Ritchie' does not exactly match any known party — closest match: Officer Richie — please confirm").
+Never invent a party who isn't in the list. If no PARTIES block is provided, skip this check entirely (nothing to correct against).`;
+
+const CONTENT_SAFETY_RULE = `CONTENT-SAFETY RULE — this may be read aloud in open court, not shown as a private note. Strip profanity entirely and convert raw emotional venting into composed, factual statements ("I felt dehumanized" is fine; the raw version is not) — this is a hard content rule, not a style preference. If the source material contains crisis-level personal disclosure (self-harm history, suicide attempts, or similar), NEVER include it, paraphrased or otherwise — set skip_recommended true with a skip_reason that flags this needs a human decision, and leave the actual content out of spoken_script entirely rather than including any version of it.`;
+
+interface NameCorrection { field: string; from: string; to: string }
+
+/** Shared by both endpoints — parses the "corrections" array the
+ *  NAME_CORRECTION_RULE asks the model to report alongside its output. */
+function parseCorrections(raw: unknown): NameCorrection[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (c): c is NameCorrection =>
+      !!c && typeof c === "object" &&
+      typeof (c as Record<string, unknown>).field === "string" &&
+      typeof (c as Record<string, unknown>).from === "string" &&
+      typeof (c as Record<string, unknown>).to === "string",
+  );
+}
+
 // ── Exhibit generation prompt ─────────────────────────────────────────────────
 
 const EXHIBIT_SYSTEM_PROMPT = `You are an exhibit screen generator for HyperLaw, a legal evidence presentation platform.
@@ -112,9 +146,11 @@ Use classification "verified_fact" only for direct citations, "observation" for 
 
 If a PARTIES IN THIS CASE block is provided, use it to resolve who's who: dictation often refers to people by nickname, role, or description rather than full name. Populate header.actor and any badgeNumber/agency/title fields with the party's real name and details from that block, not the nickname itself, unless the dictation explicitly quotes someone using the nickname.
 
-STATUS-CLAIM RULE — this is a courtroom exhibit read on its own, not in the context of the whole video, so it must never assert something as a permanent fact when it was only true at this one moment. Any claim about charged/not-yet-charged, arrested/not-arrested, in-custody/released, guilty/not-guilty, or any other status that can change over the course of events MUST either (a) be explicitly time-qualified ("at this point," "up to this moment," "as of this stop") rather than stated as an absolute, or (b) if a FULL VIDEO TIMELINE block is provided below and it shows this status changing later in the same video, get flagged in confidence_flags instead of asserted unqualified. Never generate a bare absolute like "NEVER CHARGED" or "NO CHARGES" when the only evidence for it is this one moment — you do not know what happens later unless the timeline block says so, and if it does say so and it contradicts this moment's framing, that is exactly what confidence_flags is for.
+${STATUS_CLAIM_RULE}
 
-QUOTE-FIDELITY RULE — when a bullet or headline characterizes what a named person "said," "claimed," "admitted," or "denied," the paraphrase must preserve the actual TYPE of claim being made, not just its punch. "No records or documentation exist" is a claim about paperwork — it is NOT the same as "they said it never happened," which is a denial of the underlying event. Collapsing a documentation-gap statement into an event-denial statement is a mischaracterization even if it sounds more dramatic. When genuinely uncertain which the source quote means, use the narrower, more literal paraphrase — an accurate but less punchy slide is always preferable to a punchier one that overstates what was actually said. State this as a standing priority: never sacrifice claim-type accuracy for impact.
+${QUOTE_FIDELITY_RULE}
+
+${NAME_CORRECTION_RULE}
 
 If a FULL VIDEO TIMELINE block is provided below (every moment in this same video, in order), use it only to check this moment's own claims for the STATUS-CLAIM RULE above — do not pull content from other moments into this slide, this slide is still about the one moment you were asked to cover.
 
@@ -127,7 +163,8 @@ RETURN FORMAT — valid JSON only, no preamble:
       "selectedType": "<one of the 10 exhibit type IDs>",
       "content": { <the complete layout object matching the chosen layout's schema> },
       "rationale": "<one sentence: why this framing is persuasive>",
-      "confidence_flags": ["<anything you were not fully certain about — an unclear name, an ambiguous quote, a status claim that might be contradicted later in the video, a number that seems inconsistent. Empty array if none.>"]
+      "confidence_flags": ["<anything you were not fully certain about — an unclear name, an ambiguous quote, a status claim that might be contradicted later in the video, a number that seems inconsistent. Empty array if none.>"],
+      "corrections": [{"field": "<where in your output this was corrected>", "from": "<raw form>", "to": "<corrected form>"}]
     }
   ],
   "recommendedIndex": <index into candidates of the strongest one>,
@@ -142,18 +179,98 @@ RETURN FORMAT — valid JSON only, no preamble:
 // word for word, just legible. Kept intentionally conservative: copyediting
 // only, never rewriting, summarizing, or "elevating" the language.
 
-const COURT_SCRIPT_SYSTEM_PROMPT = `You are a court-reading script formatter for HyperLaw. You are given a self-represented litigant's own raw, dictated description of a moment of video evidence, exactly as they said it (repetition, false starts, and all). Your ONLY job is light copyediting so it reads naturally aloud in court — you are NOT a writer, summarizer, or legal drafter, and this is NOT the text that appears on the exhibit slide on screen.
+const COURT_SCRIPT_SYSTEM_PROMPT = `You are a court-reading script generator for HyperLaw. For each moment given (a self-represented litigant's own raw, dictated description of a moment of video evidence, exactly as they said it — repetition, false starts, rambling commentary and all), produce a polished, litigation-ready spoken paragraph meant to be read ALOUD while presenting that moment's clip in court — not shown as text on screen, and NOT the same output as an exhibit slide.
 
-STRICT RULES — read carefully, these are not suggestions:
-- Keep every substantive word and phrase the person used. Do not replace their vocabulary with different words, and do not make the tone more legal, formal, or polished than a lightly cleaned transcript.
-- Do not summarize, shorten, condense, or drop any statement, fact, or detail they included.
-- Do not add any new facts, claims, framing, or interpretation that wasn't already there.
-- DO remove: filler words (um, uh, like, you know — only when clearly meaningless filler), exact word/phrase repetition caused by dictation stutter (e.g. "he he hit me hit me" → "he hit me"), false starts that were clearly abandoned mid-sentence.
-- DO add: correct punctuation, capitalization, and paragraph/sentence breaks so it reads clearly aloud. Nothing else.
-- The result must still sound like the same person, in their own words and voice — a clean transcript, never a lawyer's rewrite. If a passage is already clean, return it nearly unchanged.
-- Process every moment provided, independently, in the same order they're given.
+Written in first person, in the litigant's own voice and vocabulary, cleaned up — composed and courtroom-appropriate, not a raw transcript, but still unmistakably the same person talking, not a lawyer's rewrite. Keep every substantive fact and detail they included; do not add facts, claims, or interpretation that wasn't there; do not add legal argument.
 
-Return ONLY valid JSON, no preamble: { "scripts": [ { "id": "<the moment id exactly as given>", "text": "<cleaned text>" }, ... ] }`;
+${CONTENT_SAFETY_RULE}
+
+${STATUS_CLAIM_RULE}
+
+${QUOTE_FIDELITY_RULE}
+
+${NAME_CORRECTION_RULE}
+
+LENGTH — one paragraph, readable aloud in roughly the time the clip itself takes to play (each moment's own start/end times are given below) — never several times longer than the clip actually runs.
+
+LEGAL CITATIONS ARE OPTIONAL per moment — only reference a statute or case law if the moment directly supports one; do not force a citation onto a moment that's purely factual or scene-setting.
+
+SKIP RECOMMENDATION — many moments in a typical case are pure narrative connective tissue: background, transitions, or reactions with no independent evidentiary content ("nothing really happens here"). Set "skip_recommended": true with a skip_reason whenever a moment doesn't need its own spoken script rather than forcing filler out of it — err toward flagging these, this should fire often, not rarely. When skip_recommended is true, spoken_script may be an empty string.
+
+You have access to every moment in this video below, in order — use the full set only to check each individual moment's own status claims per the STATUS-CLAIM RULE. Still write a script only for the ONE moment each output entry is for; do not pull other moments' content into a script that isn't theirs. Process every moment provided, independently, in the same order given.
+
+Return ONLY valid JSON, no preamble:
+{
+  "scripts": [
+    {
+      "id": "<the moment id exactly as given>",
+      "spoken_script": "<the polished paragraph, or empty string if skip_recommended is true>",
+      "key_quotes_used": [{"speaker": "<must match a name from PARTIES IN THIS CASE if provided, or a role like 'the officer' if the speaker isn't a known party>", "quote": "<verbatim, or clearly marked as a paraphrase>"}],
+      "as_of_status_notes": "<string, or null — required whenever the script touches something that could change later in the video (charged/not yet charged, in custody/released, etc.); state the time-scoped fact explicitly>",
+      "confidence_flags": ["<same meaning as the slide generator — an unclear name, an uncertain quote, a status conflict, etc. Empty array if none.>"],
+      "corrections": [{"field": "<where>", "from": "<raw form>", "to": "<corrected form>"}],
+      "skip_recommended": <bool>,
+      "skip_reason": "<string, or null>"
+    }
+  ]
+}`;
+
+// ── Shared case-context builders — used by BOTH endpoints, so a fix here
+// (like the document-truncation and structuredCase fixes below) applies to
+// slides and scripts alike without maintaining two copies. ─────────────────
+
+function buildPartiesAndCourtBlocks(cd: Record<string, unknown>) {
+  const parties = Array.isArray(cd.parties) ? (cd.parties as Record<string, unknown>[]) : [];
+  const court = cd.court && typeof cd.court === "object" ? (cd.court as Record<string, unknown>) : null;
+
+  const partiesBlock = parties.length > 0
+    ? `PARTIES IN THIS CASE:\n${parties.map(p => {
+        const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
+        const role = [p.type, p.title, p.agency, p.badge ? `badge #${p.badge}` : null].filter(Boolean).join(", ");
+        const nickname = p.nickname ? ` (referred to in dictation as "${p.nickname}")` : "";
+        return `- ${name}${nickname}${role ? ` — ${role}` : ""}`;
+      }).join("\n")}`
+    : null;
+
+  const courtBlock = court
+    ? `COURT: ${[court.name, court.state, court.level].filter(Boolean).join(", ")}`
+    : null;
+
+  return { partiesBlock, courtBlock };
+}
+
+/** structuredCase (Organization Engine output — executive summary, key
+ *  facts, claims) is the closest thing to a "case status/charges" field
+ *  that actually exists in the data model, but was never included in any
+ *  generation prompt before — silently invisible to both slides and
+ *  scripts. Included here so status/claim reasoning has real material to
+ *  check against, not just one moment's own raw text. */
+function buildStructuredCaseBlock(cd: Record<string, unknown>): string | null {
+  const sc = cd.structuredCase && typeof cd.structuredCase === "object" ? cd.structuredCase as Record<string, unknown> : null;
+  if (!sc) return null;
+  const parts: string[] = [];
+  if (typeof sc.executiveSummary === "string" && sc.executiveSummary.trim()) {
+    parts.push(`Summary: ${sc.executiveSummary.slice(0, 2000)}`);
+  }
+  if (Array.isArray(sc.keyFacts) && sc.keyFacts.length > 0) {
+    parts.push(`Key facts:\n${sc.keyFacts.slice(0, 40).map(f => `- ${String(f)}`).join("\n")}`);
+  }
+  if (Array.isArray(sc.claims) && sc.claims.length > 0) {
+    parts.push(`Claims:\n${sc.claims.slice(0, 40).map(c => `- ${String(c)}`).join("\n")}`);
+  }
+  return parts.length > 0 ? `CASE SUMMARY / KEY FACTS / CLAIMS (from case organization):\n${parts.join("\n\n")}` : null;
+}
+
+/** Uploaded documents (the complaint, discovery, etc.) — was truncated to
+ *  2000 chars each, which for anything past a couple of paragraphs (a real
+ *  complaint is easily 5-10x that) meant most of the actual document never
+ *  reached generation at all. Raised substantially; still capped so a huge
+ *  document can't blow out the context budget on its own. */
+function buildDocumentBlocks(docs: Array<{ text: string | null; fileName: string | null }>): string[] {
+  return docs.map((d, i) =>
+    `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 12000)}`
+  );
+}
 
 function fmtMMSS(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -186,9 +303,34 @@ router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Resp
     return;
   }
 
-  const userMessage = moments
+  // Case context — was completely absent before (this endpoint only ever
+  // saw raw moment text, no parties, no case story, no documents), so the
+  // known-entities/name-correction and status-scoping rules above had
+  // nothing real to check against. Same builders /exhibit/generate uses.
+  const docs = await db
+    .select({ text: uploadedDocumentsTable.extractedText, fileName: uploadedDocumentsTable.fileName })
+    .from(uploadedDocumentsTable)
+    .where(and(
+      eq(uploadedDocumentsTable.caseId, caseId),
+      eq(uploadedDocumentsTable.userId, userId),
+    ));
+
+  const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
+  const { partiesBlock, courtBlock } = buildPartiesAndCourtBlocks(cd);
+
+  const caseContext = [
+    partiesBlock,
+    courtBlock,
+    typeof cd.story === "string" && cd.story.trim() ? `CASE STORY: ${cd.story.slice(0, 6000)}` : null,
+    buildStructuredCaseBlock(cd),
+    ...buildDocumentBlocks(docs),
+  ].filter(Boolean).join("\n\n");
+
+  const momentsBlock = moments
     .map(m => `MOMENT ${m.id} (${fmtMMSS(m.start)}–${fmtMMSS(m.end)}):\n${m.label}`)
     .join("\n\n---\n\n");
+
+  const userMessage = `${momentsBlock}\n\nCASE CONTEXT:\n${caseContext || "(none provided)"}`;
 
   const start = Date.now();
   const response = await (aiService as unknown as { client: { messages: { create: (args: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> } } }).client.messages.create({
@@ -214,10 +356,23 @@ router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Resp
   }
 
   const rawScripts = Array.isArray(parsed.scripts) ? parsed.scripts : [];
-  const scripts = rawScripts.filter(
-    (s): s is { id: string; text: string } =>
-      !!s && typeof s === "object" && typeof (s as Record<string, unknown>).id === "string" && typeof (s as Record<string, unknown>).text === "string",
-  );
+  const scripts = rawScripts
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === "object" && typeof s.id === "string")
+    .map(s => ({
+      id: s.id as string,
+      spokenScript: typeof s.spoken_script === "string" ? s.spoken_script : "",
+      keyQuotesUsed: Array.isArray(s.key_quotes_used)
+        ? s.key_quotes_used.filter(
+            (q): q is { speaker: string; quote: string } =>
+              !!q && typeof q === "object" && typeof (q as Record<string, unknown>).speaker === "string" && typeof (q as Record<string, unknown>).quote === "string",
+          )
+        : [],
+      asOfStatusNotes: typeof s.as_of_status_notes === "string" ? s.as_of_status_notes : null,
+      confidenceFlags: Array.isArray(s.confidence_flags) ? s.confidence_flags.filter((f): f is string => typeof f === "string") : [],
+      corrections: parseCorrections(s.corrections),
+      skipRecommended: s.skip_recommended === true,
+      skipReason: typeof s.skip_reason === "string" ? s.skip_reason : null,
+    }));
 
   if (scripts.length === 0) {
     res.status(500).json({ error: "AI response missing required fields" });
@@ -288,36 +443,21 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
   // timeline, evidence, assembly, etc. all together) and jsonb doesn't
   // guarantee key order is preserved on the way back from Postgres — so a
   // long story or notes field could easily push party names and court info
-  // past a 1500-char cutoff. Names and roles are exactly what the AI needs
-  // to attribute quotes/actions to the right person, so they can't be left
+  // past a cutoff. Names and roles are exactly what the AI needs to
+  // attribute quotes/actions to the right person, so they can't be left
   // to chance.
   const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
-  const parties = Array.isArray(cd.parties) ? (cd.parties as Record<string, unknown>[]) : [];
-  const court = cd.court && typeof cd.court === "object" ? (cd.court as Record<string, unknown>) : null;
-
-  const partiesBlock = parties.length > 0
-    ? `PARTIES IN THIS CASE:\n${parties.map(p => {
-        const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
-        const role = [p.type, p.title, p.agency, p.badge ? `badge #${p.badge}` : null].filter(Boolean).join(", ");
-        const nickname = p.nickname ? ` (referred to in dictation as "${p.nickname}")` : "";
-        return `- ${name}${nickname}${role ? ` — ${role}` : ""}`;
-      }).join("\n")}`
-    : null;
-
-  const courtBlock = court
-    ? `COURT: ${[court.name, court.state, court.level].filter(Boolean).join(", ")}`
-    : null;
+  const { partiesBlock, courtBlock } = buildPartiesAndCourtBlocks(cd);
 
   // Build source material
   const sourceText = [
     `DICTATION (primary source — timestamp ${timestamp}): ${dictation}`,
     partiesBlock,
     courtBlock,
-    typeof cd.story === "string" && cd.story.trim() ? `CASE STORY: ${cd.story.slice(0, 3000)}` : null,
+    typeof cd.story === "string" && cd.story.trim() ? `CASE STORY: ${cd.story.slice(0, 6000)}` : null,
+    buildStructuredCaseBlock(cd),
     caseRow.caseData ? `OTHER CASE NOTES: ${JSON.stringify(caseRow.caseData).slice(0, 1500)}` : null,
-    ...docs.map((d, i) =>
-      `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 2000)}`
-    ),
+    ...buildDocumentBlocks(docs),
   ].filter(Boolean).join("\n\n");
 
   // Prior exhibits context
@@ -378,7 +518,7 @@ ${sourceText}`;
   // Basic shape validation
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
   const validCandidates = rawCandidates.filter(
-    (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string; confidence_flags?: unknown } =>
+    (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string; confidence_flags?: unknown; corrections?: unknown } =>
       !!c && typeof c === "object" && !!(c as Record<string, unknown>).selectedType && typeof (c as Record<string, unknown>).content === "object",
   );
   if (validCandidates.length === 0) {
@@ -393,6 +533,7 @@ ${sourceText}`;
     rationale: typeof c.rationale === "string" ? c.rationale : "",
     verificationResults: verifySourceClaims(c.content, sourceText),
     confidenceFlags: Array.isArray(c.confidence_flags) ? c.confidence_flags.filter((f): f is string => typeof f === "string") : [],
+    corrections: parseCorrections(c.corrections),
   }));
 
   const rawRecommendedIndex = typeof parsed.recommendedIndex === "number" ? parsed.recommendedIndex : 0;

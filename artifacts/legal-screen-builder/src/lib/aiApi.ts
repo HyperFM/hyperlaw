@@ -946,6 +946,7 @@ export const aiApi = {
       rationale: string;
       verificationResults: Array<{ field: string; ref: string; origin: string; supported: boolean }>;
       confidenceFlags: string[];
+      corrections: Array<{ field: string; from: string; to: string }>;
     }>;
     recommendedIndex: number;
     recommendationReason: string;
@@ -953,15 +954,28 @@ export const aiApi = {
     return aiFetch("/exhibit/generate", { method: "POST", body: JSON.stringify(input) });
   },
 
-  /** Illustrative Aid Script tool — lightly copyedits each moment's own raw
-   *  text (repetition/filler removed, punctuation added) into a script the
-   *  litigant can read aloud in court while the video plays. Deliberately
-   *  NOT the exhibit slide generator — this never rewrites or summarizes,
-   *  just cleans up what they already said in their own words. */
+  /** Illustrative Aid Script tool — builds a polished, litigation-ready
+   *  spoken paragraph per moment for the litigant to read aloud in court
+   *  while the video plays. Deliberately a separate endpoint from the slide
+   *  generator (not merged into the same call) — that independence is what
+   *  lets this tool keep working as a fallback even if slide generation is
+   *  broken, though it shares the same known-entities/name-correction,
+   *  status-scoping, and quote-fidelity rules server-side. */
   generateCourtScript(input: {
     caseId: string;
     moments: Array<{ id: string; start: number; end: number; label: string }>;
-  }): Promise<{ scripts: Array<{ id: string; text: string }> }> {
+  }): Promise<{
+    scripts: Array<{
+      id: string;
+      spokenScript: string;
+      keyQuotesUsed: Array<{ speaker: string; quote: string }>;
+      asOfStatusNotes: string | null;
+      confidenceFlags: string[];
+      corrections: Array<{ field: string; from: string; to: string }>;
+      skipRecommended: boolean;
+      skipReason: string | null;
+    }>;
+  }> {
     return aiFetch("/exhibit/court-script", { method: "POST", body: JSON.stringify(input) });
   },
 };

@@ -195,6 +195,9 @@ export interface ExhibitScreenData {
    *  not "this is wrong" — surfaced as a warning in Step 3 and again before
    *  export, never silently hidden. */
   confidenceFlags?: string[];
+  /** Names the AI corrected against the case's known-entities list (e.g.
+   *  "DeHurnton" → "Hernton") — always reported, never a silent rewrite. */
+  corrections?: NameCorrection[];
 }
 
 /** A local-only photo or video clip inserted at a precise timestamp.
@@ -287,14 +290,54 @@ export interface VideoChunk {
   thumbnailOverride?: string;
   /** Set only on entries living in StudioProject.deletedChunks — when it was deleted. */
   deletedAt?: number;
-  /** Illustrative Aid Script tool's output for this moment — the same
-   *  content as `label`, lightly copyedited (repetition/filler removed,
-   *  punctuation added) for the litigant to read aloud in court while the
-   *  video plays. Deliberately NOT the same text as the exhibit slide
-   *  content, which is written for on-screen display, not being read
-   *  aloud. Undefined until generated; stale after `label` is edited
-   *  again until the user regenerates. */
-  courtScriptText?: string;
+  /** Illustrative Aid Script tool's output for this moment — a polished,
+   *  litigation-ready spoken paragraph built from `label`, for the litigant
+   *  to read aloud in court while the video plays. Deliberately NOT the
+   *  same text as the exhibit slide content, which is written for on-screen
+   *  display, not being read aloud — but shares the same known-entities/
+   *  name-correction, status-scoping, and quote-fidelity checks as the
+   *  slide generator (see ExhibitScreenData). Undefined until generated;
+   *  stale after `label` is edited again until the user regenerates. */
+  courtScript?: CourtScript;
+}
+
+/** A single quote attributed to a named person within a generated script or
+ *  slide — `speaker` should match a name from the case's own party list. */
+export interface NamedQuote {
+  speaker: string;
+  quote: string;
+}
+
+/** A name the AI corrected against the case's known-entities list (e.g.
+ *  "DeHurnton" → "Hernton") — always reported, never a silent rewrite, so
+ *  the user can verify it corrected to the right person. Shared shape for
+ *  both the slide generator and the script generator. */
+export interface NameCorrection {
+  /** Where in the output this was corrected (e.g. "headline", "key_quotes_used[0].speaker") */
+  field: string;
+  from: string;
+  to: string;
+}
+
+export interface CourtScript {
+  spokenScript: string;
+  keyQuotesUsed: NamedQuote[];
+  /** Required whenever the script touches something that could change later
+   *  in the video (charged/not yet charged, in custody/released, etc.) —
+   *  states the time-scoped fact explicitly instead of letting it read as
+   *  permanent. Null when nothing in this script needed qualifying. */
+  asOfStatusNotes: string | null;
+  /** Anything the AI wasn't fully sure about — same meaning and same visual
+   *  treatment as ExhibitScreenData.confidenceFlags. Non-empty means "needs
+   *  a human look," not "this is wrong." */
+  confidenceFlags: string[];
+  corrections: NameCorrection[];
+  /** True for pure narrative/connective-tissue moments with no independent
+   *  evidentiary content — the AI recommends skipping this one rather than
+   *  forcing a script out of it. The user still decides; this is a
+   *  recommendation, not an automatic exclusion. */
+  skipRecommended: boolean;
+  skipReason: string | null;
 }
 
 export interface StudioProject {

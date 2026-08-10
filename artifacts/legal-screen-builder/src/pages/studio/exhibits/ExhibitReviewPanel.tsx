@@ -46,7 +46,7 @@ export function ExhibitReviewPanel({
   const [selectedIndex, setSelectedIndex] = useState(recommendedIndex);
 
   const selected = candidates[selectedIndex] ?? candidates[0];
-  const { selectedType, content, verificationResults, confidenceFlags } = selected;
+  const { selectedType, content, verificationResults, confidenceFlags, corrections } = selected;
 
   const supported = verificationResults.filter(r => r.supported).length;
   const total = verificationResults.length;
@@ -64,6 +64,7 @@ export function ExhibitReviewPanel({
       alternativeLayouts: [],
       verificationResults,
       confidenceFlags,
+      corrections,
     };
     onApprove(data);
   }

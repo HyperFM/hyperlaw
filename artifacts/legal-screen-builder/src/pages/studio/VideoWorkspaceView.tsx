@@ -1114,6 +1114,17 @@ function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDon
             </div>
           </div>
         )}
+        {/* Names auto-corrected against the case's own party list — never a
+            silent rewrite, always visible so the correction can be verified. */}
+        {marker.exhibitScreen.corrections && marker.exhibitScreen.corrections.length > 0 && (
+          <div style={{ position: "fixed", bottom: 80, left: 16, right: 16, background: "rgba(122,176,224,0.12)", border: "1px solid #7ab0e066", borderRadius: 10, padding: "10px 14px" }}>
+            {marker.exhibitScreen.corrections.map((c, i) => (
+              <div key={i} style={{ fontSize: 12, color: "#7ab0e0", lineHeight: 1.5 }}>
+                Corrected "{c.from}" → "{c.to}"
+              </div>
+            ))}
+          </div>
+        )}
         <button onClick={onDone}
           style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
           Collapse
@@ -3179,7 +3190,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           dictation: "", whyItMatters: "",
           status: "ready", holdSec: 8, createdAt: Date.now(),
           type: "exhibit_screen",
-          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags },
+          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
         };
         workingMarkers = [...workingMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
         setMarkers(workingMarkers, false); // saves as it goes — a mid-batch interruption doesn't lose what's already done
@@ -4534,6 +4545,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   if (screenMarker?.exhibitScreen) {
                     const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
                     const hasFlags = flags.length > 0;
+                    const corrections = screenMarker.exhibitScreen.corrections ?? [];
                     return (
                       <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
                         style={{ background: "#0d0d0d", border: `1px solid ${hasFlags ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10,
@@ -4571,6 +4583,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                             </div>
                           ) : (
                             <div style={{ fontSize: 12, color: "#999" }}>Tap to view</div>
+                          )}
+                          {/* A name was auto-corrected against the case's party
+                              list — never silent, always a visible trace so the
+                              user can verify it corrected to the right person. */}
+                          {corrections.length > 0 && (
+                            <div style={{ fontSize: 10, color: "#7ab0e0", marginTop: 2 }}>
+                              {corrections.length} name{corrections.length !== 1 ? "s" : ""} corrected
+                            </div>
                           )}
                         </div>
                       </button>

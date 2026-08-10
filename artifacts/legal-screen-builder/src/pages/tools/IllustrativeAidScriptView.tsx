@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronRight, Copy, Loader2, RefreshCw, ScrollText, Folder, ArrowLeft, Check } from "lucide-react";
+import { ChevronRight, Copy, Loader2, RefreshCw, ScrollText, Folder, ArrowLeft, Check, AlertCircle, SkipForward } from "lucide-react";
 import type { HLCase, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
@@ -38,6 +38,10 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Skip-recommended moments are excluded from Copy/Read by default — the AI
+  // only ever recommends, the user decides. Manually including one just for
+  // this session's view; nothing is deleted or hidden permanently.
+  const [includedDespiteSkip, setIncludedDespiteSkip] = useState<Set<string>>(new Set());
 
   const selectedCase = cases.find(c => c.id === selectedCaseId) ?? null;
 
@@ -103,7 +107,19 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
   // ── Script view for the selected case ────────────────────────────────────
   const chunks = (selectedCase.studioProject?.chunks ?? []).filter(c => c.label.trim());
   const ordered = orderedChunks(chunks, selectedCase.studioProject?.organizedSlots);
-  const hasScript = ordered.some(c => c.courtScriptText);
+  const hasScript = ordered.some(c => c.courtScript);
+
+  function saveChunks(updatedChunks: VideoChunk[]) {
+    if (!selectedCase) return;
+    const updatedCase: HLCase = {
+      ...selectedCase,
+      studioProject: selectedCase.studioProject
+        ? { ...selectedCase.studioProject, chunks: updatedChunks, updatedAt: Date.now() }
+        : selectedCase.studioProject,
+    };
+    onUpdateCase(updatedCase);
+    api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>).catch(() => {});
+  }
 
   async function generate() {
     if (!selectedCase || ordered.length === 0) return;
@@ -114,18 +130,24 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
         caseId: selectedCase.id,
         moments: ordered.map(c => ({ id: c.id, start: c.start, end: c.end, label: c.label })),
       });
-      const byId = new Map(scripts.map(s => [s.id, s.text]));
-      const updatedChunks = (selectedCase.studioProject?.chunks ?? []).map(c =>
-        byId.has(c.id) ? { ...c, courtScriptText: byId.get(c.id) } : c
-      );
-      const updatedCase: HLCase = {
-        ...selectedCase,
-        studioProject: selectedCase.studioProject
-          ? { ...selectedCase.studioProject, chunks: updatedChunks, updatedAt: Date.now() }
-          : selectedCase.studioProject,
-      };
-      onUpdateCase(updatedCase);
-      await api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>);
+      const byId = new Map(scripts.map(s => [s.id, s]));
+      const updatedChunks = (selectedCase.studioProject?.chunks ?? []).map(c => {
+        const s = byId.get(c.id);
+        if (!s) return c;
+        return {
+          ...c,
+          courtScript: {
+            spokenScript: s.spokenScript,
+            keyQuotesUsed: s.keyQuotesUsed,
+            asOfStatusNotes: s.asOfStatusNotes,
+            confidenceFlags: s.confidenceFlags,
+            corrections: s.corrections,
+            skipRecommended: s.skipRecommended,
+            skipReason: s.skipReason,
+          },
+        };
+      });
+      saveChunks(updatedChunks);
     } catch (err) {
       setError((err as Error).message || "Couldn't generate the script — try again.");
     } finally {
@@ -133,9 +155,27 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
     }
   }
 
+  // Inline-editable script text — saves on blur, not on every keystroke.
+  function updateScriptText(chunkId: string, text: string) {
+    if (!selectedCase) return;
+    const updatedChunks = (selectedCase.studioProject?.chunks ?? []).map(c =>
+      c.id === chunkId && c.courtScript ? { ...c, courtScript: { ...c.courtScript, spokenScript: text } } : c
+    );
+    saveChunks(updatedChunks);
+  }
+
+  function toggleIncludeDespiteSkip(chunkId: string) {
+    setIncludedDespiteSkip(prev => {
+      const next = new Set(prev);
+      if (next.has(chunkId)) next.delete(chunkId); else next.add(chunkId);
+      return next;
+    });
+  }
+
   function copyScript() {
     const text = ordered
-      .map(c => `[${formatTime(c.start)}–${formatTime(c.end)}]\n${c.courtScriptText || c.label}`)
+      .filter(c => !(c.courtScript?.skipRecommended && !includedDespiteSkip.has(c.id)))
+      .map(c => `[${formatTime(c.start)}–${formatTime(c.end)}]\n${c.courtScript?.spokenScript || c.label}`)
       .join("\n\n");
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -165,7 +205,7 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
               <button onClick={generate} disabled={generating}
                 style={{ flex: 1, background: hasScript ? "#111" : ORANGE, border: hasScript ? "1px solid #2a2a2a" : "none", borderRadius: 12, padding: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: generating ? "default" : "pointer", fontWeight: 800, fontSize: 13, color: hasScript ? "#ccc" : "#000" }}>
                 {generating ? <Loader2 size={14} className="animate-spin" /> : hasScript ? <RefreshCw size={14} /> : <ScrollText size={14} />}
-                {generating ? "Polishing…" : hasScript ? "Regenerate Script" : "Generate Script"}
+                {generating ? "Writing…" : hasScript ? "Regenerate Script" : "Generate Script"}
               </button>
               {hasScript && (
                 <button onClick={copyScript}
@@ -184,24 +224,89 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
 
             {hasScript && (
               <div style={{ fontSize: 11, color: "#3a3a3a", marginBottom: 14, lineHeight: 1.5 }}>
-                Regenerate if you've edited any of these moments since this was made.
+                Regenerate if you've edited any of these moments since this was made. Skip-recommended moments are left out of Copy unless you include them below.
               </div>
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {ordered.map((c, i) => (
-                <div key={c.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px" }}>
-                  <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 8 }}>
-                    MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+              {ordered.map((c, i) => {
+                const script = c.courtScript;
+                const skipped = !!script?.skipRecommended && !includedDespiteSkip.has(c.id);
+                const hasFlags = (script?.confidenceFlags?.length ?? 0) > 0;
+                return (
+                  <div key={c.id} style={{
+                    background: "#0d0d0d",
+                    border: `1px solid ${skipped ? "#2a2a2a" : hasFlags ? "#f59e0b" : "#1e1e1e"}`,
+                    borderRadius: 12, padding: "14px 16px", opacity: skipped ? 0.6 : 1,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5 }}>
+                        MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                      </div>
+                      {hasFlags && !skipped && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#f59e0b", fontWeight: 700 }}>
+                          <AlertCircle size={10} color="#f59e0b" /> Needs review
+                        </div>
+                      )}
+                    </div>
+
+                    {script?.skipRecommended ? (
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#666", fontWeight: 700, marginBottom: 4 }}>
+                          <SkipForward size={12} color="#666" /> Recommended: skip
+                        </div>
+                        {script.skipReason && (
+                          <div style={{ fontSize: 12, color: "#555", lineHeight: 1.5, marginBottom: 8 }}>{script.skipReason}</div>
+                        )}
+                        <button onClick={() => toggleIncludeDespiteSkip(c.id)}
+                          style={{ background: "none", border: "1px solid #333", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: includedDespiteSkip.has(c.id) ? ORANGE : "#888", cursor: "pointer" }}>
+                          {includedDespiteSkip.has(c.id) ? "Included — tap to skip again" : "Include anyway"}
+                        </button>
+                        {includedDespiteSkip.has(c.id) && (
+                          <textarea
+                            defaultValue={script.spokenScript}
+                            onBlur={e => updateScriptText(c.id, e.target.value)}
+                            style={{ width: "100%", marginTop: 10, minHeight: 60, background: "#111", border: "1px solid #252525", borderRadius: 8, padding: "8px 10px", fontSize: 13, color: "#ddd", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }}
+                          />
+                        )}
+                      </div>
+                    ) : script ? (
+                      <>
+                        <textarea
+                          key={script.spokenScript}
+                          defaultValue={script.spokenScript}
+                          onBlur={e => updateScriptText(c.id, e.target.value)}
+                          style={{ width: "100%", minHeight: 70, background: "transparent", border: "none", padding: 0, fontSize: 14, color: "#ddd", lineHeight: 1.6, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", outline: "none" }}
+                        />
+                        {script.asOfStatusNotes && (
+                          <div style={{ fontSize: 11, color: "#7ab0e0", marginTop: 8, lineHeight: 1.5 }}>
+                            {script.asOfStatusNotes}
+                          </div>
+                        )}
+                        {hasFlags && (
+                          <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6, lineHeight: 1.5 }}>
+                            {script.confidenceFlags.join(" · ")}
+                          </div>
+                        )}
+                        {script.corrections.length > 0 && (
+                          <div style={{ fontSize: 10, color: "#7ab0e0", marginTop: 6 }}>
+                            {script.corrections.map((cor, ci) => (
+                              <div key={ci}>Corrected "{cor.from}" → "{cor.to}"</div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 14, color: "#777", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                          {c.label}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#444", marginTop: 8, fontStyle: "italic" }}>Not written yet — raw moment text shown</div>
+                      </>
+                    )}
                   </div>
-                  <div style={{ fontSize: 14, color: c.courtScriptText ? "#ddd" : "#777", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                    {c.courtScriptText || c.label}
-                  </div>
-                  {!c.courtScriptText && (
-                    <div style={{ fontSize: 10, color: "#444", marginTop: 8, fontStyle: "italic" }}>Not polished yet — raw moment text shown</div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

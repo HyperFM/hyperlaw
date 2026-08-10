@@ -1317,6 +1317,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // deleting a case/account, since this wipes every generated screen at once.
   const [showDeleteAllScreensConfirm, setShowDeleteAllScreensConfirm] = useState(false);
   const [showDeleteAllScreensPin, setShowDeleteAllScreensPin] = useState(false);
+  // ── Step 4: Verification Export — "Verify All / Skip" bulk-confirms every
+  // screen without individually reviewing each one, which is discouraged;
+  // this confirm step is the one thing standing between a tap and skipping
+  // review on everything at once.
+  const [showVerifyAllConfirm, setShowVerifyAllConfirm] = useState(false);
   // ── Emergency fallback — blank "Exhibit N of Total" placeholder screens,
   // no AI involved at all, for if screen generation is broken/unreachable
   // right before presenting. Reachable from any step, not buried in Step 3.
@@ -3370,6 +3375,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     showInsertToast("Marked verified.");
   }
 
+  // ── Step 4 — "Verify All / Skip": bulk-marks every generated screen
+  // reviewed at once, bypassing individual review. Deliberately behind its
+  // own confirm modal (see showVerifyAllConfirm) since this is explicitly
+  // the discouraged path.
+  function verifyAllScreens() {
+    pushUndoSnapshot();
+    setMarkers(markers.map(m =>
+      m.type === "exhibit_screen" && m.exhibitScreen
+        ? { ...m, exhibitScreen: { ...m.exhibitScreen, reviewedAt: Date.now() } }
+        : m
+    ), false);
+    setShowVerifyAllConfirm(false);
+    showInsertToast("All screens marked verified.");
+  }
+
   // ── Review flow — "Submit correction": patches the existing screen with
   // the user's answer (a party they picked, or their own free text) instead
   // of drafting a fresh one. Sends the current content back so the server
@@ -3740,14 +3760,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           style={{ background: "none", border: "none", cursor: redoStack.length ? "pointer" : "not-allowed", padding: 4, opacity: redoStack.length ? 1 : 0.3 }}>
           <Redo2 size={15} color="#666" />
         </button>
-        {/* Export — always visible when there are markers */}
-        <button
-          onClick={() => { if (markers.length > 0) setShowExport(true); }}
-          disabled={markers.length === 0}
-          title="Export video"
-          style={{ background: "none", border: "none", cursor: markers.length > 0 ? "pointer" : "not-allowed", padding: 4, opacity: markers.length > 0 ? 1 : 0.3, display: "flex", alignItems: "center" }}>
-          <Download size={16} color={markers.length > 0 ? ORANGE : "#444"} />
-        </button>
+        {/* Export moved to Step 4 (Verification Export) — no longer a
+            top-bar shortcut, so export happens after the verification
+            flow, not around it. */}
         {/* ⓘ Info bubble */}
         <button
           onClick={() => setInfoPanelOpen(p => !p)}
@@ -4338,7 +4353,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         {/* ── Step Navigation ───────────────────────────────────────── */}
         {videoUrl && (
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-            {(["Chunk & Label", "Organize", "Exhibit"] as const).map((label, i) => {
+            {(["Chunk & Label", "Organize", "Exhibit", "Verification Export"] as const).map((label, i) => {
               const s = i + 1;
               const isActive = currentStep === s;
               return (
@@ -4814,6 +4829,94 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           </div>
         )}
 
+        {/* ── Step 4: Verification Export ──────────────────────────────
+            Same list layout as Step 1 (one card per moment, in order),
+            but each card shows its generated screen — exactly the same
+            rendering as Step 3's list — instead of the moment's own video.
+            Tapping opens the same full-screen preview Step 3 uses, which
+            already surfaces the "Review this" flow for flagged screens. */}
+        {currentStep === 4 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowVerifyAllConfirm(true)}
+                disabled={!markers.some(m => m.type === "exhibit_screen")}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12,
+                  padding: "14px 12px", fontSize: 13, fontWeight: 700, color: "#999",
+                  cursor: markers.some(m => m.type === "exhibit_screen") ? "pointer" : "not-allowed",
+                  opacity: markers.some(m => m.type === "exhibit_screen") ? 1 : 0.4 }}>
+                Verify All / Skip
+              </button>
+              <button
+                onClick={() => { if (markers.length > 0) setShowExport(true); }}
+                disabled={markers.length === 0}
+                style={{ flex: 1, background: markers.length > 0 ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12,
+                  padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  cursor: markers.length > 0 ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13,
+                  color: markers.length > 0 ? "#000" : "#666" }}>
+                <Download size={15} /> Export
+              </button>
+            </div>
+
+            {chunks.length > 0 && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                {orderedChunksForExhibit().map((c, i) => {
+                  const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
+                  if (screenMarker?.exhibitScreen) {
+                    const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
+                    const hasFlags = flags.length > 0 && !screenMarker.exhibitScreen.reviewedAt;
+                    const corrections = screenMarker.exhibitScreen.corrections ?? [];
+                    return (
+                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                        style={{ background: "#0d0d0d", border: `1px solid ${hasFlags ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10,
+                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                        <div style={{ borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                          <ExhibitPreviewBoundary
+                            label={`Screen ${i + 1} (${screenMarker.exhibitScreen.selectedType})`}
+                            fallback={
+                              <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, background: "#1a0000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <span style={{ fontSize: 7, color: "#ef4444", textAlign: "center", lineHeight: 1.2 }}>Can't preview</span>
+                              </div>
+                            }>
+                            <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.045} />
+                          </ExhibitPreviewBoundary>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                          </div>
+                          {hasFlags ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#f59e0b", fontWeight: 700 }}>
+                              <AlertCircle size={11} color="#f59e0b" /> Needs review
+                            </div>
+                          ) : screenMarker.exhibitScreen.reviewedAt ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#22c55e", fontWeight: 700 }}>
+                              <Check size={11} color="#22c55e" /> Verified
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 12, color: "#999" }}>Tap to verify</div>
+                          )}
+                          {corrections.length > 0 && (
+                            <div style={{ fontSize: 10, color: "#7ab0e0", marginTop: 2 }}>
+                              {corrections.length} name{corrections.length !== 1 ? "s" : ""} corrected
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  }
+                  return (
+                    <div key={c.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", opacity: 0.5 }}>
+                      <div style={{ fontSize: 12, color: "#666" }}>MOMENT {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}</div>
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>No screen generated yet — go to the Exhibit step</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* ── Dictation overlay ─────────────────────────────────────── */}
@@ -5186,6 +5289,37 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <button onClick={() => { setShowDeleteAllScreensConfirm(false); setShowDeleteAllScreensPin(true); }}
                 style={{ flex: 1, background: "#ef4444", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer" }}>
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Verify All / Skip confirm — the discouraged bulk-skip path on
+          Step 4. Deliberately blunt: this is the one thing standing
+          between a single tap and skipping review on every screen. */}
+      {showVerifyAllConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowVerifyAllConfirm(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: "1px solid #f59e0b55", borderRadius: 16, padding: 24, maxWidth: 340, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 20, background: "#1a0e00", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertCircle size={18} color="#f59e0b" />
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>This is not recommended</div>
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 20 }}>
+              You should absolutely go through and review each slide to make sure all information is accurate. Skipping review means unverified information could reach the court — that can lead to serious problems for your case. Review is how mistakes get caught before they matter.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowVerifyAllConfirm(false)}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Review each one
+              </button>
+              <button onClick={verifyAllScreens}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Skip anyway
               </button>
             </div>
           </div>

@@ -477,29 +477,46 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
   const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
   const { partiesBlock, courtBlock } = buildPartiesAndCourtBlocks(cd);
 
-  // Build source material
-  const sourceText = [
-    `DICTATION (primary source — timestamp ${timestamp}): ${dictation}`,
+  // Full video timeline — see the STATUS-CLAIM RULE in the system prompt.
+  // Deliberately every moment, not just ones already turned into exhibits,
+  // so a status claim true at this timestamp can be checked against what
+  // happens later in the SAME video even before those later moments have
+  // their own exhibits generated yet. The client computes this once and
+  // sends the same value on every call in a batch, so it belongs in the
+  // static block below, not rebuilt fresh with a leading \n\n per-call.
+  const timelineBlock = momentsTimeline.length > 0
+    ? `FULL VIDEO TIMELINE (every moment in this video, in order — use only to check this moment's own status claims, per the STATUS-CLAIM RULE):\n${momentsTimeline.map(m => `${m.timestamp}: ${m.label}`).join("\n")}`
+    : null;
+
+  // STATIC block — identical for every moment generated in the same batch
+  // (same case, same parties, same documents, same full timeline). Sent as
+  // its own cache_control-marked content block below, so a real batch
+  // (15+ sequential calls) is billed full price for this once instead of
+  // on every single call — this block alone, once documents/parties/case
+  // organization data are included, easily runs tens of thousands of
+  // characters. Resending and reprocessing that at full price on every
+  // one of 15+ calls is exactly the "highly inefficient" cost driver
+  // behind an unexpectedly large API bill tonight.
+  const staticBlock = [
     partiesBlock,
     courtBlock,
     typeof cd.story === "string" && cd.story.trim() ? `CASE STORY: ${cd.story.slice(0, 6000)}` : null,
     buildStructuredCaseBlock(cd),
     caseRow.caseData ? `OTHER CASE NOTES: ${JSON.stringify(caseRow.caseData).slice(0, 1500)}` : null,
     ...buildDocumentBlocks(docs),
+    timelineBlock,
   ].filter(Boolean).join("\n\n");
 
-  // Prior exhibits context
+  // Used only for local source-verification below (verifySourceClaims) —
+  // needs the dictation included, unlike the cached staticBlock sent to
+  // the model as a separate content block.
+  const sourceTextForVerification = `DICTATION (primary source — timestamp ${timestamp}): ${dictation}\n\n${staticBlock}`;
+
+  // Prior exhibits context — grows with every screen generated so far in
+  // this batch, so unlike the rest of the source material it can't be part
+  // of the cached static block.
   const priorBlock = existingExhibits.length > 0
     ? `\n\nPRIOR EXHIBIT SUMMARIES (for narrative consistency — avoid repeating these):\n${existingExhibits.map((e, i) => `Exhibit ${i + 1}: ${e}`).join("\n")}`
-    : "";
-
-  // Full video timeline — see the STATUS-CLAIM RULE in the system prompt.
-  // Deliberately every moment, not just ones already turned into exhibits,
-  // so a status claim true at this timestamp can be checked against what
-  // happens later in the SAME video even before those later moments have
-  // their own exhibits generated yet.
-  const timelineBlock = momentsTimeline.length > 0
-    ? `\n\nFULL VIDEO TIMELINE (every moment in this video, in order — use only to check this moment's own status claims, per the STATUS-CLAIM RULE):\n${momentsTimeline.map(m => `${m.timestamp}: ${m.label}`).join("\n")}`
     : "";
 
   // Force type hint — when set, the user asked to regenerate with one
@@ -538,14 +555,15 @@ Do not reframe, redesign, or draft a new angle on this moment. Return exactly ON
 `
     : "";
 
-  const userMessage = `${patchBlock}VIDEO TIMESTAMP: ${timestamp}
+  // Per-moment dynamic content only — the shared case context lives in its
+  // own cached content block instead (see the call below), not inlined
+  // here, so this stays small on every call regardless of how much
+  // document/party/case-organization context the case has.
+  const dynamicBlock = `${patchBlock}VIDEO TIMESTAMP: ${timestamp}
 
 USER DICTATION:
 ${dictation}
-${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}
-
-SOURCE MATERIAL:
-${sourceText}`;
+${priorBlock}${forceBlock}${feedbackBlock}`;
 
   // Patch mode overrides the base prompt's "generate 2-3 distinct
   // candidates" instruction (EXHIBIT_SYSTEM_PROMPT line ~157) — without
@@ -555,15 +573,27 @@ ${sourceText}`;
     ? `${EXHIBIT_SYSTEM_PROMPT}\n\nCORRECTION MODE — OVERRIDES THE ABOVE: ignore the "generate 2-3 distinct candidates" instruction. The user is not asking for a new screen; they are correcting one specific detail on an existing, already-approved one. Return exactly ONE candidate whose content is the existing JSON given in the user message, unchanged except for the minimal edit the stated correction requires.`
     : EXHIBIT_SYSTEM_PROMPT;
 
-  // Claude call
+  // Claude call — system prompt and the static case-context block are each
+  // their own cache_control-marked content block. Within one Generate
+  // Screens batch (15+ sequential calls, same case, same documents, same
+  // parties, same timeline every time), the first call pays full price to
+  // write the cache; every call after that for the next 5 minutes reads it
+  // back at a fraction of the cost instead of reprocessing the same tens
+  // of thousands of characters from scratch on every single moment.
   const start = Date.now();
   let response: Awaited<ReturnType<typeof aiService.createMessage>>;
   try {
     response = await aiService.createMessage({
       model: MODEL,
       max_tokens: 8000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}`, cache_control: { type: "ephemeral" } },
+          { type: "text", text: dynamicBlock },
+        ],
+      }],
     });
   } catch (err) {
     // Previously unguarded — a thrown error here (rate limit, overloaded,
@@ -609,7 +639,7 @@ ${sourceText}`;
     selectedType: c.selectedType,
     content: c.content,
     rationale: typeof c.rationale === "string" ? c.rationale : "",
-    verificationResults: verifySourceClaims(c.content, sourceText),
+    verificationResults: verifySourceClaims(c.content, sourceTextForVerification),
     confidenceFlags: Array.isArray(c.confidence_flags) ? c.confidence_flags.filter((f): f is string => typeof f === "string") : [],
     corrections: parseCorrections(c.corrections),
   }));

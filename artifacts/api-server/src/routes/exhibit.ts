@@ -517,23 +517,43 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     : "";
 
   // "Review and correct" flow — the user answered a specific gap the AI
-  // itself flagged (a missing name, an ambiguous claim) via userFeedback
-  // above; this gives the model the actual existing content so it PATCHES
-  // in place instead of drafting from scratch, which combined with
-  // forceType's single-candidate cap keeps this meaningfully cheaper than a
-  // full regenerate.
+  // itself flagged (a missing name, an ambiguous claim). Confirmed live
+  // tonight that burying this instruction at the end of the message, after
+  // the dictation and other blocks, wasn't enough — the model treated it as
+  // a fresh drafting task anyway and returned a differently-framed screen,
+  // not a corrected version of the same one. Led with it instead, in its
+  // own forceful block, and the system prompt is overridden below too so
+  // "generate 2-3 distinct candidates" (the default instruction) can't
+  // compete with "patch this one field."
   const patchBlock = existingContent
-    ? `\n\nEXISTING SCREEN CONTENT TO CORRECT — this is the current, already-approved layout. Make the MINIMAL change needed to apply the feedback above; keep every other field, wording, icon, and structure exactly as-is unless the feedback specifically requires changing it. Do not redesign or rewrite this from scratch:\n${JSON.stringify(existingContent)}`
+    ? `THIS IS A CORRECTION TO AN EXISTING, ALREADY-APPROVED SCREEN — NOT A NEW DRAFT.
+
+EXISTING SCREEN CONTENT (return this exact JSON, changed only where the correction below requires it — same layout type, same headline, same wording, same icons, same structure, everything unchanged except what the correction actually touches):
+${JSON.stringify(existingContent)}
+
+THE CORRECTION TO APPLY: "${(userFeedback ?? "").trim()}"
+
+Do not reframe, redesign, or draft a new angle on this moment. Return exactly ONE candidate: the existing content above with the minimal edit applied.
+
+`
     : "";
 
-  const userMessage = `VIDEO TIMESTAMP: ${timestamp}
+  const userMessage = `${patchBlock}VIDEO TIMESTAMP: ${timestamp}
 
 USER DICTATION:
 ${dictation}
-${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}${patchBlock}
+${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}
 
 SOURCE MATERIAL:
 ${sourceText}`;
+
+  // Patch mode overrides the base prompt's "generate 2-3 distinct
+  // candidates" instruction (EXHIBIT_SYSTEM_PROMPT line ~157) — without
+  // this, that instruction was competing with the correction request and
+  // winning, producing a re-drafted screen instead of a corrected one.
+  const systemPrompt = existingContent
+    ? `${EXHIBIT_SYSTEM_PROMPT}\n\nCORRECTION MODE — OVERRIDES THE ABOVE: ignore the "generate 2-3 distinct candidates" instruction. The user is not asking for a new screen; they are correcting one specific detail on an existing, already-approved one. Return exactly ONE candidate whose content is the existing JSON given in the user message, unchanged except for the minimal edit the stated correction requires.`
+    : EXHIBIT_SYSTEM_PROMPT;
 
   // Claude call
   const start = Date.now();
@@ -542,7 +562,7 @@ ${sourceText}`;
     response = await aiService.createMessage({
       model: MODEL,
       max_tokens: 8000,
-      system: EXHIBIT_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
   } catch (err) {

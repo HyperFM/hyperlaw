@@ -1460,11 +1460,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     };
     window.addEventListener("resize", correct);
     correct();
-    // Jump straight to this screen's own moment so there's no hunting
-    // through the whole video to find what's being reviewed.
+    // Jump straight to this screen's own moment AND actually play it — this
+    // was seeking only, silently leaving the video paused on a frozen frame
+    // (looks broken: a giant static image covering the screen, nothing
+    // happening). Same pause-then-seek-then-play-on-"seeked" pattern as
+    // openGuidedFlow above, which is what actually makes autoplay reliable
+    // here instead of racing the seek.
     const marker = markers.find(m => m.id === reviewingMarkerId);
     const chunk = marker?.chunkId ? chunks.find(c => c.id === marker.chunkId) : undefined;
-    if (chunk) seek(chunk.start);
+    if (chunk) {
+      video.pause();
+      const onSeeked = () => { video.play().catch(() => {}); video.removeEventListener("seeked", onSeeked); };
+      video.addEventListener("seeked", onSeeked);
+      video.currentTime = chunk.start;
+      setCurrentTime(chunk.start);
+      currentTimeRef.current = chunk.start;
+    }
     return () => {
       window.removeEventListener("resize", correct);
       video.pause();

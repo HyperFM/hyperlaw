@@ -3275,7 +3275,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         workingMarkers = [...workingMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
         setMarkers(workingMarkers, false); // saves as it goes — a mid-batch interruption doesn't lose what's already done
       } catch (err) {
+        // Was only flushed to state once, after the WHOLE batch finished —
+        // so a failure showed nothing at all while the batch kept going:
+        // no new screen (correct, nothing to show), but also no error,
+        // just the progress counter silently ticking past it. Now shows up
+        // immediately, same as a successful screen does.
         errors.push(`Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}`);
+        setBatchErrors([...errors]);
       }
       setBatchProgress({ done: i + 1, total: targets.length });
     }

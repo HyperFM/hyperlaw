@@ -1065,7 +1065,7 @@ class ExhibitPreviewBoundary extends React.Component<
 }
 
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
-function PreviewScreenOverlay({ marker, onDone, onReiterate }: { marker: ExhibitMarker; onDone: () => void; onReiterate?: (marker: ExhibitMarker) => void }) {
+function PreviewScreenOverlay({ marker, onDone, onReiterate, onDelete }: { marker: ExhibitMarker; onDone: () => void; onReiterate?: (marker: ExhibitMarker) => void; onDelete?: (marker: ExhibitMarker) => void }) {
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
     const vw = typeof window !== "undefined" ? window.innerWidth : 390;
     const vh = typeof window !== "undefined" ? window.innerHeight : 844;
@@ -1120,6 +1120,12 @@ function PreviewScreenOverlay({ marker, onDone, onReiterate }: { marker: Exhibit
           </div>
         )}
         <div style={{ position: "fixed", bottom: 32, right: 24, display: "flex", gap: 10 }}>
+          {onDelete && (
+            <button onClick={() => onDelete(marker)}
+              style={{ background: "rgba(239,68,68,0.14)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              <Trash2 size={12} color="#ef4444" /> Delete
+            </button>
+          )}
           {onReiterate && (
             <button onClick={() => onReiterate(marker)}
               style={{ background: "rgba(217,113,31,0.18)", border: `1px solid ${ORANGE}88`, borderRadius: 10, padding: "8px 16px", fontSize: 12, color: ORANGE, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2396,7 +2402,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       label: "Cut", dictation: "", whyItMatters: "",
       status: "ready", createdAt: Date.now(), type: "video_cut",
     };
-    const newMarkers = [...markers, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
+    // Also drop this moment's own exhibit screen, if it has one — otherwise
+    // it sits orphaned in markers (invisible for now, since Step 3's list is
+    // keyed off `chunks`) and comes right back, un-regenerated, the moment
+    // this chunk is ever restored from Deleted.
+    const withoutOrphanedScreen = markers.filter(m => !(m.type === "exhibit_screen" && m.chunkId === id));
+    const newMarkers = [...withoutOrphanedScreen, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
     const newChunks = chunks.filter(c => c.id !== id);
     const newDeleted = [...deletedChunks, { ...chunk, deletedAt: Date.now() }];
     const newSlots = organizedSlots.map(s => s === id ? null : s);
@@ -3248,6 +3259,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     } finally {
       setReiterating(false);
     }
+  }
+
+  // ── Delete one exhibit screen — the only way to remove a single screen
+  // used to be "delete all" (deleteAllExhibitScreens); this leaves the
+  // moment itself untouched, so it'll show up as screen-less in Step 3
+  // (tap Generate Screens to make a fresh one for just that moment, or
+  // leave it out of the sequence entirely).
+  function deleteOneExhibitScreen(markerId: string) {
+    pushUndoSnapshot();
+    setMarkers(markers.filter(m => m.id !== markerId));
+    setViewingScreenMarkerId(null);
+    showInsertToast("Screen deleted.");
   }
 
   // ── Emergency fallback — replaces every current screen with a plain
@@ -4703,6 +4726,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           marker={viewingScreenMarker}
           onDone={() => setViewingScreenMarkerId(null)}
           onReiterate={m => { setReiterateMarkerId(m.id); setReiterateFeedback(""); setReiterateError(null); }}
+          onDelete={m => deleteOneExhibitScreen(m.id)}
         />
       )}
 

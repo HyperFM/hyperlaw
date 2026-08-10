@@ -1155,6 +1155,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const videoRef = useRef<HTMLVideoElement>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaPhotoBatchInputRef = useRef<HTMLInputElement>(null);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
@@ -1619,6 +1620,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
 
   // ── Media inserts ───────────────────────────────────────────────
   const mediaBlobUrlsRef = useRef<string[]>([]); // tracked for revocation on unmount
+  // Re-added live 2026-08-10 — was removed when Step 3 switched to
+  // AI-only batch generation, but this is the fastest, free, zero-AI-cost
+  // way to get an already-approved screen (e.g. a saved photo of a
+  // previously-generated exhibit) back into the exported video without
+  // regenerating anything.
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [insertToast, setInsertToast] = useState<string | null>(null);
   const insertToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Paste-back for copyAllMomentInfo's own output — lets someone who saved
@@ -3536,6 +3543,53 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     }
   }
 
+  // ── Batch photo insert — pick multiple photos at once (in order), and
+  // each one fills the next moment that doesn't have a screen yet, first
+  // to last. Built for restoring already-approved exhibit screens from
+  // saved photos of them — no AI call, no cost, no wait, and no need to
+  // scrub to each moment and insert one at a time. Skips moments that
+  // already have a screen (exhibit_screen, media_insert, or a manual
+  // screen_cut), same "already covered" check Emergency Fallback uses.
+  function insertPhotosForMoments(files: FileList) {
+    const ordered = orderedChunksForExhibit();
+    const isChunkAlreadyCovered = (chunk: VideoChunk) =>
+      markers.some(m =>
+        (m.type === "exhibit_screen" && m.chunkId === chunk.id) ||
+        (m.type === "media_insert" && m.chunkId === chunk.id) ||
+        (m.type === "screen_cut" && m.timestamp >= chunk.start && m.timestamp < chunk.end)
+      );
+    const targets = ordered.filter(c => !isChunkAlreadyCovered(c));
+    const fileArray = Array.from(files);
+    const count = Math.min(fileArray.length, targets.length);
+    if (count === 0) {
+      showInsertToast(targets.length === 0 ? "Every moment already has a screen." : "No photos selected.");
+      return;
+    }
+    pushUndoSnapshot();
+    const newMarkers: ExhibitMarker[] = fileArray.slice(0, count).map((file, i) => {
+      const chunk = targets[i];
+      const blobUrl = URL.createObjectURL(file);
+      mediaBlobUrlsRef.current.push(blobUrl); // tracked for revocation on unmount
+      return {
+        id: crypto.randomUUID(),
+        timestamp: chunk.start,
+        chunkId: chunk.id,
+        label: `Photo ${i + 1}`,
+        dictation: "", whyItMatters: "",
+        status: "ready", holdSec: 8, createdAt: Date.now(),
+        type: "media_insert",
+        mediaInsert: { kind: "photo", blobUrl, fileName: file.name },
+      };
+    });
+    const updated = [...markers, ...newMarkers].sort((a, b) => a.timestamp - b.timestamp);
+    setMarkers(updated);
+    setShowMediaPicker(false);
+    showInsertToast(
+      `Inserted ${count} photo${count !== 1 ? "s" : ""} into ${count} moment${count !== 1 ? "s" : ""}, in order.` +
+      (fileArray.length > targets.length ? ` ${fileArray.length - targets.length} extra photo(s) had no moment left.` : "")
+    );
+  }
+
   // ── Emergency fallback — fills in ONLY the moments that don't already
   // have a screen, with a plain "Exhibit N of Total" placeholder. Never
   // deletes or replaces anything — every existing exhibit_screen (AI-
@@ -4937,6 +4991,27 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 )}
               </button>
             </div>
+
+            {/* Insert Photos — pick several photos at once (e.g. saved
+                screenshots of already-approved exhibit screens) and each
+                one fills the next screen-less moment, in order. No AI, no
+                cost, no wait. */}
+            <input
+              ref={mediaPhotoBatchInputRef}
+              type="file" accept="image/*" multiple
+              style={{ display: "none" }}
+              onChange={e => {
+                if (e.target.files && e.target.files.length > 0) insertPhotosForMoments(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => mediaPhotoBatchInputRef.current?.click()}
+              disabled={batchGenerating}
+              style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a2a2a", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 700, fontSize: 13, color: batchGenerating ? "#444" : "#a78bfa" }}>
+              <ImageIcon size={15} /> Insert Photos for Moments (select multiple, in order)
+            </button>
+
             {batchErrors.length > 0 && (
               <div style={{ marginTop: 10, background: "#1a0000", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 12px" }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", marginBottom: 6 }}>

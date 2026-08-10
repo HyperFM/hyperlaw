@@ -69,6 +69,50 @@ export const ExhibitIcons = {
       <path d="M8 5v14l11-7-11-7z" />
     </svg>
   ),
+  // The five below match names the exhibit-generation system prompt actually
+  // instructs the AI to use (mic/speech/camera/clock/calendar) — they didn't
+  // exist here before, so the AI's own icon choices threw "not a function"
+  // at render time every time it picked one of these, confirmed via the
+  // debug log's "[ERR] exhibit preview failed" entries.
+  mic: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 11a7 7 0 0014 0" />
+      <path d="M12 18v4M8 22h8" />
+    </svg>
+  ),
+  speech: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M8 16l-3 4v-4" />
+    </svg>
+  ),
+  camera: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <path d="M4 8h3l2-2h6l2 2h3v11H4z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </svg>
+  ),
+  clock: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  calendar: (color: string) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </svg>
+  ),
 } as const;
 
 export type ExhibitIconKey = keyof typeof ExhibitIcons;
+
+/** Safe accessor — falls back to a generic icon instead of throwing if
+ *  content (AI-generated or already saved before this map grew) names an
+ *  icon that isn't in ExhibitIcons. */
+export function renderExhibitIcon(key: string, color: string): React.ReactNode {
+  const fn = ExhibitIcons[key as ExhibitIconKey];
+  return (fn ?? ExhibitIcons.check)(color);
+}

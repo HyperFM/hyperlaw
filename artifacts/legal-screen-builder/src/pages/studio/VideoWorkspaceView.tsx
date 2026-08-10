@@ -1029,17 +1029,36 @@ function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDon
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
     const vw = typeof window !== "undefined" ? window.innerWidth : 390;
     const vh = typeof window !== "undefined" ? window.innerHeight : 844;
-    const scale = Math.min(vw / 1920, vh / 1080);
+    // ExhibitRenderer always renders a 1920×1080 landscape canvas with the
+    // actual square content (the real 1254×1254 layout, fit-scaled) centered
+    // inside it at 1080×1080 — fitting THAT whole letterboxed canvas to a
+    // portrait phone screen (the old `Math.min(vw/1920, vh/1080)`) left huge
+    // black bars on every side and made the readable square tiny in the
+    // middle. Instead: scale so the square itself fills as much of the
+    // screen as possible, then crop away the black side-bars by rendering
+    // the full canvas into a square-sized window and shifting it left so
+    // only the centered square shows through.
+    const NATIVE_W = 1920;
+    const SQUARE = 1080; // the square's own rendered size at scale 1
+    const squarePx = Math.min(vw, vh) * 0.94;
+    const scale = squarePx / SQUARE;
+    const xOffset = ((NATIVE_W - SQUARE) / 2) * scale;
     return (
       <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <ExhibitPreviewBoundary fallback={
-          <div style={{ color: "#ef4444", fontSize: 14, textAlign: "center", padding: 24 }}>Couldn't preview this screen.</div>
-        }>
-          <ExhibitRenderer content={marker.exhibitScreen.content} scale={scale} />
-        </ExhibitPreviewBoundary>
+        <div style={{ width: squarePx, height: squarePx, overflow: "hidden", position: "relative", borderRadius: 12 }}>
+          <div style={{ position: "absolute", left: -xOffset, top: 0 }}>
+            <ExhibitPreviewBoundary fallback={
+              <div style={{ width: squarePx, height: squarePx, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ color: "#ef4444", fontSize: 14, textAlign: "center", padding: 24 }}>Couldn't preview this screen.</span>
+              </div>
+            }>
+              <ExhibitRenderer content={marker.exhibitScreen.content} scale={scale} />
+            </ExhibitPreviewBoundary>
+          </div>
+        </div>
         <button onClick={onDone}
           style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
-          Skip
+          Collapse
         </button>
       </div>
     );

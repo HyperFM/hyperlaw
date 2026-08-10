@@ -1,5 +1,5 @@
 import React from "react";
-import { ExhibitIcons, ExhibitIconKey } from "./icons";
+import { renderExhibitIcon } from "./icons";
 import { HyperLawTheme } from "./theme";
 import { EvidenceGridLayout } from "./exhibitLayoutSchemas";
 import { z } from "zod";
@@ -112,9 +112,7 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
                 padding: 5,
               }}
             >
-              {ExhibitIcons[item.icon as ExhibitIconKey](
-                item.icon === "x" ? "#ef4444" : item.icon === "check" ? "#22c55e" : orange
-              )}
+              {renderExhibitIcon(item.icon, item.icon === "x" ? "#ef4444" : item.icon === "check" ? "#22c55e" : orange)}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 800, color: white, lineHeight: 1.3, marginBottom: 4 }}>

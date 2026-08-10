@@ -1,5 +1,5 @@
 import React from "react";
-import { ExhibitIcons, ExhibitIconKey } from "./icons";
+import { renderExhibitIcon } from "./icons";
 import { HyperLawTheme } from "./theme";
 import { NarrativeRevealLayout } from "./exhibitLayoutSchemas";
 import { z } from "zod";
@@ -112,7 +112,7 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
         {data.facts.map((fact, i) => (
           <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
             <div style={{ width: 26, height: 26, flexShrink: 0, marginTop: 2 }}>
-              {ExhibitIcons[fact.icon as ExhibitIconKey](gray)}
+              {renderExhibitIcon(fact.icon, gray)}
             </div>
             <div style={{ fontSize: 17, fontWeight: 400, color: grayLight, lineHeight: 1.5 }}>
               {fact.text.text}

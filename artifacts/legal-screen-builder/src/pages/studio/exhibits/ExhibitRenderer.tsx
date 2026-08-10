@@ -75,6 +75,14 @@ export function ExhibitRenderer({ content, scale = 1 }: ExhibitRendererProps) {
 function renderLayout(layout: string, content: Record<string, unknown>): React.ReactNode {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const p = content as any;
+  // Every layout component below calls headline.map(...) — the AI (and any
+  // content generated before the system prompt was tightened to say so
+  // explicitly) sometimes returns a plain string instead of the required
+  // string[], which threw "headline.map is not a function" and crashed the
+  // whole preview. Normalize once here rather than duplicating this check
+  // in all 8 components.
+  if (typeof p.headline === "string") p.headline = [p.headline];
+  else if (!Array.isArray(p.headline)) p.headline = [];
   switch (layout) {
     case "hero_headline_argument": return <HeroHeadlineArgument data={p} />;
     case "narrative_reveal":       return <NarrativeReveal data={p} />;

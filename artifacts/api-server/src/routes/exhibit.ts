@@ -92,13 +92,17 @@ EXHIBIT TYPES OVERVIEW:
 LAYOUT SCHEMAS (abbreviated — follow these shapes exactly):
 
 hero_headline_argument: { layout, header:{actor,category,badgeNumber}, headline:string[], quote:{text,contextNote?,source}, findings:[{icon,title,body:ClaimField}], conclusion:{lines:string[]}, footerCitations:string[] }
-narrative_reveal: { layout, header, headline, facts:[{icon,text:ClaimField}], pivotQuote:{leadIn,text,highlightedFragment?,source}, ctaLabel, closingParagraph:{text,boldFragment?}, footerCitations }
-question_board: { layout, header, headline, leftColumn:{steps:[{icon,label,quote:ClaimField}],questionBox:{prompt,answer}}, rightColumn:{intro,checklist:ClaimField[],closingHighlight}, footerCitations }
-split_screen: { layout, header, headline, leftSide:{label,content:ClaimField}, rightSide:{label,content:ClaimField}, takeaway:{text,phrasedAsQuestion}, footerCitations }
-timeline: { layout, header, headline, events:[{label,detail:ClaimField,timestamp?}], conclusion:{lines:string[]}, footerCitations }
-quote_focus: { layout, header, headline, dominantQuote:{text,source}, context:ClaimField[], implication:{text,phrasedAsQuestion}, footerCitations }
-evidence_grid: { layout, header, headline, items:[{icon,label,source}], conclusion:{lines:string[]}, footerCitations }
-summary_board: { layout, header, headline, recapPoints:[{exhibitRef,summary}], finalTakeaway:{lines:string[]}, footerCitations }
+narrative_reveal: { layout, header, headline:string[], facts:[{icon,text:ClaimField}], pivotQuote:{leadIn,text,highlightedFragment?,source}, ctaLabel, closingParagraph:{text,boldFragment?}, footerCitations }
+question_board: { layout, header, headline:string[], leftColumn:{steps:[{icon,label,quote:ClaimField}],questionBox:{prompt,answer}}, rightColumn:{intro,checklist:ClaimField[],closingHighlight}, footerCitations }
+split_screen: { layout, header, headline:string[], leftSide:{label,content:ClaimField}, rightSide:{label,content:ClaimField}, takeaway:{text,phrasedAsQuestion}, footerCitations }
+timeline: { layout, header, headline:string[], events:[{label,detail:ClaimField,timestamp?}], conclusion:{lines:string[]}, footerCitations }
+quote_focus: { layout, header, headline:string[], dominantQuote:{text,source}, context:ClaimField[], implication:{text,phrasedAsQuestion}, footerCitations }
+evidence_grid: { layout, header, headline:string[], items:[{icon,label,source}], conclusion:{lines:string[]}, footerCitations }
+summary_board: { layout, header, headline:string[], recapPoints:[{exhibitRef,summary}], finalTakeaway:{lines:string[]}, footerCitations }
+
+headline is ALWAYS an array of short bold lines (1-3 short lines that together read as one punchy statement) — for every layout listed above, never a single plain string, even when it's only one line long. The renderer requires the array form and will fail to display the screen otherwise.
+
+Every "icon" field (in findings/facts/steps/items above) MUST be exactly one of these, spelled exactly as shown — never invent or guess a different name, the renderer will fail to display the screen otherwise: mic (a quote/statement), check (confirms/corroborates), x (absence/failure/denial), speech (an admission), scale (a legal standard), camera (no evidence/no cameras), clock (timing), calendar (a prior/dated event), person, document, question, arrow, shield, shieldCheck, comment, play.
 
 ClaimField: { text:string, source:SourceRef|null, classification:"verified_fact"|"observation"|"speculation" }
 SourceRef: { origin:"dictation"|"complaint"|"discovery"|"evidence"|"existing_exhibit", ref:string }

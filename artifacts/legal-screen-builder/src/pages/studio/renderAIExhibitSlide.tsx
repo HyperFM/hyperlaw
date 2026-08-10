@@ -25,6 +25,12 @@ type Orientation = "square" | "portrait";
 function pickLayoutElement(content: Record<string, unknown>, orientation: Orientation): React.ReactNode {
   const p = content as any;
   const o = orientation;
+  // Same normalization as ExhibitRenderer.tsx — headline must be string[]
+  // for every layout component below, but older/malformed content can still
+  // have it as a plain string. Without this the export rasterizer throws
+  // and that screen silently drops out of the exported video.
+  if (typeof p.headline === "string") p.headline = [p.headline];
+  else if (!Array.isArray(p.headline)) p.headline = [];
   switch (content.layout as string) {
     case "hero_headline_argument": return <HeroHeadlineArgument data={p} orientation={o} />;
     case "narrative_reveal":       return <NarrativeReveal       data={p} orientation={o} />;

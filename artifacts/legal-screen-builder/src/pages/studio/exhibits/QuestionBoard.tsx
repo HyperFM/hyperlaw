@@ -1,5 +1,5 @@
 import React from "react";
-import { ExhibitIcons, ExhibitIconKey } from "./icons";
+import { renderExhibitIcon } from "./icons";
 import { HyperLawTheme } from "./theme";
 import { QuestionBoardLayout } from "./exhibitLayoutSchemas";
 import { z } from "zod";
@@ -104,7 +104,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
                   padding: 5,
                 }}
               >
-                {ExhibitIcons[step.icon as ExhibitIconKey](orange)}
+                {renderExhibitIcon(step.icon, orange)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 900, color: orange, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>

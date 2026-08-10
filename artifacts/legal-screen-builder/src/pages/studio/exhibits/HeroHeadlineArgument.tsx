@@ -1,5 +1,5 @@
 import React from "react";
-import { ExhibitIcons, ExhibitIconKey } from "./icons";
+import { ExhibitIcons, renderExhibitIcon } from "./icons";
 import { HyperLawTheme } from "./theme";
 import { HeroHeadlineLayout } from "./exhibitLayoutSchemas";
 import { z } from "zod";
@@ -102,7 +102,7 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
         {data.findings.map((finding, i) => (
           <div key={i} style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <div style={{ width: 32, height: 32, flexShrink: 0 }}>
-              {ExhibitIcons[finding.icon as ExhibitIconKey](orange)}
+              {renderExhibitIcon(finding.icon, orange)}
             </div>
             <div>
               <div style={{ fontSize: 19, fontWeight: 800, color: white, lineHeight: 1.3 }}>

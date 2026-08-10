@@ -1944,7 +1944,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     // Persist the filename immediately — snapshotRef will be updated on the
     // next render so the 800 ms debounce always captures the new value.
     snapshotRef.current.videoFileName = fileName;
-    triggerAutosave(markers);
+    // Same guard as onDurationChange below — picking/loading a video file
+    // is automatic the moment it's selected, not a real edit. Never let
+    // that alone push an empty studioProject over a case that already had
+    // real content, or on a genuinely fresh session where there's nothing
+    // to save yet.
+    if (hlCase.studioProject || markers.length > 0 || chunks.length > 0) {
+      triggerAutosave(markers);
+    }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -3799,7 +3806,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above
         setDuration(d);
         snapshotRef.current.videoDurationSec = d;
-        triggerAutosave(markers);
+        // This fires the instant the video's duration is known — pure
+        // metadata, zero user interaction, automatic the moment a file is
+        // picked. Unconditionally autosaving here meant just opening a
+        // case on a second device (nothing chunked or edited yet) could
+        // push an EMPTY studioProject to the server and silently overwrite
+        // real work from another device — confirmed as the actual cause of
+        // a real data-loss incident live tonight. Only save here if there
+        // was already a studioProject on record, or this device already
+        // has real content — never on a genuinely fresh/empty session,
+        // where there's nothing worth saving and everything to lose.
+        if (hlCase.studioProject || markers.length > 0 || chunks.length > 0) {
+          triggerAutosave(markers);
+        }
         if (expectedDurationRef.current != null) {
           const expected = expectedDurationRef.current;
           expectedDurationRef.current = null; // only ever check once per load

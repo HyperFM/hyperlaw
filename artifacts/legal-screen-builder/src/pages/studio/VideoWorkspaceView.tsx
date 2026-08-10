@@ -3446,34 +3446,70 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     }
   }
 
-  // ── Emergency fallback — replaces every current screen with a plain
-  // "Exhibit N of Total" placeholder, one per moment, in existing moment
-  // order. Deliberately the exact same screen_cut/ScreenInsert marker type
-  // the manual Cut Builder already creates one at a time (handleCutInsert
-  // above) — pure client-side object construction, no AI call, no server
-  // round-trip, so this works even if the whole generation backend is down.
+  // ── Emergency fallback — fills in ONLY the moments that don't already
+  // have a screen, with a plain "Exhibit N of Total" placeholder. Never
+  // deletes or replaces anything — every existing exhibit_screen (AI-
+  // generated, including any edits already made to it) and every existing
+  // screen_cut (built by hand via Cut Builder) is left completely
+  // untouched. Was previously destructive — wiped every exhibit_screen and
+  // screen_cut marker unconditionally and replaced ALL of them with fresh
+  // placeholders, which would have destroyed real finished work. Fixed
+  // before ever being used for real, on explicit report. New placeholders
+  // are the exact same screen_cut/ScreenInsert marker type Cut Builder
+  // already creates one at a time (handleCutInsert above) — pure
+  // client-side object construction, no AI call, no server round-trip, so
+  // this works even if the whole generation backend is down.
   function activateEmergencyFallback() {
     const ordered = orderedChunksForExhibit();
     if (ordered.length === 0) {
       showInsertToast("No moments to make screens for yet.");
       return;
     }
+    // Snapshot first, before touching anything — pushUndoSnapshot gives an
+    // in-app Undo, and the setMarkers call below persists to the server
+    // through the exact same autosave path every other edit uses, so
+    // there's no window where this change exists only in memory.
     pushUndoSnapshot();
-    const kept = markers.filter(m => m.type !== "exhibit_screen" && m.type !== "screen_cut");
+
     const total = ordered.length;
-    const placeholders: ExhibitMarker[] = ordered.map((chunk, i) => ({
-      id: crypto.randomUUID(),
-      timestamp: chunk.start,
-      label: `Exhibit ${i + 1} of ${total}`,
-      dictation: "", whyItMatters: "",
-      status: "ready", holdSec: 8, createdAt: Date.now(),
-      type: "screen_cut",
-      screenInsert: { title: `Exhibit ${i + 1} of ${total}`, subtitle: "", bgColor: "#080808", bodyLines: [] },
-    }));
-    const updated = [...kept, ...placeholders].sort((a, b) => a.timestamp - b.timestamp);
+    // exhibit_screen markers link to their moment via chunkId; screen_cut
+    // markers (manual Cut Builder, or a placeholder from an earlier run of
+    // this same function) don't set chunkId, so those are matched by
+    // falling inside the moment's own [start, end) range instead.
+    const isChunkAlreadyCovered = (chunk: VideoChunk) =>
+      markers.some(m =>
+        (m.type === "exhibit_screen" && m.chunkId === chunk.id) ||
+        (m.type === "screen_cut" && m.timestamp >= chunk.start && m.timestamp < chunk.end)
+      );
+    const needsPlaceholder = ordered.filter(chunk => !isChunkAlreadyCovered(chunk));
+
+    if (needsPlaceholder.length === 0) {
+      setShowEmergencyModal(false);
+      showInsertToast("Every moment already has a screen — nothing to fill in.");
+      return;
+    }
+
+    const placeholders: ExhibitMarker[] = needsPlaceholder.map(chunk => {
+      const overallIndex = ordered.indexOf(chunk);
+      return {
+        id: crypto.randomUUID(),
+        timestamp: chunk.start,
+        chunkId: chunk.id,
+        label: `Exhibit ${overallIndex + 1} of ${total}`,
+        dictation: "", whyItMatters: "",
+        status: "ready", holdSec: 8, createdAt: Date.now(),
+        type: "screen_cut",
+        screenInsert: { title: `Exhibit ${overallIndex + 1} of ${total}`, subtitle: "", bgColor: "#080808", bodyLines: [] },
+      };
+    });
+    const updated = [...markers, ...placeholders].sort((a, b) => a.timestamp - b.timestamp);
     setMarkers(updated);
     setShowEmergencyModal(false);
-    showInsertToast(`${total} blank exhibit screen${total !== 1 ? "s" : ""} ready — read from the Illustrative Aid Script tool while presenting.`);
+    const coveredCount = total - needsPlaceholder.length;
+    showInsertToast(
+      `Added ${placeholders.length} placeholder screen${placeholders.length !== 1 ? "s" : ""} for the moment${placeholders.length !== 1 ? "s" : ""} still missing one` +
+      (coveredCount > 0 ? ` — your ${coveredCount} existing screen${coveredCount !== 1 ? "s" : ""} weren't touched.` : ".")
+    );
   }
 
   // ── Dictation ──────────────────────────────────────────────────
@@ -5317,7 +5353,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               For if screen generation isn't working right before you need to present.
             </div>
             <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
-              Confirming replaces your current exhibit screens with plain blank ones — one per moment, each just labeled <strong style={{ color: "#fff" }}>"Exhibit X of {orderedChunksForExhibit().length}."</strong> Nothing here depends on AI generation, so it works even if that's completely down.
+              <strong style={{ color: "#22c55e" }}>Every screen you already have — AI-generated or built by hand — is left exactly as-is, edits and all.</strong> This only fills in whichever moments don't have a screen yet, each with a plain placeholder labeled <strong style={{ color: "#fff" }}>"Exhibit X of {orderedChunksForExhibit().length}."</strong> Nothing here depends on AI generation, so it works even if that's completely down.
             </div>
             <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 22 }}>
               Afterward, open <strong style={{ color: ORANGE }}>Illustrative Aid Script</strong> in the Tools tab — it turns your own moment explanations into a polished script you can read from, screen by screen, while presenting.

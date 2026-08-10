@@ -16,6 +16,7 @@ import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
 import { saveStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
 import { pushDebug } from "../../lib/debugLog";
 import { downscaleCasePhoto } from "../../lib/casePhoto";
+import PinGateModal from "../../components/PinGateModal";
 import type { ExportSettings } from "./studioIndexedDB";
 
 const ORANGE = "#d9711f";
@@ -1001,10 +1002,10 @@ function PreparingVideoMessage() {
 // the whole Step 3 view down with it on every visit. Class component because
 // error boundaries require getDerivedStateFromError, which has no hook form.
 class ExhibitPreviewBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
+  { children: React.ReactNode; fallback: React.ReactNode; label?: string },
   { hasError: boolean }
 > {
-  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode; label?: string }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -1012,7 +1013,11 @@ class ExhibitPreviewBoundary extends React.Component<
     return { hasError: true };
   }
   componentDidCatch(error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error("[exhibit-preview] render failed", error);
+    // Same global debug log the admin/tester panel reads — visible on a
+    // phone without needing devtools plugged in.
+    pushDebug(`[ERR] exhibit preview failed${this.props.label ? ` — ${this.props.label}` : ""}: ${msg}`);
   }
   render() {
     return this.state.hasError ? this.props.fallback : this.props.children;
@@ -1079,9 +1084,11 @@ interface Props {
   hlCase: HLCase;
   onUpdateCase: (c: HLCase) => void;
   onBack: () => void;
+  /** For the PIN gate on "delete all exhibit screens" — same PinGateModal pattern as case/account deletion. */
+  userId?: string | null;
 }
 
-export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Props) {
+export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userId }: Props) {
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
@@ -1182,6 +1189,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
   // Preview-mode sequenced walkthrough): that one auto-resumes video
   // playback when dismissed, which isn't wanted here.
   const [viewingScreenMarkerId, setViewingScreenMarkerId] = useState<string | null>(null);
+  // ── Delete all exhibit screens — two-step confirmation, same PIN gate as
+  // deleting a case/account, since this wipes every generated screen at once.
+  const [showDeleteAllScreensConfirm, setShowDeleteAllScreensConfirm] = useState(false);
+  const [showDeleteAllScreensPin, setShowDeleteAllScreensPin] = useState(false);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -3097,6 +3108,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
     );
   }
 
+  // ── Delete every generated exhibit screen — a clean slate to regenerate
+  // from. Doesn't touch the moments themselves, just the exhibit_screen
+  // markers, so Generate Screens will treat every moment as a fresh target
+  // again afterward.
+  function deleteAllExhibitScreens() {
+    const remaining = markers.filter(m => m.type !== "exhibit_screen");
+    pushUndoSnapshot();
+    setMarkers(remaining);
+    setBatchErrors([]);
+    showInsertToast("All exhibit screens deleted — tap Generate Screens to rebuild.");
+  }
+
   // ── Dictation ──────────────────────────────────────────────────
   function startDictation(markerId: string) {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -4327,17 +4350,34 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
             yet, all at once. */}
         {currentStep === 3 && (
           <div style={{ marginBottom: 20 }}>
-            <button
-              onClick={generateAllExhibitScreens}
-              disabled={!videoUrl || batchGenerating}
-              style={{ width: "100%", background: !videoUrl || batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
-                padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
-                gap: 8, cursor: !videoUrl || batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
-                color: !videoUrl || batchGenerating ? "#666" : "#000" }}>
-              {batchGenerating
-                ? <><Loader2 size={15} className="animate-spin" /> Generating {batchProgress?.done ?? 0} of {batchProgress?.total ?? 0}…</>
-                : <><Wand2 size={15} /> Generate Screens</>}
-            </button>
+            <div style={{ display: "flex", gap: 10 }}>
+              {/* Restart — deletes every generated screen so Generate Screens
+                  starts fresh. PIN-gated (same as deleting a case/account)
+                  since it's a one-shot wipe of everything generated so far. */}
+              <button
+                onClick={() => setShowDeleteAllScreensConfirm(true)}
+                disabled={!markers.some(m => m.type === "exhibit_screen") || batchGenerating}
+                title="Delete all generated exhibit screens"
+                style={{ position: "relative", width: 50, height: 50, borderRadius: 12, flexShrink: 0,
+                  background: "#1a0e00", border: "1px solid #4a2800",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: markers.some(m => m.type === "exhibit_screen") && !batchGenerating ? "pointer" : "not-allowed",
+                  opacity: markers.some(m => m.type === "exhibit_screen") ? 1 : 0.4 }}>
+                <Monitor size={20} color={ORANGE} style={{ position: "absolute", opacity: 0.55 }} />
+                <Trash2 size={12} color="#ef4444" style={{ position: "relative" }} />
+              </button>
+              <button
+                onClick={generateAllExhibitScreens}
+                disabled={!videoUrl || batchGenerating}
+                style={{ flex: 1, background: !videoUrl || batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
+                  padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: 8, cursor: !videoUrl || batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
+                  color: !videoUrl || batchGenerating ? "#666" : "#000" }}>
+                {batchGenerating
+                  ? <><Loader2 size={15} className="animate-spin" /> Generating {batchProgress?.done ?? 0} of {batchProgress?.total ?? 0}…</>
+                  : <><Wand2 size={15} /> Generate Screens</>}
+              </button>
+            </div>
             {batchErrors.length > 0 && (
               <div style={{ marginTop: 10, background: "#1a0000", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 12px" }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", marginBottom: 6 }}>
@@ -4364,17 +4404,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
                       <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
                         style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
                           display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
-                        <div style={{ borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
-                          <ExhibitPreviewBoundary fallback={
-                            <div style={{ width: 1920 * 0.18, height: 1080 * 0.18, background: "#1a0000", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
-                              <span style={{ fontSize: 10, color: "#ef4444", textAlign: "center" }}>Couldn't preview</span>
-                            </div>
-                          }>
-                            <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.18} />
+                        {/* 0.045 (~86×49px), not the review panel's own 0.18 — this
+                            thumbnail sits IN a row next to a text label, not alone
+                            in its own full-width preview slot. At 0.18 it was
+                            ~346px wide on its own, wider than most phone screens,
+                            which is exactly what was shoving the "SCREEN N" label
+                            off to the side out of view. */}
+                        <div style={{ borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                          <ExhibitPreviewBoundary
+                            label={`Screen ${i + 1} (${screenMarker.exhibitScreen.selectedType})`}
+                            fallback={
+                              <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, background: "#1a0000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <span style={{ fontSize: 7, color: "#ef4444", textAlign: "center", lineHeight: 1.2 }}>Can't preview</span>
+                              </div>
+                            }>
+                            <ExhibitRenderer content={screenMarker.exhibitScreen.content} scale={0.045} />
                           </ExhibitPreviewBoundary>
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4 }}>
+                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
                           </div>
                           <div style={{ fontSize: 12, color: "#999" }}>Tap to view</div>
@@ -4481,6 +4529,47 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack }: Pro
           onDone={() => setViewingScreenMarkerId(null)}
         />
       )}
+
+      {/* ── Delete all exhibit screens — step 1: plain confirm ──────── */}
+      {showDeleteAllScreensConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowDeleteAllScreensConfirm(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: `1px solid ${ORANGE}33`, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ position: "relative", width: 40, height: 40, borderRadius: 20, background: "#1a0e00", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Monitor size={18} color={ORANGE} style={{ position: "absolute", opacity: 0.55 }} />
+                <Trash2 size={11} color="#ef4444" style={{ position: "relative" }} />
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Delete all exhibit screens?</div>
+            </div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6, marginBottom: 20 }}>
+              Are you sure you want to delete all exhibit screens generated? Your moments aren't touched — you can tap Generate Screens to rebuild them anytime.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowDeleteAllScreensConfirm(false)}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => { setShowDeleteAllScreensConfirm(false); setShowDeleteAllScreensPin(true); }}
+                style={{ flex: 1, background: "#ef4444", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer" }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete all exhibit screens — step 2: PIN gate, same as case/account deletion ── */}
+      <PinGateModal
+        open={showDeleteAllScreensPin}
+        title="Confirm deleting all exhibit screens"
+        description="Enter your PIN to permanently delete every generated exhibit screen in this case."
+        confirmLabel="Delete all screens"
+        userId={userId}
+        onClose={() => setShowDeleteAllScreensPin(false)}
+        onSuccess={() => { setShowDeleteAllScreensPin(false); deleteAllExhibitScreens(); }}
+      />
 
       {/* ── Jurisdiction result sheet ──────────────────────────────── */}
       {showVerifResult && verification && (

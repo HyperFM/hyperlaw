@@ -5697,6 +5697,7 @@ export default function App() {
             hlCase={studioCase}
             onUpdateCase={c => setData(updateCase(data, c))}
             onBack={() => setView({ type: "home" })}
+            userId={user?.id}
           />
         );
       }

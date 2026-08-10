@@ -31,6 +31,10 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
         padding: "48px 56px",
         boxSizing: "border-box",
         fontFamily: "'Arial Black', 'Helvetica Neue', sans-serif",
+        // Guardrail against text overlap — see HeroHeadlineArgument's
+        // comment for why.
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
         color: white,
         position: "relative",
         display: "flex",

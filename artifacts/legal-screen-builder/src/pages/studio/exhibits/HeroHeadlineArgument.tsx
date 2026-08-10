@@ -31,6 +31,13 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
         padding: "48px 56px",
         boxSizing: "border-box",
         fontFamily: "'Arial Black', 'Helvetica Neue', sans-serif",
+        // Guardrail against text overlap — an AI-generated name, quote, or
+        // citation that's a single long unbreakable "word" (no spaces to
+        // wrap at) would otherwise overflow its box at face value and run
+        // into whatever sits next to or below it. Forces long text to wrap
+        // within its own space instead.
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
         color: white,
         position: "relative",
         display: "flex",

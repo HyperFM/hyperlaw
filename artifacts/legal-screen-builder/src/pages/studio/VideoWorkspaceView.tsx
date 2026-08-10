@@ -3249,39 +3249,50 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     // something as permanent that was only true at this one timestamp.
     const momentsTimeline = labeled.map(c => ({ timestamp: formatTime(c.start), label: c.label }));
     try {
-      const existingExhibits = markers
-        .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
-        .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
-      const result = await aiApi.generateExhibitScreen({
-        caseId: hlCase.id,
-        timestamp: formatTime(chunk.start),
-        dictation: chunk.label,
-        existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
-        momentsTimeline,
-      });
-      const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
-      if (!picked) throw new Error("No screen returned");
-      const id = crypto.randomUUID();
-      const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
-      const newMarker: ExhibitMarker = {
-        id, timestamp: chunk.start, chunkId: chunk.id,
-        label: `AI Screen ${screenNum}`,
-        dictation: "", whyItMatters: "",
-        status: "ready", holdSec: 8, createdAt: Date.now(),
-        type: "exhibit_screen",
-        exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
-      };
-      const updated = [...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
-      setMarkers(updated, false);
-      setBatchProgress({ done: doneSoFar + 1, total: labeled.length });
-      showInsertToast(`Generated screen ${doneSoFar + 1} of ${labeled.length}.`);
-    } catch (err) {
-      const attempts = (generationAttemptsRef.current[chunk.id] ?? 0) + 1;
-      generationAttemptsRef.current[chunk.id] = attempts;
-      const atCap = attempts >= MAX_GENERATION_ATTEMPTS;
-      setBatchErrors([
-        `Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}${atCap ? ` — failed ${attempts} times, won't auto-retry again. Use Emergency Fallback for this one.` : ` (attempt ${attempts}/${MAX_GENERATION_ATTEMPTS})`}`,
-      ]);
+      // Retries THIS SAME moment automatically, within this one tap, up to
+      // the shared per-moment cap — a transient JSON-format hiccup
+      // shouldn't require noticing a failure and tapping again yourself.
+      // Only moves to a different moment on a fresh, separate tap; never
+      // cascades to another moment automatically, so this still can't turn
+      // into the unbounded auto-batch this was deliberately built to avoid.
+      for (let attempt = (generationAttemptsRef.current[chunk.id] ?? 0) + 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+        try {
+          const existingExhibits = markers
+            .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
+            .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+          const result = await aiApi.generateExhibitScreen({
+            caseId: hlCase.id,
+            timestamp: formatTime(chunk.start),
+            dictation: chunk.label,
+            existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+            momentsTimeline,
+          });
+          const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+          if (!picked) throw new Error("No screen returned");
+          const id = crypto.randomUUID();
+          const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
+          const newMarker: ExhibitMarker = {
+            id, timestamp: chunk.start, chunkId: chunk.id,
+            label: `AI Screen ${screenNum}`,
+            dictation: "", whyItMatters: "",
+            status: "ready", holdSec: 8, createdAt: Date.now(),
+            type: "exhibit_screen",
+            exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
+          };
+          const updated = [...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
+          setMarkers(updated, false);
+          setBatchProgress({ done: doneSoFar + 1, total: labeled.length });
+          showInsertToast(`Generated screen ${doneSoFar + 1} of ${labeled.length}.`);
+          return;
+        } catch (err) {
+          generationAttemptsRef.current[chunk.id] = attempt;
+          const atCap = attempt >= MAX_GENERATION_ATTEMPTS;
+          setBatchErrors([
+            `Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}${atCap ? ` — failed ${attempt} times, won't auto-retry again. Use Emergency Fallback for this one.` : ` — retrying automatically (attempt ${attempt + 1}/${MAX_GENERATION_ATTEMPTS})…`}`,
+          ]);
+          if (atCap) return;
+        }
+      }
     } finally {
       setBatchGenerating(false);
     }

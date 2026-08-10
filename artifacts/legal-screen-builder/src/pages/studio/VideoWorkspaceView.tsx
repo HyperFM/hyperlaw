@@ -13,7 +13,7 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, saveThumbnails, loadThumbnails } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, saveThumbnails, loadThumbnails, type StudioSnapshot } from "./studioIndexedDB";
 import { pushDebug } from "../../lib/debugLog";
 import { downscaleCasePhoto } from "../../lib/casePhoto";
 import PinGateModal from "../../components/PinGateModal";
@@ -1241,6 +1241,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // (Organize, Exhibit, timeline segments, etc.) needs zero changes and
   // can't accidentally pick up something that was deleted.
   const [deletedChunks, setDeletedChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.deletedChunks ?? []);
+  // ── Emergency local-backup recovery ───────────────────────────────
+  // saveStudioSnapshot() writes markers/chunks to this device's own
+  // IndexedDB on every real edit — completely separate from the
+  // server-synced studioProject, and never actually read back anywhere
+  // until now. Built live 2026-08-10 after a server-side sync overwrote
+  // a case's studioProject with an empty one from a second device: if
+  // this device's own local backup has MORE content than what just
+  // loaded from hlCase (the now-corrupted synced copy), that's a strong
+  // signal real work is recoverable from here and got lost upstream —
+  // offered to the user to restore, never applied automatically.
+  const [recoverableSnapshot, setRecoverableSnapshot] = useState<StudioSnapshot | null>(null);
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
+  const [recoveryApplied, setRecoveryApplied] = useState(false);
   const [currentStep, setCurrentStep] = useState(hlCase.studioProject?.workflowStep ?? 1);
   const [organizedSlots, setOrganizedSlots] = useState<(string | null)[]>(() => {
     const saved = hlCase.studioProject?.organizedSlots;
@@ -1707,6 +1720,41 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     setMarkersRaw(updated);
     triggerAutosave(updated);
     triggerIndexedDBSave();
+  }
+
+  // Checks this device's own local IndexedDB backup once, on mount, against
+  // whatever just loaded from hlCase.studioProject (the server-synced
+  // copy). Only surfaces the prompt if the local backup is genuinely
+  // bigger — never auto-applies, never touches anything unless the user
+  // taps Restore.
+  useEffect(() => {
+    let cancelled = false;
+    loadStudioSnapshot(hlCase.id).then(snap => {
+      if (cancelled || !snap) return;
+      const loadedMarkerCount = hlCase.studioProject?.markers?.length ?? 0;
+      const loadedChunkCount = hlCase.studioProject?.chunks?.length ?? 0;
+      if (snap.chunks.length > loadedChunkCount || snap.markers.length > loadedMarkerCount) {
+        setRecoverableSnapshot(snap);
+        setShowRecoveryPrompt(true);
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hlCase.id]);
+
+  function restoreFromLocalBackup() {
+    if (!recoverableSnapshot) return;
+    pushUndoSnapshot();
+    setMarkersRaw(recoverableSnapshot.markers);
+    setChunks(recoverableSnapshot.chunks);
+    // Immediately re-saves the recovered data to the server too — this is
+    // what actually repairs the corrupted server-side copy, not just this
+    // device's own view of it.
+    triggerAutosave(recoverableSnapshot.markers, recoverableSnapshot.chunks);
+    triggerIndexedDBSave();
+    setShowRecoveryPrompt(false);
+    setRecoveryApplied(true);
+    showInsertToast(`Restored ${recoverableSnapshot.markers.filter(m => m.type === "exhibit_screen").length} screen(s) and ${recoverableSnapshot.chunks.length} moment(s) from this device's local backup.`);
   }
 
   function updateMarkerHold(markerId: string, sec: number) {
@@ -5643,6 +5691,45 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           onTouchMove={e => e.preventDefault()}
           style={{ position: "fixed", inset: 0, zIndex: 950, background: "transparent", touchAction: "none" }}
         />
+      )}
+
+      {/* ── Emergency local-backup recovery prompt — this device's own
+          IndexedDB has more content than what just loaded from the
+          server-synced case. Deliberately impossible to miss (highest
+          z-index in the app, opaque) and never auto-applied. */}
+      {showRecoveryPrompt && recoverableSnapshot && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "#0a0a0a", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ maxWidth: 380, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 20, background: "#0f1a10", border: "1.5px solid #22c55e", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <CheckCircle2 size={20} color="#22c55e" />
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: "#fff" }}>Recovered work found</div>
+            </div>
+            <div style={{ fontSize: 13.5, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
+              This device has its own saved copy with <strong style={{ color: "#22c55e" }}>{recoverableSnapshot.chunks.length} moment{recoverableSnapshot.chunks.length !== 1 ? "s" : ""}</strong> and <strong style={{ color: "#22c55e" }}>{recoverableSnapshot.markers.filter(m => m.type === "exhibit_screen").length} exhibit screen{recoverableSnapshot.markers.filter(m => m.type === "exhibit_screen").length !== 1 ? "s" : ""}</strong> — more than what just loaded from your account.
+            </div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6, marginBottom: 22 }}>
+              This usually means a sync from another device overwrote the real version. Restoring will bring this device's copy back and save it to your account, replacing what's currently there.
+            </div>
+            <button onClick={restoreFromLocalBackup}
+              style={{ width: "100%", background: "#22c55e", border: "none", borderRadius: 12, padding: 16, fontSize: 15, fontWeight: 900, color: "#000", cursor: "pointer", marginBottom: 10 }}>
+              Restore this device's copy
+            </button>
+            <button onClick={() => setShowRecoveryPrompt(false)}
+              style={{ width: "100%", background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 13, fontWeight: 700, color: "#888", cursor: "pointer" }}>
+              Not now — keep what's currently loaded
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Small persistent reopen link, in case the prompt above was
+          dismissed but the backup is still worth another look. */}
+      {!showRecoveryPrompt && recoverableSnapshot && !recoveryApplied && (
+        <button onClick={() => setShowRecoveryPrompt(true)}
+          style={{ position: "fixed", top: "calc(56px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", zIndex: 850, background: "#0f1a10", border: "1px solid #22c55e", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, color: "#22c55e", cursor: "pointer" }}>
+          Recovered work available — tap to restore
+        </button>
       )}
 
     </div>

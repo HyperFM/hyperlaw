@@ -939,6 +939,9 @@ export const aiApi = {
      *  happens later in the same video, instead of asserting it as permanent. */
     momentsTimeline?: Array<{ timestamp: string; label: string }>;
     forceType?: string;
+    /** "Reiterate" flow — free-text note on what to fix when regenerating an
+     *  already-existing screen. Blank/omitted just means try again fresh. */
+    userFeedback?: string;
   }): Promise<{
     candidates: Array<{
       selectedType: string;

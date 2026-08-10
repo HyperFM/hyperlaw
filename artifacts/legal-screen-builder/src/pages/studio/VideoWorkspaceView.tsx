@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1071,7 +1071,7 @@ class ExhibitPreviewBoundary extends React.Component<
 }
 
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
-function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDone: () => void }) {
+function PreviewScreenOverlay({ marker, onDone, onReiterate }: { marker: ExhibitMarker; onDone: () => void; onReiterate?: (marker: ExhibitMarker) => void }) {
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
     const vw = typeof window !== "undefined" ? window.innerWidth : 390;
     const vh = typeof window !== "undefined" ? window.innerHeight : 844;
@@ -1125,10 +1125,18 @@ function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDon
             ))}
           </div>
         )}
-        <button onClick={onDone}
-          style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
-          Collapse
-        </button>
+        <div style={{ position: "fixed", bottom: 32, right: 24, display: "flex", gap: 10 }}>
+          {onReiterate && (
+            <button onClick={() => onReiterate(marker)}
+              style={{ background: "rgba(217,113,31,0.18)", border: `1px solid ${ORANGE}88`, borderRadius: 10, padding: "8px 16px", fontSize: 12, color: ORANGE, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              <RefreshCw size={12} color={ORANGE} /> Reiterate
+            </button>
+          )}
+          <button onClick={onDone}
+            style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
+            Collapse
+          </button>
+        </div>
       </div>
     );
   }
@@ -1285,6 +1293,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // no AI involved at all, for if screen generation is broken/unreachable
   // right before presenting. Reachable from any step, not buried in Step 3.
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  // ── Reiterate — regenerate one already-existing screen, optionally with a
+  // note on what to fix. reiterateMarkerId is which screen; the feedback
+  // textarea sits in its own small modal shown on top of the full preview.
+  const [reiterateMarkerId, setReiterateMarkerId] = useState<string | null>(null);
+  const [reiterateFeedback, setReiterateFeedback] = useState("");
+  const [reiterating, setReiterating] = useState(false);
+  const [reiterateError, setReiterateError] = useState<string | null>(null);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -3221,6 +3236,53 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     showInsertToast("All exhibit screens deleted — tap Generate Screens to rebuild.");
   }
 
+  // ── Reiterate — regenerate one already-existing screen in place, with an
+  // optional note on what to fix. Same single-moment call generateAllExhibit
+  // Screens makes (same case context, same timeline, same existingExhibits
+  // consistency signal), just for one marker instead of a batch, plus the
+  // user's own feedback text folded in when they gave one.
+  async function regenerateOneExhibitScreen(markerId: string, feedback: string) {
+    const marker = markers.find(m => m.id === markerId);
+    if (!marker || marker.type !== "exhibit_screen" || !marker.chunkId) return;
+    const chunk = chunks.find(c => c.id === marker.chunkId);
+    if (!chunk) return;
+    setReiterating(true);
+    setReiterateError(null);
+    try {
+      const ordered = orderedChunksForExhibit();
+      const momentsTimeline = ordered
+        .filter(c => c.label.trim())
+        .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
+      const existingExhibits = markers
+        .filter(m => m.type === "exhibit_screen" && m.id !== markerId && m.exhibitScreen)
+        .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+      const result = await aiApi.generateExhibitScreen({
+        caseId: hlCase.id,
+        timestamp: formatTime(chunk.start),
+        dictation: chunk.label,
+        existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+        momentsTimeline,
+        userFeedback: feedback.trim() || undefined,
+      });
+      const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+      if (!picked) throw new Error("No screen returned");
+      const updated = markers.map(m =>
+        m.id === markerId
+          ? { ...m, exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections } }
+          : m
+      );
+      pushUndoSnapshot();
+      setMarkers(updated, false);
+      setReiterateMarkerId(null);
+      setReiterateFeedback("");
+      showInsertToast("Screen regenerated.");
+    } catch (err) {
+      setReiterateError((err as Error).message || "Couldn't regenerate this screen — try again.");
+    } finally {
+      setReiterating(false);
+    }
+  }
+
   // ── Emergency fallback — replaces every current screen with a plain
   // "Exhibit N of Total" placeholder, one per moment, in existing moment
   // order. Deliberately the exact same screen_cut/ScreenInsert marker type
@@ -4693,7 +4755,45 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         <PreviewScreenOverlay
           marker={viewingScreenMarker}
           onDone={() => setViewingScreenMarkerId(null)}
+          onReiterate={m => { setReiterateMarkerId(m.id); setReiterateFeedback(""); setReiterateError(null); }}
         />
+      )}
+
+      {/* ── Reiterate feedback modal — sits on top of the full preview.
+          Blank feedback just means "try again," not "fix something specific." ── */}
+      {reiterateMarkerId && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => { if (!reiterating) setReiterateMarkerId(null); }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: `1px solid ${ORANGE}33`, borderRadius: 16, padding: 24, maxWidth: 360, width: "100%" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#fff", marginBottom: 8 }}>Reiterate this screen</div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6, marginBottom: 14 }}>
+              Anything you want specifically fixed about this one? Leave it blank and just tap Regenerate if you'd rather the AI take another pass on its own.
+            </div>
+            <textarea
+              autoFocus
+              value={reiterateFeedback}
+              onChange={e => setReiterateFeedback(e.target.value)}
+              placeholder="e.g. the headline overstates it, use a quieter framing…"
+              disabled={reiterating}
+              style={{ width: "100%", minHeight: 90, background: "#111", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", outline: "none", marginBottom: 14 }}
+            />
+            {reiterateError && (
+              <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{reiterateError}</div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setReiterateMarkerId(null)} disabled={reiterating}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: reiterating ? "default" : "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => regenerateOneExhibitScreen(reiterateMarkerId, reiterateFeedback)} disabled={reiterating}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: reiterating ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {reiterating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {reiterating ? "Regenerating…" : "Regenerate"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Emergency fallback confirm ────────────────────────────────

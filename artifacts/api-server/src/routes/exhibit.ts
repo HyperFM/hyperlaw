@@ -398,6 +398,7 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     existingExhibits = [] as string[],
     momentsTimeline = [] as Array<{ timestamp: string; label: string }>,
     forceType,
+    userFeedback,
   } = req.body as {
     caseId: string;
     timestamp: string;
@@ -410,6 +411,10 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
      *  asserting something as permanent that was only true at this timestamp. */
     momentsTimeline?: Array<{ timestamp: string; label: string }>;
     forceType?: string;
+    /** Free-text note from the user on what to fix, from the "Reiterate"
+     *  regenerate-this-one-screen flow — optional, left blank just means
+     *  "try again," not "there was something specifically wrong." */
+    userFeedback?: string;
   };
 
   if (!dictation?.trim()) {
@@ -481,11 +486,18 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     ? `\n\nUSER REQUESTED TYPE: "${forceType}" — generate exactly ONE candidate of this type instead of the usual 2-3, and prefer it if the content supports it.`
     : "";
 
+  // "Reiterate" flow — regenerating one already-existing screen. Blank means
+  // just try again with fresh judgment; if filled, it names something
+  // specific to fix and takes priority over the model's own first instinct.
+  const feedbackBlock = userFeedback && userFeedback.trim()
+    ? `\n\nUSER FEEDBACK ON THE PREVIOUS VERSION OF THIS SCREEN: "${userFeedback.trim()}" — address this specifically when generating the new version.`
+    : "";
+
   const userMessage = `VIDEO TIMESTAMP: ${timestamp}
 
 USER DICTATION:
 ${dictation}
-${priorBlock}${timelineBlock}${forceBlock}
+${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}
 
 SOURCE MATERIAL:
 ${sourceText}`;

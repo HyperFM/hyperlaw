@@ -305,10 +305,12 @@ export class AiService {
       // minutes) applied, so one hung request could freeze an interactive
       // batch (e.g. Generate Screens) indefinitely with no error and no
       // progress, which is exactly "stuck at 3 of 15" with nothing moving.
-      // 45s is generous for a real generation call but fails fast enough
-      // that withRetry's retry-on-5xx actually gets a chance to kick in
-      // and move the batch along instead of the whole thing just hanging.
-      this._client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 45_000 });
+      // Was 45s, but confirmed live that's tight enough to kill a real,
+      // still-working generation call before it finishes — and a killed
+      // call still gets billed for whatever the model already processed,
+      // so a too-short timeout means paying for nothing. 90s still fails
+      // well short of the SDK's multi-minute default.
+      this._client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 90_000 });
     }
     return this._client;
   }

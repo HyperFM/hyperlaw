@@ -989,52 +989,6 @@ function PreparingVideoMessage() {
   );
 }
 
-// ── Generate Screens progress — alternates between a friendly line and the
-// literal "Generating N of Total" count instead of sitting on one static
-// string the whole batch. Slower than the video-loading cycle above (this
-// runs for up to 17 AI calls, not a few seconds of thumbnail extraction) and
-// the count is real — it comes straight from live batchProgress state, so
-// every time the progress line shows it reflects however far the batch has
-// actually gotten by then, not a fixed snapshot. ───────────────────────────
-const GENERATING_SCREENS_MESSAGES = [
-  "Reading every word of what you said.",
-  "Turning your moments into evidence.",
-  "Building the strongest version of your story.",
-  "Cross-checking against your case file.",
-  "Almost there — hang tight.",
-];
-
-function GeneratingScreensMessage({ done, total }: { done: number; total: number }) {
-  const [step, setStep] = useState(0);
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const cycle = setInterval(() => {
-      setVisible(false);
-      setTimeout(() => {
-        setStep(s => s + 1);
-        setVisible(true);
-      }, 400);
-    }, 4200);
-    return () => clearInterval(cycle);
-  }, []);
-
-  const showingProgress = step % 2 === 1;
-  const text = showingProgress
-    ? `Generating ${done} of ${total}…`
-    : GENERATING_SCREENS_MESSAGES[Math.floor(step / 2) % GENERATING_SCREENS_MESSAGES.length];
-
-  return (
-    <span style={{
-      opacity: visible ? 1 : 0,
-      transition: "opacity 0.4s ease",
-      display: "inline-block",
-    }}>
-      {text}
-    </span>
-  );
-}
-
 // ── Guards a single exhibit-screen render — Step 3 now renders every
 // existing exhibit_screen marker inline (the moment→screen swap list), so a
 // single malformed or legacy-shaped one (e.g. content saved before a layout
@@ -3241,84 +3195,68 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       : [...chunks].sort((a, b) => a.start - b.start);
   }
 
-  // ── Generate Screens — one exhibit screen per moment, all at once ──
-  // Every moment already has its own answers from Chunk & Label; there's no
-  // reason to make someone re-describe each one by hand here too. Reuses the
-  // exact same /exhibit/generate call the old one-at-a-time generator used
-  // (dictation = the moment's own label), just auto-picking the AI's own
-  // recommended candidate instead of putting a human review step in the way
-  // of 17 of these in a row. Skips any moment that already has a screen, so
-  // re-running this never duplicates or clobbers existing work.
-  async function generateAllExhibitScreens() {
+  // ── Generate Next Screen — one at a time, by hand ───────────────────
+  // Used to auto-loop through every un-generated moment in one uninterrupted
+  // batch of up to 15-17 AI calls. Changed to generate exactly one screen
+  // per tap and then stop: an automatic batch meant a bad run (a stuck
+  // call, a bug, a bill nobody was watching) could burn through a lot of
+  // time and real API cost before anyone noticed something was wrong, 15
+  // calls deep. One at a time, each screen lands, shows up live in the
+  // list below, and gets a beat to be looked at before the next one is
+  // even requested — nothing runs unless someone actually taps for it.
+  async function generateNextExhibitScreen() {
     if (batchGenerating) return;
     const ordered = orderedChunksForExhibit();
-    const targets = ordered.filter(c =>
-      c.label.trim() && !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id)
-    );
+    const labeled = ordered.filter(c => c.label.trim());
+    const targets = labeled.filter(c => !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id));
     if (targets.length === 0) {
       showInsertToast(chunks.length === 0 ? "Chunk and label some moments first." : "Every moment already has an exhibit screen.");
       return;
     }
-    pushUndoSnapshot(); // one undo step for the whole batch, not one per moment
+    const chunk = targets[0];
+    const doneSoFar = labeled.length - targets.length;
+    pushUndoSnapshot();
     setBatchGenerating(true);
-    setBatchProgress({ done: 0, total: targets.length });
+    setBatchProgress({ done: doneSoFar, total: labeled.length });
     setBatchErrors([]);
-    const errors: string[] = [];
-    let workingMarkers = markers;
-    // Every moment in the video, not just already-generated ones — lets each
+    // Every moment in the video, not just already-generated ones — lets this
     // generation call check its own status claims (charged/not charged, in
     // custody/released, etc.) against what happens later in the SAME video,
     // per the system prompt's STATUS-CLAIM RULE, instead of asserting
-    // something as permanent that was only true at that one timestamp.
-    const momentsTimeline = ordered
-      .filter(c => c.label.trim())
-      .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
-    for (let i = 0; i < targets.length; i++) {
-      const chunk = targets[i];
-      try {
-        const existingExhibits = workingMarkers
-          .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
-          .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
-        const result = await aiApi.generateExhibitScreen({
-          caseId: hlCase.id,
-          timestamp: formatTime(chunk.start),
-          dictation: chunk.label,
-          existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
-          momentsTimeline,
-        });
-        const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
-        if (!picked) throw new Error("No screen returned");
-        const id = crypto.randomUUID();
-        const screenNum = workingMarkers.filter(m => m.type === "exhibit_screen").length + 1;
-        const newMarker: ExhibitMarker = {
-          id, timestamp: chunk.start, chunkId: chunk.id,
-          label: `AI Screen ${screenNum}`,
-          dictation: "", whyItMatters: "",
-          status: "ready", holdSec: 8, createdAt: Date.now(),
-          type: "exhibit_screen",
-          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
-        };
-        workingMarkers = [...workingMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
-        setMarkers(workingMarkers, false); // saves as it goes — a mid-batch interruption doesn't lose what's already done
-      } catch (err) {
-        // Was only flushed to state once, after the WHOLE batch finished —
-        // so a failure showed nothing at all while the batch kept going:
-        // no new screen (correct, nothing to show), but also no error,
-        // just the progress counter silently ticking past it. Now shows up
-        // immediately, same as a successful screen does.
-        errors.push(`Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}`);
-        setBatchErrors([...errors]);
-      }
-      setBatchProgress({ done: i + 1, total: targets.length });
+    // something as permanent that was only true at this one timestamp.
+    const momentsTimeline = labeled.map(c => ({ timestamp: formatTime(c.start), label: c.label }));
+    try {
+      const existingExhibits = markers
+        .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
+        .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+      const result = await aiApi.generateExhibitScreen({
+        caseId: hlCase.id,
+        timestamp: formatTime(chunk.start),
+        dictation: chunk.label,
+        existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+        momentsTimeline,
+      });
+      const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+      if (!picked) throw new Error("No screen returned");
+      const id = crypto.randomUUID();
+      const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
+      const newMarker: ExhibitMarker = {
+        id, timestamp: chunk.start, chunkId: chunk.id,
+        label: `AI Screen ${screenNum}`,
+        dictation: "", whyItMatters: "",
+        status: "ready", holdSec: 8, createdAt: Date.now(),
+        type: "exhibit_screen",
+        exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
+      };
+      const updated = [...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
+      setMarkers(updated, false);
+      setBatchProgress({ done: doneSoFar + 1, total: labeled.length });
+      showInsertToast(`Generated screen ${doneSoFar + 1} of ${labeled.length}.`);
+    } catch (err) {
+      setBatchErrors([`Moment ${ordered.indexOf(chunk) + 1}: ${(err as Error).message || "failed"}`]);
+    } finally {
+      setBatchGenerating(false);
     }
-    setBatchGenerating(false);
-    setBatchErrors(errors);
-    const succeeded = targets.length - errors.length;
-    showInsertToast(
-      errors.length === 0
-        ? `Generated ${succeeded} exhibit screen${succeeded !== 1 ? "s" : ""}.`
-        : `Generated ${succeeded} of ${targets.length} — ${errors.length} failed, see below.`
-    );
   }
 
   // ── Delete every generated exhibit screen — a clean slate to regenerate
@@ -4756,8 +4694,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         {/* ── Step 3: Exhibit ──────────────────────────────────────────
             Every moment already has its own answers from Chunk & Label —
             no per-moment dictation/photo/mic here anymore, just one button
-            that generates a screen for every moment that doesn't have one
-            yet, all at once. */}
+            that generates the next moment that doesn't have a screen yet,
+            one at a time — not an automatic batch, so nothing runs unless
+            someone actually taps for it. */}
         {currentStep === 3 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", gap: 10 }}>
@@ -4777,8 +4716,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 <Trash2 size={12} color="#ef4444" style={{ position: "relative" }} />
               </button>
               <button
-                onClick={generateAllExhibitScreens}
-                // generateAllExhibitScreens only ever reads chunks (already
+                onClick={generateNextExhibitScreen}
+                // generateNextExhibitScreen only ever reads chunks (already
                 // saved) and calls the AI directly — it never touches
                 // videoRef/videoUrl at all. Gating it on the video being
                 // loaded meant re-picking and re-copying a multi-gigabyte
@@ -4790,8 +4729,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
                   color: batchGenerating ? "#666" : "#000" }}>
                 {batchGenerating
-                  ? <><Loader2 size={15} className="animate-spin" /> <GeneratingScreensMessage done={batchProgress?.done ?? 0} total={batchProgress?.total ?? 0} /></>
-                  : <><Wand2 size={15} /> Generate Screens</>}
+                  ? <><Loader2 size={15} className="animate-spin" /> Generating…</>
+                  : <><Wand2 size={15} /> Generate Next Screen{batchProgress ? ` (${batchProgress.done}/${batchProgress.total})` : ""}</>}
               </button>
             </div>
             {batchErrors.length > 0 && (

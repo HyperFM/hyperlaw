@@ -1107,6 +1107,32 @@ function PreviewScreenOverlay({ marker, onDone, onReiterate, onDelete, onNeedsRe
     );
   }
 
+  if (marker.type === "media_insert" && marker.mediaInsert) {
+    const vw = typeof window !== "undefined" ? window.innerWidth : 390;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 844;
+    // An inserted photo IS the exhibit screen for its moment — same
+    // full-screen overlay, same Delete/Collapse controls as a generated
+    // one. No Reiterate (there's nothing to regenerate) and no confidence
+    // flags (nothing an AI was unsure about — it's the user's own photo).
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <img src={marker.mediaInsert.blobUrl} alt="" style={{ maxWidth: vw * 0.94, maxHeight: vh * 0.94, objectFit: "contain", borderRadius: 12 }} />
+        <div style={{ position: "fixed", bottom: 32, right: 24, display: "flex", gap: 10 }}>
+          {onDelete && (
+            <button onClick={() => onDelete(marker)}
+              style={{ background: "rgba(239,68,68,0.14)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "#ef4444", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              <Trash2 size={12} color="#ef4444" /> Delete
+            </button>
+          )}
+          <button onClick={onDone}
+            style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
+            Collapse
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const si = marker.screenInsert;
   if (!si) return null;
   const isLight = si.bgColor === "#f0f0f0";
@@ -2282,7 +2308,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     .filter((c): c is VideoChunk => !!c);
 
   function exhibitMarkerForChunk(chunkId: string): ExhibitMarker | undefined {
-    return markers.find(m => m.type === "exhibit_screen" && m.chunkId === chunkId);
+    // Matches either an AI-generated screen or a manually inserted photo —
+    // a photo dropped in via "Insert Exhibit" is a real exhibit screen for
+    // its moment from here on, not a second-class stand-in.
+    return markers.find(m => (m.type === "exhibit_screen" || m.type === "media_insert") && m.chunkId === chunkId);
   }
 
   function playChunkClip(index: number) {
@@ -2554,11 +2583,12 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       label: "Cut", dictation: "", whyItMatters: "",
       status: "ready", createdAt: Date.now(), type: "video_cut",
     };
-    // Also drop this moment's own exhibit screen, if it has one — otherwise
-    // it sits orphaned in markers (invisible for now, since Step 3's list is
-    // keyed off `chunks`) and comes right back, un-regenerated, the moment
-    // this chunk is ever restored from Deleted.
-    const withoutOrphanedScreen = markers.filter(m => !(m.type === "exhibit_screen" && m.chunkId === id));
+    // Also drop this moment's own exhibit screen, if it has one — whether
+    // AI-generated or an inserted photo — otherwise it sits orphaned in
+    // markers (invisible for now, since Step 3's list is keyed off `chunks`)
+    // and comes right back, unlinked, the moment this chunk is ever restored
+    // from Deleted.
+    const withoutOrphanedScreen = markers.filter(m => !((m.type === "exhibit_screen" || m.type === "media_insert") && m.chunkId === id));
     const newMarkers = [...withoutOrphanedScreen, cutMarker].sort((a, b) => a.timestamp - b.timestamp);
     const newChunks = chunks.filter(c => c.id !== id);
     const newDeleted = [...deletedChunks, { ...chunk, deletedAt: Date.now() }];
@@ -3293,7 +3323,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     if (batchGenerating) return;
     const ordered = orderedChunksForExhibit();
     const labeled = ordered.filter(c => c.label.trim());
-    const unscreened = labeled.filter(c => !markers.some(m => m.type === "exhibit_screen" && m.chunkId === c.id));
+    const unscreened = labeled.filter(c => !exhibitMarkerForChunk(c.id));
     // Skip anything that's already hit the retry cap — moves on to the next
     // moment instead of getting stuck offering to retry the same failing
     // one forever.
@@ -5015,7 +5045,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               onClick={() => mediaPhotoBatchInputRef.current?.click()}
               disabled={batchGenerating}
               style={{ width: "100%", marginTop: 10, background: "none", border: "1px solid #2a2a2a", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 700, fontSize: 13, color: batchGenerating ? "#444" : "#a78bfa" }}>
-              <ImageIcon size={15} /> Insert Photos for Moments (select multiple, in order)
+              <ImageIcon size={15} /> Insert Exhibit (photos, in order)
             </button>
 
             {batchErrors.length > 0 && (
@@ -5038,8 +5068,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                 {orderedChunksForExhibit().map((c, i) => {
-                  const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
-                  if (screenMarker?.exhibitScreen) {
+                  const screenMarker = exhibitMarkerForChunk(c.id);
+                  if (screenMarker?.type === "media_insert" && screenMarker.mediaInsert) {
+                    return (
+                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
+                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                        <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
+                          <img src={screenMarker.mediaInsert.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view · Inserted photo</div>
+                        </div>
+                      </button>
+                    );
+                  }
+                  if (screenMarker?.type === "exhibit_screen" && screenMarker.exhibitScreen) {
                     const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
                     const hasFlags = flags.length > 0 && !screenMarker.exhibitScreen.reviewedAt;
                     const corrections = screenMarker.exhibitScreen.corrections ?? [];
@@ -5132,8 +5179,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                 {orderedChunksForExhibit().map((c, i) => {
-                  const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
-                  if (screenMarker?.exhibitScreen) {
+                  const screenMarker = exhibitMarkerForChunk(c.id);
+                  if (screenMarker?.type === "media_insert" && screenMarker.mediaInsert) {
+                    return (
+                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
+                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                        <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
+                          <img src={screenMarker.mediaInsert.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view · Inserted photo</div>
+                        </div>
+                      </button>
+                    );
+                  }
+                  if (screenMarker?.type === "exhibit_screen" && screenMarker.exhibitScreen) {
                     const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
                     const hasFlags = flags.length > 0 && !screenMarker.exhibitScreen.reviewedAt;
                     const corrections = screenMarker.exhibitScreen.corrections ?? [];

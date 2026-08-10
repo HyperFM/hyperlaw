@@ -1494,6 +1494,32 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       video.style.objectFit = "";
     };
   }, [reviewingMarkerId, reviewShowVideo]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Release the video's decoder while on Step 3 (Exhibit) — screen
+  // generation never touches the live video at all (see
+  // generateAllExhibitScreens), so there's no reason for a multi-gigabyte
+  // file to stay decoded in memory while a batch of AI calls runs. Restores
+  // it on any other step (in particular Step 4, which needs it for the
+  // review flow's "View Video"). videoUrl itself (the already-picked native
+  // file path) stays in React state the whole time, so restoring is just
+  // pointing the one permanent <video> element back at it — no re-picking,
+  // no re-copying the file.
+  const videoReleasedRef = useRef(false);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+    if (currentStep === 3) {
+      if (!videoReleasedRef.current) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        videoReleasedRef.current = true;
+      }
+    } else if (videoReleasedRef.current) {
+      video.src = videoUrl;
+      video.load();
+      videoReleasedRef.current = false;
+    }
+  }, [currentStep, videoUrl]);
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
   // corners on that snapshot with an ugly black/square fringe around them.
@@ -4888,7 +4914,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                     const hasFlags = flags.length > 0 && !screenMarker.exhibitScreen.reviewedAt;
                     const corrections = screenMarker.exhibitScreen.corrections ?? [];
                     return (
-                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                      <button key={c.id}
+                        onClick={() => {
+                          // Step 4 always opens the full review flow, not just
+                          // the plain preview — every screen needs a real
+                          // verify/video-view path here, not only ones the AI
+                          // happened to flag.
+                          setReviewingMarkerId(screenMarker.id);
+                          setReviewShowVideo(false);
+                          setReviewCorrectionText("");
+                          setReviewSelectedPartyId("");
+                          setReviewError(null);
+                          setReviewEntityAnswer(null);
+                        }}
                         style={{ background: "#0d0d0d", border: `1px solid ${hasFlags ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10,
                           display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
                         <div style={{ borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
@@ -5060,15 +5098,31 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               </div>
 
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
-                <div style={{ background: "#1f1400", border: "1.5px solid #f59e0b", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                    <AlertCircle size={16} color="#f59e0b" style={{ flexShrink: 0 }} />
-                    <div style={{ fontSize: 13, fontWeight: 900, color: "#f59e0b", letterSpacing: 0.3 }}>WHY THIS NEEDS REVIEW</div>
+                {/* Opened from Step 4 for every screen now, not just flagged
+                    ones — so this only shows the amber warning when the AI
+                    actually flagged something. Otherwise a neutral prompt:
+                    still needs a human look, just not a red flag. */}
+                {(reviewingMarker.exhibitScreen.confidenceFlags?.length ?? 0) > 0 ? (
+                  <div style={{ background: "#1f1400", border: "1.5px solid #f59e0b", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                      <AlertCircle size={16} color="#f59e0b" style={{ flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 900, color: "#f59e0b", letterSpacing: 0.3 }}>WHY THIS NEEDS REVIEW</div>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#ffcf7a", lineHeight: 1.6 }}>
+                      {reviewingMarker.exhibitScreen.confidenceFlags!.join(" · ")}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 14, color: "#ffcf7a", lineHeight: 1.6 }}>
-                    {(reviewingMarker.exhibitScreen.confidenceFlags ?? []).join(" · ") || "The AI flagged this screen as uncertain."}
+                ) : (
+                  <div style={{ background: "#0f1a10", border: "1.5px solid #22c55e55", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                      <Check size={16} color="#22c55e" style={{ flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 900, color: "#22c55e", letterSpacing: 0.3 }}>NO ISSUES FLAGGED</div>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#a8e6b8", lineHeight: 1.6 }}>
+                      The AI didn't flag anything uncertain here — still worth watching the video and confirming before you're done.
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <button onClick={() => setReviewShowVideo(true)}
                   style={{ width: "100%", background: "#141414", border: "1px solid #2a2a2a", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", marginBottom: 20 }}>

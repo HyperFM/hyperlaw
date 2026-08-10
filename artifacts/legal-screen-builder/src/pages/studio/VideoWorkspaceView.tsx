@@ -1951,12 +1951,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     // Persist the filename immediately — snapshotRef will be updated on the
     // next render so the 800 ms debounce always captures the new value.
     snapshotRef.current.videoFileName = fileName;
-    // Same guard as onDurationChange below — picking/loading a video file
-    // is automatic the moment it's selected, not a real edit. Never let
-    // that alone push an empty studioProject over a case that already had
-    // real content, or on a genuinely fresh session where there's nothing
-    // to save yet.
-    if (hlCase.studioProject || markers.length > 0 || chunks.length > 0) {
+    // Same reasoning as onDurationChange below — picking/loading a video
+    // file is automatic the moment it's selected, not a real edit, and
+    // this fires on every load, including re-opening the exact same file
+    // that's already on record. Only save when the filename is actually
+    // different from what's stored, so reopening a known video never
+    // re-stamps updatedAt and falsely outraces real edits from elsewhere.
+    const fileNameIsNew = fileName !== hlCase.studioProject?.videoFileName;
+    if (fileNameIsNew && (hlCase.studioProject || markers.length > 0 || chunks.length > 0)) {
       triggerAutosave(markers);
     }
   }
@@ -3862,15 +3864,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         snapshotRef.current.videoDurationSec = d;
         // This fires the instant the video's duration is known — pure
         // metadata, zero user interaction, automatic the moment a file is
-        // picked. Unconditionally autosaving here meant just opening a
-        // case on a second device (nothing chunked or edited yet) could
-        // push an EMPTY studioProject to the server and silently overwrite
-        // real work from another device — confirmed as the actual cause of
-        // a real data-loss incident live tonight. Only save here if there
-        // was already a studioProject on record, or this device already
-        // has real content — never on a genuinely fresh/empty session,
-        // where there's nothing worth saving and everything to lose.
-        if (hlCase.studioProject || markers.length > 0 || chunks.length > 0) {
+        // picked, and it fires on EVERY load, including re-opening a case
+        // whose video was already known. Autosaving unconditionally here
+        // stamps a fresh updatedAt on the current in-memory markers even
+        // when nothing changed — which then wins the timestamp race
+        // against real edits sitting newer on another device, and can even
+        // push this device's stale copy over them. Confirmed live tonight
+        // as the reason a laptop just sitting open (or refreshed) kept
+        // failing to pick up newer phone edits: it kept re-asserting its
+        // own old data as "newest" just by loading the video. Only save
+        // when the duration actually differs from what's on record — a
+        // genuinely new/different video, not a reload of the same one.
+        const durationIsNew = Math.abs(d - (hlCase.studioProject?.videoDurationSec ?? -1)) > 0.5;
+        if (durationIsNew && (hlCase.studioProject || markers.length > 0 || chunks.length > 0)) {
           triggerAutosave(markers);
         }
         if (expectedDurationRef.current != null) {

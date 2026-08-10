@@ -504,15 +504,10 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     ? `FULL VIDEO TIMELINE (every moment in this video, in order — use only to check this moment's own status claims, per the STATUS-CLAIM RULE):\n${momentsTimeline.map(m => `${m.timestamp}: ${m.label}`).join("\n")}`
     : null;
 
-  // STATIC block — identical for every moment generated in the same batch
-  // (same case, same parties, same documents, same full timeline). Sent as
-  // its own cache_control-marked content block below, so a real batch
-  // (15+ sequential calls) is billed full price for this once instead of
-  // on every single call — this block alone, once documents/parties/case
-  // organization data are included, easily runs tens of thousands of
-  // characters. Resending and reprocessing that at full price on every
-  // one of 15+ calls is exactly the "highly inefficient" cost driver
-  // behind an unexpectedly large API bill tonight.
+  // Case-wide context (same for every moment in this case): parties,
+  // court, story, case organization, documents, full timeline. No longer
+  // cached (see the call below for why) — just plain text sent with each
+  // call.
   const staticBlock = [
     partiesBlock,
     courtBlock,
@@ -524,8 +519,7 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
   ].filter(Boolean).join("\n\n");
 
   // Used only for local source-verification below (verifySourceClaims) —
-  // needs the dictation included, unlike the cached staticBlock sent to
-  // the model as a separate content block.
+  // needs the dictation included, unlike staticBlock itself.
   const sourceTextForVerification = `DICTATION (primary source — timestamp ${timestamp}): ${dictation}\n\n${staticBlock}`;
 
   // Prior exhibits context — grows with every screen generated so far in
@@ -589,26 +583,26 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
     ? `${EXHIBIT_SYSTEM_PROMPT}\n\nCORRECTION MODE — OVERRIDES THE ABOVE: ignore the "generate 2-3 distinct candidates" instruction. The user is not asking for a new screen; they are correcting one specific detail on an existing, already-approved one. Return exactly ONE candidate whose content is the existing JSON given in the user message, unchanged except for the minimal edit the stated correction requires.`
     : EXHIBIT_SYSTEM_PROMPT;
 
-  // Claude call — system prompt and the static case-context block are each
-  // their own cache_control-marked content block. Within one Generate
-  // Screens batch (15+ sequential calls, same case, same documents, same
-  // parties, same timeline every time), the first call pays full price to
-  // write the cache; every call after that for the next 5 minutes reads it
-  // back at a fraction of the cost instead of reprocessing the same tens
-  // of thousands of characters from scratch on every single moment.
+  // Claude call. Was cache_control-marked (system + the static case-context
+  // block) to save cost across a rapid automatic batch of 15+ sequential
+  // calls — reverted. Generate Screens is one-at-a-time with a human
+  // reviewing each result now (by design, not this endpoint's choice), so
+  // minutes routinely pass between calls. The 5-minute cache almost never
+  // survives that gap, meaning every call was paying the cache-WRITE
+  // premium (~1.25x normal input price) with the cache essentially never
+  // getting read back — strictly worse than no caching at all. Plain,
+  // uncached, predictable per-token pricing is the correct fit for this
+  // workflow now.
   const start = Date.now();
   let response: Awaited<ReturnType<typeof aiService.createMessage>>;
   try {
     response = await aiService.createMessage({
       model: MODEL,
       max_tokens: 8000,
-      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+      system: systemPrompt,
       messages: [{
         role: "user",
-        content: [
-          { type: "text", text: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}`, cache_control: { type: "ephemeral" } },
-          { type: "text", text: dynamicBlock },
-        ],
+        content: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}\n\n${dynamicBlock}`,
       }],
     });
   } catch (err) {

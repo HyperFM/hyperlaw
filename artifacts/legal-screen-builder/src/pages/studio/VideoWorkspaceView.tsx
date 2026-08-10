@@ -1205,6 +1205,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     if (!sp) return [];
     return sp.markers ?? [];
   });
+  // Always mirrors the latest markers — generateNextExhibitScreen reads
+  // this instead of its own closure-captured `markers` right before its
+  // final commit. A generation call can run for a while (retries, slow
+  // responses); reading the stale value it started with and doing
+  // `setMarkers([...staleMarkers, newMarker])` would silently discard
+  // anything else that changed while it was in flight (e.g. marking a
+  // DIFFERENT screen reviewed right before this one finished) — reported
+  // live as already-reviewed screens flipping back to "needs review"
+  // after generating the next one.
+  const markersRef = useRef(markers);
+  useEffect(() => { markersRef.current = markers; }, [markers]);
   // Undo/redo covers both markers AND chunks together, so chunking/splitting/
   // removing a moment is undoable too, not just marker-only edits (Exhibit step).
   type UndoSnapshot = { markers: ExhibitMarker[]; chunks: VideoChunk[] };
@@ -1273,10 +1284,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const [reviewSelectedPartyId, setReviewSelectedPartyId] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
-  // Entity-confirmation question — "yes" confirms the card's own header
-  // name is correct, "no" reveals a short pick-someone-else list, "unsure"
-  // just leaves it for the free-text correction below.
-  const [reviewEntityAnswer, setReviewEntityAnswer] = useState<"yes" | "no" | "unsure" | null>(null);
   // Empty placeholder the real <video> element (mainVideoElement) is
   // fixed-positioned on top of when reviewShowVideo is true — same pattern
   // as guidedVideoSlotRef above, never a second <video> element.
@@ -3269,8 +3276,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           });
           const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
           if (!picked) throw new Error("No screen returned");
+          // Reads markersRef (always current), not the `markers` this
+          // function closed over when it was invoked — this call can run
+          // for a while (retries, slow responses), and committing against
+          // the stale snapshot it started with would silently discard
+          // anything else that changed in the meantime.
+          const latestMarkers = markersRef.current;
           const id = crypto.randomUUID();
-          const screenNum = markers.filter(m => m.type === "exhibit_screen").length + 1;
+          const screenNum = latestMarkers.filter(m => m.type === "exhibit_screen").length + 1;
           const newMarker: ExhibitMarker = {
             id, timestamp: chunk.start, chunkId: chunk.id,
             label: `AI Screen ${screenNum}`,
@@ -3279,7 +3292,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             type: "exhibit_screen",
             exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
           };
-          const updated = [...markers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
+          const updated = [...latestMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
           setMarkers(updated, false);
           setBatchProgress({ done: doneSoFar + 1, total: labeled.length });
           showInsertToast(`Generated screen ${doneSoFar + 1} of ${labeled.length}.`);
@@ -3316,7 +3329,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // consistency signal), just for one marker instead of a batch, plus the
   // user's own feedback text folded in when they gave one.
   async function regenerateOneExhibitScreen(markerId: string, feedback: string) {
-    const marker = markers.find(m => m.id === markerId);
+    const marker = markersRef.current.find(m => m.id === markerId);
     if (!marker || marker.type !== "exhibit_screen" || !marker.chunkId) return;
     const chunk = chunks.find(c => c.id === marker.chunkId);
     if (!chunk) return;
@@ -3327,7 +3340,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       const momentsTimeline = ordered
         .filter(c => c.label.trim())
         .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
-      const existingExhibits = markers
+      const existingExhibits = markersRef.current
         .filter(m => m.type === "exhibit_screen" && m.id !== markerId && m.exhibitScreen)
         .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
       const result = await aiApi.generateExhibitScreen({
@@ -3340,7 +3353,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       });
       const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
       if (!picked) throw new Error("No screen returned");
-      const updated = markers.map(m =>
+      // Reads markersRef (always current) for the final commit too — this
+      // is now also callable straight from the Review flow's "Regenerate"
+      // button, not just the separate Reiterate modal, so the same
+      // stale-closure risk generateNextExhibitScreen had applies here.
+      const updated = markersRef.current.map(m =>
         m.id === markerId
           ? { ...m, exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections } }
           : m
@@ -3349,6 +3366,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       setMarkers(updated, false);
       setReiterateMarkerId(null);
       setReiterateFeedback("");
+      // Also closes the Review overlay, when this was triggered from there
+      // rather than the separate Reiterate modal — harmless no-op if
+      // reviewingMarkerId is already null.
+      setReviewingMarkerId(null);
+      setReviewShowVideo(false);
       showInsertToast("Screen regenerated.");
     } catch (err) {
       setReiterateError((err as Error).message || "Couldn't regenerate this screen — try again.");
@@ -3406,7 +3428,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // comment server-side) — cheaper than a full Reiterate regenerate, and
   // the point here is always a small, specific fix, never a redo.
   async function submitExhibitCorrection(markerId: string) {
-    const marker = markers.find(m => m.id === markerId);
+    const marker = markersRef.current.find(m => m.id === markerId);
     if (!marker || marker.type !== "exhibit_screen" || !marker.chunkId || !marker.exhibitScreen) return;
     const chunk = chunks.find(c => c.id === marker.chunkId);
     if (!chunk) return;
@@ -3423,7 +3445,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       const momentsTimeline = ordered
         .filter(c => c.label.trim())
         .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
-      const existingExhibits = markers
+      const existingExhibits = markersRef.current
         .filter(m => m.type === "exhibit_screen" && m.id !== markerId && m.exhibitScreen)
         .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
       const result = await aiApi.generateExhibitScreen({
@@ -3438,7 +3460,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       });
       const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
       if (!picked) throw new Error("No screen returned");
-      const updated = markers.map(m =>
+      // Reads markersRef (always current), not the stale closure — same
+      // fix as generateNextExhibitScreen/regenerateOneExhibitScreen.
+      const updated = markersRef.current.map(m =>
         m.id === markerId
           ? { ...m, exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections } }
           : m
@@ -3654,15 +3678,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
   const viewingScreenMarker = markers.find(m => m.id === viewingScreenMarkerId) ?? null;
   const reviewingMarker = markers.find(m => m.id === reviewingMarkerId) ?? null;
-  // The name the card itself already shows in its header (every layout
-  // renders content.header.actor) — the entity-confirmation question below
-  // is just a yes/no on THIS, not a re-pick from the whole case roster.
-  const reviewActorName = (() => {
-    const header = (reviewingMarker?.exhibitScreen?.content as { header?: { actor?: unknown } } | undefined)?.header;
-    const actor = header?.actor;
-    return typeof actor === "string" && actor.trim() ? actor.trim() : null;
-  })();
-  // "No — pick someone else" shows only parties this moment's own dictation
+  // "Reference a person" (optional, in the review flow below) shows only
+  // parties this moment's own dictation
   // actually mentions by name, not the full case roster — falls back to the
   // full list only if nothing in the transcript matches any known party.
   const reviewMomentText = (() => {
@@ -4818,16 +4835,24 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                       Generating {(batchProgress?.done ?? 0) + 1} of {batchProgress?.total ?? "?"}… ({generatingElapsedSec}s)
                     </span>
                     {/* Ten squares, each one a 10% chunk — filled in based on
-                        elapsed time against a ~30s expected call length,
-                        capped at 90% (9 squares) so it never falsely claims
-                        "done" before the response actually comes back. This
-                        is a time-based estimate, not real token progress
-                        (the API doesn't expose that for a single call) — the
-                        point is visible, continuous motion so a still-moving
-                        bar is proof it's working, not frozen. */}
+                        elapsed time against the observed real average call
+                        length (~76s), capped at 90% (9 squares) so it never
+                        falsely claims "done" before the response actually
+                        comes back. Was calibrated to 30s, which reached 90%
+                        and then sat there for the next ~45s on a typical
+                        call — exactly the "stuck at 99%" feeling to avoid.
+                        Deliberately paced to UNDERSELL: most real calls
+                        finish before this bar gets close to full, since 76s
+                        is the average, not the ceiling — a bar that jumps to
+                        done early feels fast; one that idles at a full bar
+                        waiting for a slow response does not. This is a
+                        time-based estimate, not real token progress (the API
+                        doesn't expose that for a single call) — the point is
+                        visible, continuous motion so a still-moving bar is
+                        proof it's working, not frozen. */}
                     <span style={{ display: "flex", gap: 3, width: "100%" }}>
                       {Array.from({ length: 10 }).map((_, i) => {
-                        const filled = i < Math.floor(Math.min(90, (generatingElapsedSec / 30) * 90) / 10);
+                        const filled = i < Math.floor(Math.min(90, (generatingElapsedSec / 76) * 90) / 10);
                         return (
                           <span key={i} style={{
                             flex: 1, height: 5, borderRadius: 2,
@@ -4976,7 +5001,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                           setReviewCorrectionText("");
                           setReviewSelectedPartyId("");
                           setReviewError(null);
-                          setReviewEntityAnswer(null);
                         }}
                         style={{ background: "#0d0d0d", border: `1px solid ${hasFlags ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10,
                           display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
@@ -5126,7 +5150,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             setReviewCorrectionText("");
             setReviewSelectedPartyId("");
             setReviewError(null);
-            setReviewEntityAnswer(null);
           }}
         />
       )}
@@ -5181,53 +5204,38 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#ddd" }}>View the video for this moment</span>
                 </button>
 
-                {reviewActorName ? (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                      Is this the right person?
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <button onClick={() => { setReviewEntityAnswer("yes"); markScreenVerified(reviewingMarkerId); }}
-                        style={{ width: "100%", textAlign: "left", background: ORANGE, border: "none", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 800, color: "#000", cursor: "pointer" }}>
-                        Yes, this is about {reviewActorName}
-                      </button>
-                      <button onClick={() => setReviewEntityAnswer(a => a === "no" ? null : "no")}
-                        style={{ width: "100%", textAlign: "left", background: reviewEntityAnswer === "no" ? "#221a10" : "#141414", border: `1px solid ${reviewEntityAnswer === "no" ? ORANGE : "#2a2a2a"}`, borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 700, color: "#ccc", cursor: "pointer" }}>
-                        No — let me pick someone else
-                      </button>
-                      <button onClick={() => setReviewEntityAnswer("unsure")}
-                        style={{ width: "100%", textAlign: "left", background: "none", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 600, color: "#777", cursor: "pointer" }}>
-                        Not sure / skip for now
-                      </button>
-                    </div>
+                {/* Generic by default — this used to always ask "is this the
+                    right person?" even when the flag had nothing to do with
+                    a name, which handed the user irrelevant options. This
+                    question fits every screen, flagged for any reason or
+                    not. */}
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginBottom: 14 }}>
+                  Is everything on this screen accurate?
+                </div>
 
-                    {reviewEntityAnswer === "no" && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                        {reviewPlausibleParties.map(p => {
-                          const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
-                          const selected = reviewSelectedPartyId === p.id;
-                          return (
-                            <button key={p.id} onClick={() => setReviewSelectedPartyId(selected ? "" : p.id)}
-                              style={{ background: selected ? ORANGE : "#141414", border: `1px solid ${selected ? ORANGE : "#2a2a2a"}`, borderRadius: 20, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, color: selected ? "#000" : "#ccc", cursor: "pointer" }}>
-                              {name}{p.title || p.agency ? ` · ${[p.title, p.agency].filter(Boolean).join(", ")}` : ""}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {reviewEntityAnswer === "unsure" && (
-                      <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>
-                        Okay — describe the correction below if you know it, or come back to this later.
-                      </div>
-                    )}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                    Describe what needs to change (only if editing or regenerating)
                   </div>
-                ) : hlCase.parties.length > 0 && (
+                  <textarea
+                    value={reviewCorrectionText}
+                    onChange={e => setReviewCorrectionText(e.target.value)}
+                    placeholder="e.g. the badge number is 4471, not 4417…"
+                    disabled={reviewSubmitting || reiterating}
+                    style={{ width: "100%", minHeight: 80, background: "#111", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", outline: "none" }}
+                  />
+                </div>
+
+                {/* Optional convenience, not a gate — tap a name to drop it
+                    into the correction text above, only relevant if the
+                    edit is actually about who's who. */}
+                {reviewPlausibleParties.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                      Is this about one of these people?
+                      Reference a person (optional)
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {hlCase.parties.map(p => {
+                      {reviewPlausibleParties.map(p => {
                         const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
                         const selected = reviewSelectedPartyId === p.id;
                         return (
@@ -5241,38 +5249,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   </div>
                 )}
 
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                    Or describe the correction
-                  </div>
-                  <textarea
-                    value={reviewCorrectionText}
-                    onChange={e => setReviewCorrectionText(e.target.value)}
-                    placeholder="e.g. the badge number is 4471, not 4417…"
-                    disabled={reviewSubmitting}
-                    style={{ width: "100%", minHeight: 80, background: "#111", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", outline: "none" }}
-                  />
-                </div>
-
-                {reviewError && (
-                  <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{reviewError}</div>
+                {(reviewError || reiterateError) && (
+                  <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{reviewError || reiterateError}</div>
                 )}
               </div>
 
+              {/* Three actions, matching how this is actually used: accept
+                  as-is, patch just the described issue (no full redraft),
+                  or throw it away and draft fresh. */}
               <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid #1a1a1a" }}>
                 <button
-                  onClick={() => submitExhibitCorrection(reviewingMarkerId)}
-                  disabled={reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim())}
-                  style={{ width: "100%", background: reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#666" : "#000", cursor: reviewSubmitting ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  {reviewSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={15} />}
-                  {reviewSubmitting ? "Applying correction…" : "Submit correction"}
-                </button>
-                <button
                   onClick={() => markScreenVerified(reviewingMarkerId)}
-                  disabled={reviewSubmitting}
-                  style={{ width: "100%", background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: reviewSubmitting ? "default" : "pointer" }}>
-                  Looks correct — Verified, no more review needed
+                  disabled={reviewSubmitting || reiterating}
+                  style={{ width: "100%", background: "#22c55e", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: reviewSubmitting || reiterating ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Check size={15} /> Acceptable — no changes needed
                 </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => submitExhibitCorrection(reviewingMarkerId)}
+                    disabled={reviewSubmitting || reiterating || (!reviewSelectedPartyId && !reviewCorrectionText.trim())}
+                    style={{ flex: 1, background: reviewSubmitting || reiterating || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 13, fontWeight: 800, color: reviewSubmitting || reiterating || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#666" : "#000", cursor: reviewSubmitting ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    {reviewSubmitting ? <Loader2 size={13} className="animate-spin" /> : null}
+                    {reviewSubmitting ? "Editing…" : "Edit"}
+                  </button>
+                  <button
+                    onClick={() => regenerateOneExhibitScreen(reviewingMarkerId, reviewCorrectionText)}
+                    disabled={reviewSubmitting || reiterating}
+                    style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 13, fontWeight: 700, color: "#999", cursor: reiterating ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    {reiterating ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    {reiterating ? "Regenerating…" : "Regenerate"}
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: "#444", textAlign: "center", lineHeight: 1.4 }}>
+                  Edit patches just what you described above, fast. Regenerate throws this screen away and drafts a new one from scratch.
+                </div>
               </div>
             </>
           ) : (

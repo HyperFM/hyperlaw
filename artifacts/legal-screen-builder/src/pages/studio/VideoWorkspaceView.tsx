@@ -4733,12 +4733,41 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 // that never needed it, every single time the app restarted.
                 disabled={batchGenerating}
                 style={{ flex: 1, background: batchGenerating ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12,
-                  padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center",
-                  gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
+                  padding: "10px 12px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 6, cursor: batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
                   color: batchGenerating ? "#666" : "#000" }}>
-                {batchGenerating
-                  ? <><Loader2 size={15} className="animate-spin" /> Generating {(batchProgress?.done ?? 0) + 1} of {batchProgress?.total ?? "?"}… ({generatingElapsedSec}s)</>
-                  : <><Wand2 size={15} /> Generate Next Screen{batchProgress ? ` (${batchProgress.done}/${batchProgress.total})` : ""}</>}
+                {batchGenerating ? (
+                  <>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Loader2 size={15} className="animate-spin" color="#666" />
+                      Generating {(batchProgress?.done ?? 0) + 1} of {batchProgress?.total ?? "?"}… ({generatingElapsedSec}s)
+                    </span>
+                    {/* Ten squares, each one a 10% chunk — filled in based on
+                        elapsed time against a ~30s expected call length,
+                        capped at 90% (9 squares) so it never falsely claims
+                        "done" before the response actually comes back. This
+                        is a time-based estimate, not real token progress
+                        (the API doesn't expose that for a single call) — the
+                        point is visible, continuous motion so a still-moving
+                        bar is proof it's working, not frozen. */}
+                    <span style={{ display: "flex", gap: 3, width: "100%" }}>
+                      {Array.from({ length: 10 }).map((_, i) => {
+                        const filled = i < Math.floor(Math.min(90, (generatingElapsedSec / 30) * 90) / 10);
+                        return (
+                          <span key={i} style={{
+                            flex: 1, height: 5, borderRadius: 2,
+                            background: filled ? ORANGE : "#2a2a2a",
+                            transition: "background 0.3s ease",
+                          }} />
+                        );
+                      })}
+                    </span>
+                  </>
+                ) : (
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Wand2 size={15} /> Generate Next Screen{batchProgress ? ` (${batchProgress.done}/${batchProgress.total})` : ""}
+                  </span>
+                )}
               </button>
             </div>
             {batchErrors.length > 0 && (

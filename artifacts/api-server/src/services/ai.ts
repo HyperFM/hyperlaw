@@ -310,6 +310,14 @@ export class AiService {
     this._client = null;
   }
 
+  /** Public escape hatch for routes outside this service (exhibit.ts) that
+   *  need a raw Claude call — gets the same retry-on-429/5xx behavior every
+   *  method in this class already gets via withRetry, instead of reaching
+   *  around the private client with an unsafe cast and no retry at all. */
+  async createMessage(args: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
+    return withRetry(() => this.client.messages.create(args));
+  }
+
   private buildMeta(usage: { input_tokens: number; output_tokens: number }, responseTimeMs: number): AiCallMeta {
     return {
       inputTokens: usage.input_tokens,

@@ -334,12 +334,24 @@ router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Resp
   const userMessage = `${momentsBlock}\n\nCASE CONTEXT:\n${caseContext || "(none provided)"}`;
 
   const start = Date.now();
-  const response = await (aiService as unknown as { client: { messages: { create: (args: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> } } }).client.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
-    system: COURT_SCRIPT_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  let response: Awaited<ReturnType<typeof aiService.createMessage>>;
+  try {
+    response = await aiService.createMessage({
+      model: MODEL,
+      max_tokens: 8000,
+      system: COURT_SCRIPT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    });
+  } catch (err) {
+    // Previously unguarded — a thrown error here (rate limit, overloaded,
+    // bad API key) skipped straight to Express's default HTML error page,
+    // which aiFetch on the client can't parse as JSON, so every failure
+    // surfaced as a generic "Request failed" with no real cause visible.
+    const status = (err as { status?: number }).status;
+    console.error(`[exhibit-court-script] AI call failed status=${status ?? "?"}`, err);
+    res.status(status && status < 500 ? status : 502).json({ error: (err as Error).message || "AI request failed" });
+    return;
+  }
 
   const rawText = response.content.find((b) => b.type === "text")?.text ?? "";
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
@@ -505,12 +517,25 @@ ${sourceText}`;
 
   // Claude call
   const start = Date.now();
-  const response = await (aiService as unknown as { client: { messages: { create: (args: unknown) => Promise<{ content: Array<{ type: string; text?: string }>; stop_reason: string }> } } }).client.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
-    system: EXHIBIT_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  let response: Awaited<ReturnType<typeof aiService.createMessage>>;
+  try {
+    response = await aiService.createMessage({
+      model: MODEL,
+      max_tokens: 8000,
+      system: EXHIBIT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    });
+  } catch (err) {
+    // Previously unguarded — a thrown error here (rate limit, overloaded,
+    // bad API key) skipped straight to Express's default HTML error page,
+    // which aiFetch on the client can't parse as JSON, so batch-generating
+    // screens for every moment failed near-instantly with a generic
+    // "Request failed" instead of showing what actually went wrong.
+    const status = (err as { status?: number }).status;
+    console.error(`[exhibit-generate] AI call failed status=${status ?? "?"}`, err);
+    res.status(status && status < 500 ? status : 502).json({ error: (err as Error).message || "AI request failed" });
+    return;
+  }
 
   // Extract JSON text
   const rawText = response.content.find((b) => b.type === "text")?.text ?? "";

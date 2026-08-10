@@ -995,6 +995,52 @@ function PreparingVideoMessage() {
   );
 }
 
+// ── Generate Screens progress — alternates between a friendly line and the
+// literal "Generating N of Total" count instead of sitting on one static
+// string the whole batch. Slower than the video-loading cycle above (this
+// runs for up to 17 AI calls, not a few seconds of thumbnail extraction) and
+// the count is real — it comes straight from live batchProgress state, so
+// every time the progress line shows it reflects however far the batch has
+// actually gotten by then, not a fixed snapshot. ───────────────────────────
+const GENERATING_SCREENS_MESSAGES = [
+  "Reading every word of what you said.",
+  "Turning your moments into evidence.",
+  "Building the strongest version of your story.",
+  "Cross-checking against your case file.",
+  "Almost there — hang tight.",
+];
+
+function GeneratingScreensMessage({ done, total }: { done: number; total: number }) {
+  const [step, setStep] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const cycle = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setStep(s => s + 1);
+        setVisible(true);
+      }, 400);
+    }, 4200);
+    return () => clearInterval(cycle);
+  }, []);
+
+  const showingProgress = step % 2 === 1;
+  const text = showingProgress
+    ? `Generating ${done} of ${total}…`
+    : GENERATING_SCREENS_MESSAGES[Math.floor(step / 2) % GENERATING_SCREENS_MESSAGES.length];
+
+  return (
+    <span style={{
+      opacity: visible ? 1 : 0,
+      transition: "opacity 0.4s ease",
+      display: "inline-block",
+    }}>
+      {text}
+    </span>
+  );
+}
+
 // ── Guards a single exhibit-screen render — Step 3 now renders every
 // existing exhibit_screen marker inline (the moment→screen swap list), so a
 // single malformed or legacy-shaped one (e.g. content saved before a layout
@@ -4393,7 +4439,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   gap: 8, cursor: !videoUrl || batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
                   color: !videoUrl || batchGenerating ? "#666" : "#000" }}>
                 {batchGenerating
-                  ? <><Loader2 size={15} className="animate-spin" /> Generating {batchProgress?.done ?? 0} of {batchProgress?.total ?? 0}…</>
+                  ? <><Loader2 size={15} className="animate-spin" /> <GeneratingScreensMessage done={batchProgress?.done ?? 0} total={batchProgress?.total ?? 0} /></>
                   : <><Wand2 size={15} /> Generate Screens</>}
               </button>
             </div>

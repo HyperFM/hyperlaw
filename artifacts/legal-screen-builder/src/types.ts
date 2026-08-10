@@ -188,6 +188,13 @@ export interface ExhibitScreenData {
   content: Record<string, unknown>;
   alternativeLayouts: string[];
   verificationResults: FieldVerificationResult[];
+  /** Anything the AI itself flagged as uncertain when generating this screen —
+   *  most importantly a status claim (charged/not charged, in custody/released,
+   *  etc.) it couldn't fully reconcile against the rest of the video's own
+   *  timeline. Non-empty means "needs a human look before this is trusted,"
+   *  not "this is wrong" — surfaced as a warning in Step 3 and again before
+   *  export, never silently hidden. */
+  confidenceFlags?: string[];
 }
 
 /** A local-only photo or video clip inserted at a precise timestamp.

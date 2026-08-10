@@ -934,6 +934,10 @@ export const aiApi = {
     timestamp: string;
     dictation: string;
     existingExhibits?: string[];
+    /** Every moment in this same video, in order — lets the AI check a status
+     *  claim (charged/not charged, etc.) at this timestamp against what
+     *  happens later in the same video, instead of asserting it as permanent. */
+    momentsTimeline?: Array<{ timestamp: string; label: string }>;
     forceType?: string;
   }): Promise<{
     candidates: Array<{
@@ -941,6 +945,7 @@ export const aiApi = {
       content: Record<string, unknown>;
       rationale: string;
       verificationResults: Array<{ field: string; ref: string; origin: string; supported: boolean }>;
+      confidenceFlags: string[];
     }>;
     recommendedIndex: number;
     recommendationReason: string;

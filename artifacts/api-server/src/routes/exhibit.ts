@@ -112,6 +112,12 @@ Use classification "verified_fact" only for direct citations, "observation" for 
 
 If a PARTIES IN THIS CASE block is provided, use it to resolve who's who: dictation often refers to people by nickname, role, or description rather than full name. Populate header.actor and any badgeNumber/agency/title fields with the party's real name and details from that block, not the nickname itself, unless the dictation explicitly quotes someone using the nickname.
 
+STATUS-CLAIM RULE — this is a courtroom exhibit read on its own, not in the context of the whole video, so it must never assert something as a permanent fact when it was only true at this one moment. Any claim about charged/not-yet-charged, arrested/not-arrested, in-custody/released, guilty/not-guilty, or any other status that can change over the course of events MUST either (a) be explicitly time-qualified ("at this point," "up to this moment," "as of this stop") rather than stated as an absolute, or (b) if a FULL VIDEO TIMELINE block is provided below and it shows this status changing later in the same video, get flagged in confidence_flags instead of asserted unqualified. Never generate a bare absolute like "NEVER CHARGED" or "NO CHARGES" when the only evidence for it is this one moment — you do not know what happens later unless the timeline block says so, and if it does say so and it contradicts this moment's framing, that is exactly what confidence_flags is for.
+
+QUOTE-FIDELITY RULE — when a bullet or headline characterizes what a named person "said," "claimed," "admitted," or "denied," the paraphrase must preserve the actual TYPE of claim being made, not just its punch. "No records or documentation exist" is a claim about paperwork — it is NOT the same as "they said it never happened," which is a denial of the underlying event. Collapsing a documentation-gap statement into an event-denial statement is a mischaracterization even if it sounds more dramatic. When genuinely uncertain which the source quote means, use the narrower, more literal paraphrase — an accurate but less punchy slide is always preferable to a punchier one that overstates what was actually said. State this as a standing priority: never sacrifice claim-type accuracy for impact.
+
+If a FULL VIDEO TIMELINE block is provided below (every moment in this same video, in order), use it only to check this moment's own claims for the STATUS-CLAIM RULE above — do not pull content from other moments into this slide, this slide is still about the one moment you were asked to cover.
+
 Generate 2–3 DISTINCT candidate exhibits for this moment — different exhibit types or angles on the same moment (e.g. one framed as a contradiction, one as an escalation), not near-duplicates of each other. For each candidate, write a one-sentence "rationale" explaining why THIS framing is persuasive for a judge or jury. Then pick the single strongest candidate as the recommendation and explain why it beats the others in one or two sentences — weigh evidence strength, visual clarity, and whether a viewer would grasp the point within five seconds.
 
 RETURN FORMAT — valid JSON only, no preamble:
@@ -120,7 +126,8 @@ RETURN FORMAT — valid JSON only, no preamble:
     {
       "selectedType": "<one of the 10 exhibit type IDs>",
       "content": { <the complete layout object matching the chosen layout's schema> },
-      "rationale": "<one sentence: why this framing is persuasive>"
+      "rationale": "<one sentence: why this framing is persuasive>",
+      "confidence_flags": ["<anything you were not fully certain about — an unclear name, an ambiguous quote, a status claim that might be contradicted later in the video, a number that seems inconsistent. Empty array if none.>"]
     }
   ],
   "recommendedIndex": <index into candidates of the strongest one>,
@@ -234,12 +241,19 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     timestamp,
     dictation,
     existingExhibits = [] as string[],
+    momentsTimeline = [] as Array<{ timestamp: string; label: string }>,
     forceType,
   } = req.body as {
     caseId: string;
     timestamp: string;
     dictation: string;
     existingExhibits?: string[];
+    /** Every moment in this same video, in order — NOT just already-generated
+     *  exhibits. Lets the model check this moment's own status claims (charged/
+     *  not charged, in custody/released, etc.) against what happens later in
+     *  the same video, per the system prompt's STATUS-CLAIM RULE, instead of
+     *  asserting something as permanent that was only true at this timestamp. */
+    momentsTimeline?: Array<{ timestamp: string; label: string }>;
     forceType?: string;
   };
 
@@ -311,6 +325,15 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     ? `\n\nPRIOR EXHIBIT SUMMARIES (for narrative consistency — avoid repeating these):\n${existingExhibits.map((e, i) => `Exhibit ${i + 1}: ${e}`).join("\n")}`
     : "";
 
+  // Full video timeline — see the STATUS-CLAIM RULE in the system prompt.
+  // Deliberately every moment, not just ones already turned into exhibits,
+  // so a status claim true at this timestamp can be checked against what
+  // happens later in the SAME video even before those later moments have
+  // their own exhibits generated yet.
+  const timelineBlock = momentsTimeline.length > 0
+    ? `\n\nFULL VIDEO TIMELINE (every moment in this video, in order — use only to check this moment's own status claims, per the STATUS-CLAIM RULE):\n${momentsTimeline.map(m => `${m.timestamp}: ${m.label}`).join("\n")}`
+    : "";
+
   // Force type hint — when set, the user asked to regenerate with one
   // specific type instead of a fresh multi-candidate set, so ask for exactly
   // one candidate of that type.
@@ -322,7 +345,7 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
 
 USER DICTATION:
 ${dictation}
-${priorBlock}${forceBlock}
+${priorBlock}${timelineBlock}${forceBlock}
 
 SOURCE MATERIAL:
 ${sourceText}`;
@@ -355,7 +378,7 @@ ${sourceText}`;
   // Basic shape validation
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
   const validCandidates = rawCandidates.filter(
-    (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string } =>
+    (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string; confidence_flags?: unknown } =>
       !!c && typeof c === "object" && !!(c as Record<string, unknown>).selectedType && typeof (c as Record<string, unknown>).content === "object",
   );
   if (validCandidates.length === 0) {
@@ -369,6 +392,7 @@ ${sourceText}`;
     content: c.content,
     rationale: typeof c.rationale === "string" ? c.rationale : "",
     verificationResults: verifySourceClaims(c.content, sourceText),
+    confidenceFlags: Array.isArray(c.confidence_flags) ? c.confidence_flags.filter((f): f is string => typeof f === "string") : [],
   }));
 
   const rawRecommendedIndex = typeof parsed.recommendedIndex === "number" ? parsed.recommendedIndex : 0;

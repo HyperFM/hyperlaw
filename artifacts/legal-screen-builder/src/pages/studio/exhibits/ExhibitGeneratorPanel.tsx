@@ -11,6 +11,7 @@ export interface ExhibitCandidate {
   content: Record<string, unknown>;
   rationale: string;
   verificationResults: FieldVerificationResult[];
+  confidenceFlags: string[];
 }
 
 interface GenerateResult {

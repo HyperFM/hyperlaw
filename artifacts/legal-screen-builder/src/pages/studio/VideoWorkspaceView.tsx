@@ -1102,6 +1102,18 @@ function PreviewScreenOverlay({ marker, onDone }: { marker: ExhibitMarker; onDon
             </ExhibitPreviewBoundary>
           </div>
         </div>
+        {/* What the AI itself wasn't sure about generating this screen — read
+            it before trusting the claim, especially anything about status
+            (charged/not charged, in custody/released) that could be stale by
+            the time this plays. */}
+        {marker.exhibitScreen.confidenceFlags && marker.exhibitScreen.confidenceFlags.length > 0 && (
+          <div style={{ position: "fixed", top: "max(16px, env(safe-area-inset-top))", left: 16, right: 16, background: "rgba(245,158,11,0.12)", border: "1px solid #f59e0b66", borderRadius: 10, padding: "10px 14px", display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <AlertCircle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 12, color: "#f59e0b", lineHeight: 1.5 }}>
+              {marker.exhibitScreen.confidenceFlags.join(" · ")}
+            </div>
+          </div>
+        )}
         <button onClick={onDone}
           style={{ position: "fixed", bottom: 32, right: 24, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
           Collapse
@@ -3132,6 +3144,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     setBatchErrors([]);
     const errors: string[] = [];
     let workingMarkers = markers;
+    // Every moment in the video, not just already-generated ones — lets each
+    // generation call check its own status claims (charged/not charged, in
+    // custody/released, etc.) against what happens later in the SAME video,
+    // per the system prompt's STATUS-CLAIM RULE, instead of asserting
+    // something as permanent that was only true at that one timestamp.
+    const momentsTimeline = ordered
+      .filter(c => c.label.trim())
+      .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
     for (let i = 0; i < targets.length; i++) {
       const chunk = targets[i];
       try {
@@ -3143,6 +3163,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           timestamp: formatTime(chunk.start),
           dictation: chunk.label,
           existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+          momentsTimeline,
         });
         const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
         if (!picked) throw new Error("No screen returned");
@@ -3154,7 +3175,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           dictation: "", whyItMatters: "",
           status: "ready", holdSec: 8, createdAt: Date.now(),
           type: "exhibit_screen",
-          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults },
+          exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags },
         };
         workingMarkers = [...workingMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
         setMarkers(workingMarkers, false); // saves as it goes — a mid-batch interruption doesn't lose what's already done
@@ -4465,9 +4486,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 {orderedChunksForExhibit().map((c, i) => {
                   const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
                   if (screenMarker?.exhibitScreen) {
+                    const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
+                    const hasFlags = flags.length > 0;
                     return (
                       <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
-                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
+                        style={{ background: "#0d0d0d", border: `1px solid ${hasFlags ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10,
                           display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
                         {/* 0.045 (~86×49px), not the review panel's own 0.18 — this
                             thumbnail sits IN a row next to a text label, not alone
@@ -4490,7 +4513,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                           <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
                           </div>
-                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view</div>
+                          {/* Non-empty confidence_flags means the AI itself
+                              wasn't sure this claim holds up (usually a status
+                              claim it couldn't fully check, e.g. "not yet
+                              charged," against the rest of the video) — this is
+                              a "look before you trust it" nudge, not a verdict
+                              that it's wrong. */}
+                          {hasFlags ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#f59e0b", fontWeight: 700 }}>
+                              <AlertCircle size={11} color="#f59e0b" /> Needs review
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 12, color: "#999" }}>Tap to view</div>
+                          )}
                         </div>
                       </button>
                     );

@@ -57,6 +57,12 @@ export default function ExhibitVideoExportModal({
   const [format, setFormat] = useState<"mp4" | "webm">(initialFormat ?? (canMp4 ? "mp4" : "webm"));
   const [includeAudio, setIncludeAudio] = useState(initialIncludeAudio ?? true);
 
+  // AI-flagged claims (e.g. a status claim it couldn't fully check against
+  // the rest of the video) — never silently exported. First tap on Export
+  // shows what's flagged instead of running; a second, explicit tap exports
+  // anyway. Reset whenever the flagged set itself changes, so acknowledging
+  // it once doesn't waive it for screens generated afterward.
+  const [flaggedAcknowledged, setFlaggedAcknowledged] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
@@ -94,6 +100,14 @@ export default function ExhibitVideoExportModal({
   // be actively misleading.
   const displayMarkers = useMemo(() => sorted.filter(m => m.type !== "video_cut"), [sorted]);
   const res = RESOLUTIONS.find(r => r.key === resKey) || RESOLUTIONS[1];
+
+  // Screens the AI itself wasn't fully sure about — most importantly a
+  // status claim (charged/not charged, in custody/released) it couldn't
+  // fully check against the rest of the video. These must never export
+  // silently; see the Export button below.
+  const flaggedScreens = displayMarkers.filter(
+    m => m.type === "exhibit_screen" && (m.exhibitScreen?.confidenceFlags?.length ?? 0) > 0
+  );
 
   const totalHold = displayMarkers.reduce((s, m) => s + (m.holdSec ?? DEFAULT_HOLD_SEC), 0);
   // Deleted chunks subtract from the estimate instead — that footage won't
@@ -397,8 +411,29 @@ export default function ExhibitVideoExportModal({
                 <span>Last export stopped at marker {interruptedAt.index} of {interruptedAt.total} — tap Export to start a fresh render.</span>
               </div>
             )}
-            <button onClick={run} disabled={noVideo || noMarkers}
-              style={{ width: "100%", background: noVideo || noMarkers ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: "15px", color: noVideo || noMarkers ? "#555" : "#000", fontWeight: 900, fontSize: 15, cursor: noVideo || noMarkers ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {/* Flagged-screen gate — the AI itself wasn't sure about one or
+                more claims (see confidenceFlags), most often a status claim
+                that could be stale by the time this plays in court. Shown
+                instead of exporting on the first tap; a second, explicit tap
+                exports anyway. Never silently skipped. */}
+            {flaggedScreens.length > 0 && !flaggedAcknowledged && (
+              <div style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b66", borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
+                  <AlertCircle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ fontSize: 12, color: "#f59e0b", lineHeight: 1.5 }}>
+                    {flaggedScreens.length} exhibit screen{flaggedScreens.length !== 1 ? "s haven't" : " hasn't"} been reviewed — the AI itself flagged something it wasn't fully sure about (often a status claim, like charged/not charged, that could be stale by the time this plays). Check them in Step 3 before exporting.
+                  </div>
+                </div>
+                <button onClick={() => setFlaggedAcknowledged(true)}
+                  style={{ width: "100%", background: "none", border: "1px solid #f59e0b66", borderRadius: 8, padding: "8px", color: "#f59e0b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                  Export anyway
+                </button>
+              </div>
+            )}
+            <button
+              onClick={flaggedScreens.length > 0 && !flaggedAcknowledged ? undefined : run}
+              disabled={noVideo || noMarkers || (flaggedScreens.length > 0 && !flaggedAcknowledged)}
+              style={{ width: "100%", background: noVideo || noMarkers || (flaggedScreens.length > 0 && !flaggedAcknowledged) ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: "15px", color: noVideo || noMarkers || (flaggedScreens.length > 0 && !flaggedAcknowledged) ? "#555" : "#000", fontWeight: 900, fontSize: 15, cursor: noVideo || noMarkers || (flaggedScreens.length > 0 && !flaggedAcknowledged) ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Film size={17} /> Export Video
             </button>
           </>

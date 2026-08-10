@@ -2620,6 +2620,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     triggerAutosave(newMarkers, newChunks, organizedSlots, currentStep, newDeleted);
   }
 
+  // ── Undo a raw cut-tool cut — these have no matching deletedChunks entry
+  // (they were never a labeled moment, just a stretch of unlabeled footage
+  // marked skip-during-playback/export by the Cut tool), so there was no
+  // way to see or reverse one anywhere in the UI until now — the only trace
+  // was buried in "Copy All Edit Info" text. Removing the marker alone is
+  // enough: nothing else references it.
+  function undoCutMarker(markerId: string) {
+    pushUndoSnapshot();
+    const newMarkers = markers.filter(m => m.id !== markerId);
+    setMarkersRaw(newMarkers);
+    triggerAutosave(newMarkers, chunks, organizedSlots, currentStep, deletedChunks);
+    showInsertToast("Cut undone — that footage will play and export again.");
+  }
+
   // ── Cut tool — tap once at the playhead to arm it, tap again after
   // moving the playhead to cut everything between the two points out for
   // good. Reuses the exact same video_cut marker primitive removeChunk
@@ -4681,6 +4695,36 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 ))}
               </div>
             )}
+
+            {/* Raw cut-tool cuts — a stretch of footage marked skip-during-
+                playback/export by the Cut tool directly, never a labeled
+                moment, so it has no deletedChunks entry and doesn't show up
+                in the list above. Previously invisible and unremovable
+                anywhere in the UI — this is the only way to see one exists
+                and undo it. */}
+            {(() => {
+              const deletedCutKeys = new Set(deletedChunks.map(c => `${c.start}-${c.end}`));
+              const rawCuts = markers
+                .filter(m => m.type === "video_cut" && m.cutEnd != null && !deletedCutKeys.has(`${m.timestamp}-${m.cutEnd}`))
+                .sort((a, b) => a.timestamp - b.timestamp);
+              if (rawCuts.length === 0) return null;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                  {rawCuts.map(m => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a0808", border: "1px solid #4a1515", borderRadius: 10, padding: "7px 10px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", flexShrink: 0 }}>Cut</span>
+                      <span style={{ fontSize: 11, color: "#a05050", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {formatTime(m.timestamp)}–{formatTime(m.cutEnd!)} · skipped during playback/export
+                      </span>
+                      <button onClick={() => undoCutMarker(m.id)}
+                        style={{ flexShrink: 0, background: "none", border: "1px solid #4a1515", borderRadius: 7, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#c47070", cursor: "pointer" }}>
+                        Undo Cut
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* ── Guided moment flow — full-screen, two mandatory questions,
                 replaces the old inline label input entirely (no free-form

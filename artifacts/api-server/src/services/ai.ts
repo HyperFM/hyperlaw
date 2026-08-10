@@ -301,7 +301,14 @@ export class AiService {
   private get client(): Anthropic {
     if (!this._client) {
       if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
-      this._client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      // No timeout was ever set here — the SDK's own default (several
+      // minutes) applied, so one hung request could freeze an interactive
+      // batch (e.g. Generate Screens) indefinitely with no error and no
+      // progress, which is exactly "stuck at 3 of 15" with nothing moving.
+      // 45s is generous for a real generation call but fails fast enough
+      // that withRetry's retry-on-5xx actually gets a chance to kick in
+      // and move the batch along instead of the whole thing just hanging.
+      this._client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 45_000 });
     }
     return this._client;
   }

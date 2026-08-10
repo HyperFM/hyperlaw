@@ -354,7 +354,10 @@ router.post(
           caseId,
           fileName: originalname,
           mimeType: mimetype,
-          extractedText: parsed.text.slice(0, 50_000),
+          // Was 50,000 — a real multi-page complaint (the actual target use
+          // case, per explicit user feedback) can easily run past that,
+          // silently losing everything after it before analysis ever runs.
+          extractedText: parsed.text.slice(0, 150_000),
           caseExtraction: null,
         }).returning({ id: uploadedDocumentsTable.id });
         docId = rows[0]?.id ?? null;

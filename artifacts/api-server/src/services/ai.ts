@@ -1695,7 +1695,7 @@ INTAKE ANSWERS PROVIDED BY USER:
 - Additional context: ${intakeAnswers.additionalContext || "None provided"}
 
 FULL DOCUMENT TEXT:
-${documentText.slice(0, 15000)}
+${documentText.slice(0, 150000)}
 
 Return ONLY valid JSON. Do not draft a complaint. Do not explain your reasoning. Do not use markdown.
 

@@ -1092,9 +1092,16 @@ function useDeadlineNotifications(reminders: Reminder[]) {
 // never overwrite the user's own edits — or clobber server-merged data on sync.
 function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
   caseSummary?: string;
+  factPattern?: string;
   parties?: Array<{ name: string; role: string; details?: string }>;
   events?: Array<{ date: string; description: string; significance?: string }>;
+  evidence?: Array<{ description: string; type: string; strength?: string }>;
+  witnesses?: Array<{ name: string; relevance?: string }>;
+  agencies?: Array<{ name: string; role?: string }>;
+  locations?: string[];
+  openQuestions?: string[];
   jurisdictionSuggestions?: string[];
+  claims?: string[];
 }): HLCase {
   const patch: Partial<HLCase> = {};
 
@@ -1112,7 +1119,7 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
   if (hlCase.parties.length === 0 && analysis.parties?.length) {
     const OFFICIAL_HINTS = /\b(officer|police|deputy|sheriff|detective|sergeant|trooper|department|agency|city|county|state|federal|government|court|judge|magistrate|prosecut|district attorney|marshal|correctional|jail|prison|warden|official)\b/i;
     const used: string[] = [];
-    patch.parties = analysis.parties.slice(0, 20).map(p => {
+    patch.parties = analysis.parties.slice(0, 100).map(p => {
       const name = (p.name || "").trim();
       const tokens = name.split(/\s+/).filter(Boolean);
       const firstName = tokens[0] || name || "Party";
@@ -1141,6 +1148,54 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
       description: [ev.description, ev.significance].filter(Boolean).join(" — ").trim(),
       order: i,
     }));
+  }
+
+  // Structured case (claims + keyFacts) — this is what the exhibit and script
+  // generators actually read (see buildStructuredCaseBlock server-side in
+  // exhibit.ts). Previously the rich extraction (claims, evidence, witnesses,
+  // agencies, locations, open questions, fact pattern) was shown once on the
+  // Document Intake success screen and then discarded — none of it was ever
+  // saved, which is exactly why the generators never had it either. evidence/
+  // witnesses/agencies/locations/openQuestions/factPattern don't have their
+  // own StructuredCase fields, so they're folded into keyFacts (a plain
+  // string list already read by the generators) rather than growing the
+  // shared type just for this.
+  const factLines: string[] = [];
+  if (analysis.factPattern?.trim()) factLines.push(`Fact pattern: ${analysis.factPattern.trim()}`);
+  for (const e of analysis.evidence ?? []) {
+    if (e.description?.trim()) factLines.push(`Evidence: ${e.description.trim()}${e.type ? ` (${e.type})` : ""}${e.strength ? ` — ${e.strength}` : ""}`);
+  }
+  for (const w of analysis.witnesses ?? []) {
+    if (w.name?.trim()) factLines.push(`Witness: ${w.name.trim()}${w.relevance ? ` — ${w.relevance}` : ""}`);
+  }
+  for (const a of analysis.agencies ?? []) {
+    if (a.name?.trim()) factLines.push(`Agency: ${a.name.trim()}${a.role ? ` — ${a.role}` : ""}`);
+  }
+  for (const loc of analysis.locations ?? []) {
+    if (loc?.trim()) factLines.push(`Location: ${loc.trim()}`);
+  }
+  for (const q of analysis.openQuestions ?? []) {
+    if (q?.trim()) factLines.push(`Open question: ${q.trim()}`);
+  }
+
+  if (analysis.claims?.length || factLines.length) {
+    const existingSc = hlCase.structuredCase;
+    const existingClaims = existingSc?.claims ?? [];
+    const newClaims = (analysis.claims ?? []).filter(c => c && !existingClaims.includes(c));
+    const existingKeyFacts = existingSc?.keyFacts ?? [];
+    const newKeyFacts = factLines.filter(f => !existingKeyFacts.includes(f));
+    if (newClaims.length > 0 || newKeyFacts.length > 0) {
+      patch.structuredCase = existingSc
+        ? { ...existingSc, claims: [...existingClaims, ...newClaims], keyFacts: [...existingKeyFacts, ...newKeyFacts] }
+        : {
+            executiveSummary: summary || "",
+            clouds: [],
+            keyFacts: newKeyFacts,
+            importantQuotes: [],
+            claims: newClaims,
+            organizedAt: Date.now(),
+          };
+    }
   }
 
   return { ...hlCase, ...patch };

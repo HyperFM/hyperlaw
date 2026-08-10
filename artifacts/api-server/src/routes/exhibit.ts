@@ -262,13 +262,14 @@ function buildStructuredCaseBlock(cd: Record<string, unknown>): string | null {
 }
 
 /** Uploaded documents (the complaint, discovery, etc.) — was truncated to
- *  2000 chars each, which for anything past a couple of paragraphs (a real
- *  complaint is easily 5-10x that) meant most of the actual document never
- *  reached generation at all. Raised substantially; still capped so a huge
- *  document can't blow out the context budget on its own. */
+ *  2000 chars each, then 12000, both well below the 150000-char storage cap
+ *  on uploadedDocumentsTable.extractedText, so a real multi-page complaint
+ *  (the actual target use case) was still getting cut off before generation
+ *  ever saw the back half of it. Raised to match the storage cap; still
+ *  capped so a huge document can't blow out the context budget on its own. */
 function buildDocumentBlocks(docs: Array<{ text: string | null; fileName: string | null }>): string[] {
   return docs.map((d, i) =>
-    `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 12000)}`
+    `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 60000)}`
   );
 }
 

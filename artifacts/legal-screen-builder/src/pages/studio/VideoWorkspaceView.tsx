@@ -1305,6 +1305,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const [reviewSelectedPartyId, setReviewSelectedPartyId] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  // Entity-confirmation question — "yes" confirms the card's own header
+  // name is correct, "no" reveals a short pick-someone-else list, "unsure"
+  // just leaves it for the free-text correction below.
+  const [reviewEntityAnswer, setReviewEntityAnswer] = useState<"yes" | "no" | "unsure" | null>(null);
   // Empty placeholder the real <video> element (mainVideoElement) is
   // fixed-positioned on top of when reviewShowVideo is true — same pattern
   // as guidedVideoSlotRef above, never a second <video> element.
@@ -3574,6 +3578,29 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
   const viewingScreenMarker = markers.find(m => m.id === viewingScreenMarkerId) ?? null;
   const reviewingMarker = markers.find(m => m.id === reviewingMarkerId) ?? null;
+  // The name the card itself already shows in its header (every layout
+  // renders content.header.actor) — the entity-confirmation question below
+  // is just a yes/no on THIS, not a re-pick from the whole case roster.
+  const reviewActorName = (() => {
+    const header = (reviewingMarker?.exhibitScreen?.content as { header?: { actor?: unknown } } | undefined)?.header;
+    const actor = header?.actor;
+    return typeof actor === "string" && actor.trim() ? actor.trim() : null;
+  })();
+  // "No — pick someone else" shows only parties this moment's own dictation
+  // actually mentions by name, not the full case roster — falls back to the
+  // full list only if nothing in the transcript matches any known party.
+  const reviewMomentText = (() => {
+    const chunk = reviewingMarker?.chunkId ? chunks.find(c => c.id === reviewingMarker.chunkId) : undefined;
+    return (chunk?.label ?? "").toLowerCase();
+  })();
+  const reviewPlausibleParties = (() => {
+    const matches = hlCase.parties.filter(p => {
+      const first = p.firstName?.trim().toLowerCase();
+      const last = p.lastName?.trim().toLowerCase();
+      return (!!first && reviewMomentText.includes(first)) || (!!last && reviewMomentText.includes(last));
+    });
+    return matches.length > 0 ? matches : hlCase.parties;
+  })();
   // Total time actually removed by video_cut markers (the cut tool, and
   // deleted moments) — subtracted from the raw duration so the time shown
   // next to the play button matches what actually plays, not the length
@@ -4875,6 +4902,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             setReviewCorrectionText("");
             setReviewSelectedPartyId("");
             setReviewError(null);
+            setReviewEntityAnswer(null);
           }}
         />
       )}
@@ -4913,7 +4941,47 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#ddd" }}>View the video for this moment</span>
                 </button>
 
-                {hlCase.parties.length > 0 && (
+                {reviewActorName ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                      Is this the right person?
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <button onClick={() => { setReviewEntityAnswer("yes"); markScreenVerified(reviewingMarkerId); }}
+                        style={{ width: "100%", textAlign: "left", background: ORANGE, border: "none", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                        Yes, this is about {reviewActorName}
+                      </button>
+                      <button onClick={() => setReviewEntityAnswer(a => a === "no" ? null : "no")}
+                        style={{ width: "100%", textAlign: "left", background: reviewEntityAnswer === "no" ? "#221a10" : "#141414", border: `1px solid ${reviewEntityAnswer === "no" ? ORANGE : "#2a2a2a"}`, borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 700, color: "#ccc", cursor: "pointer" }}>
+                        No — let me pick someone else
+                      </button>
+                      <button onClick={() => setReviewEntityAnswer("unsure")}
+                        style={{ width: "100%", textAlign: "left", background: "none", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 600, color: "#777", cursor: "pointer" }}>
+                        Not sure / skip for now
+                      </button>
+                    </div>
+
+                    {reviewEntityAnswer === "no" && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                        {reviewPlausibleParties.map(p => {
+                          const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
+                          const selected = reviewSelectedPartyId === p.id;
+                          return (
+                            <button key={p.id} onClick={() => setReviewSelectedPartyId(selected ? "" : p.id)}
+                              style={{ background: selected ? ORANGE : "#141414", border: `1px solid ${selected ? ORANGE : "#2a2a2a"}`, borderRadius: 20, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, color: selected ? "#000" : "#ccc", cursor: "pointer" }}>
+                              {name}{p.title || p.agency ? ` · ${[p.title, p.agency].filter(Boolean).join(", ")}` : ""}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {reviewEntityAnswer === "unsure" && (
+                      <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>
+                        Okay — describe the correction below if you know it, or come back to this later.
+                      </div>
+                    )}
+                  </div>
+                ) : hlCase.parties.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
                       Is this about one of these people?

@@ -1270,6 +1270,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // deleting a case/account, since this wipes every generated screen at once.
   const [showDeleteAllScreensConfirm, setShowDeleteAllScreensConfirm] = useState(false);
   const [showDeleteAllScreensPin, setShowDeleteAllScreensPin] = useState(false);
+  // ── Emergency fallback — blank "Exhibit N of Total" placeholder screens,
+  // no AI involved at all, for if screen generation is broken/unreachable
+  // right before presenting. Reachable from any step, not buried in Step 3.
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   // Chunking and labeling now happen together in Step 1 — this tracks the
   // most recently created chunk so its label input can be auto-focused,
   // keeping the flow "chunk it, immediately say what happened, chunk the
@@ -3206,6 +3210,36 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     showInsertToast("All exhibit screens deleted — tap Generate Screens to rebuild.");
   }
 
+  // ── Emergency fallback — replaces every current screen with a plain
+  // "Exhibit N of Total" placeholder, one per moment, in existing moment
+  // order. Deliberately the exact same screen_cut/ScreenInsert marker type
+  // the manual Cut Builder already creates one at a time (handleCutInsert
+  // above) — pure client-side object construction, no AI call, no server
+  // round-trip, so this works even if the whole generation backend is down.
+  function activateEmergencyFallback() {
+    const ordered = orderedChunksForExhibit();
+    if (ordered.length === 0) {
+      showInsertToast("No moments to make screens for yet.");
+      return;
+    }
+    pushUndoSnapshot();
+    const kept = markers.filter(m => m.type !== "exhibit_screen" && m.type !== "screen_cut");
+    const total = ordered.length;
+    const placeholders: ExhibitMarker[] = ordered.map((chunk, i) => ({
+      id: crypto.randomUUID(),
+      timestamp: chunk.start,
+      label: `Exhibit ${i + 1} of ${total}`,
+      dictation: "", whyItMatters: "",
+      status: "ready", holdSec: 8, createdAt: Date.now(),
+      type: "screen_cut",
+      screenInsert: { title: `Exhibit ${i + 1} of ${total}`, subtitle: "", bgColor: "#080808", bodyLines: [] },
+    }));
+    const updated = [...kept, ...placeholders].sort((a, b) => a.timestamp - b.timestamp);
+    setMarkers(updated);
+    setShowEmergencyModal(false);
+    showInsertToast(`${total} blank exhibit screen${total !== 1 ? "s" : ""} ready — read from the Illustrative Aid Script tool while presenting.`);
+  }
+
   // ── Dictation ──────────────────────────────────────────────────
   function startDictation(markerId: string) {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -3498,6 +3532,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               {issueCount}
             </span>
           )}
+        </button>
+        {/* ── Emergency fallback — always visible regardless of step, on
+            purpose. Square, not round, and solid-filled — every other
+            control in this bar is a round outline/ghost button, so this
+            reads as something different on sight, not just another action. */}
+        <button
+          onClick={() => setShowEmergencyModal(true)}
+          title="Emergency fallback — blank placeholder screens"
+          style={{ width: 24, height: 24, borderRadius: 4, background: ORANGE, border: "none", cursor: "pointer", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 15, height: 15, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={10} color="#fff" strokeWidth={3.5} />
+          </div>
         </button>
       </div>
 
@@ -4628,6 +4674,50 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           marker={viewingScreenMarker}
           onDone={() => setViewingScreenMarkerId(null)}
         />
+      )}
+
+      {/* ── Emergency fallback confirm ────────────────────────────────
+          Never triggers by accident — one deliberate click on a
+          visually-distinct button, then this explanation, then a
+          separate confirm tap. No PIN gate (unlike delete-all-screens):
+          this needs to work fast under pressure, and it's not
+          destructive in the same way — screen_cut markers this creates
+          can be deleted individually same as any other, and Generate
+          Screens can always be run again afterward. */}
+      {showEmergencyModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowEmergencyModal(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: `1px solid ${ORANGE}`, borderRadius: 16, padding: 24, maxWidth: 360, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 6, background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 20, height: 20, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <X size={13} color="#fff" strokeWidth={3.5} />
+                </div>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Emergency fallback</div>
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
+              For if screen generation isn't working right before you need to present.
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
+              Confirming replaces your current exhibit screens with plain blank ones — one per moment, each just labeled <strong style={{ color: "#fff" }}>"Exhibit X of {orderedChunksForExhibit().length}."</strong> Nothing here depends on AI generation, so it works even if that's completely down.
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 22 }}>
+              Afterward, open <strong style={{ color: ORANGE }}>Illustrative Aid Script</strong> in the Tools tab — it turns your own moment explanations into a polished script you can read from, screen by screen, while presenting.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowEmergencyModal(false)}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={activateEmergencyFallback}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Delete all exhibit screens — step 1: plain confirm ──────── */}

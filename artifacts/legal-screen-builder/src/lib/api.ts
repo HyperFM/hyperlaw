@@ -136,13 +136,11 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ dataUrl }),
       }),
-  },
-  studioProject: {
-    /** Refresh the 30-day retention timer for a case's studio project */
-    keepAlive: (caseId: string) =>
-      apiFetch<{ ok: boolean; expiresAt: string }>(`/cases/${caseId}/studio-project/keep-alive`, { method: "POST" }),
-    /** Explicitly clear the studio project expiry (called after export) */
-    clearExpiry: (caseId: string) =>
-      apiFetch<{ ok: boolean }>(`/cases/${caseId}/studio-project/clear-expiry`, { method: "DELETE" }),
+    /** Reset the 60-day retention clock without an actual edit */
+    touch: (id: string) =>
+      apiFetch<{ ok: boolean; updatedAt: string }>(`/cases/${id}/touch`, { method: "POST" }),
+    /** Stop the 30-days-left "case going quiet" notification for this case */
+    muteExpiryWarning: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${id}/mute-expiry-warning`, { method: "POST" }),
   },
 };

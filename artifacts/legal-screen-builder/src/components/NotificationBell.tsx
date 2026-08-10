@@ -1,23 +1,30 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Bell, X, Check, MessageSquare, Star, AlertCircle } from "lucide-react";
+import { Bell, X, Check, MessageSquare, Star, AlertCircle, Clock } from "lucide-react";
 import { api, AppNotification } from "../lib/api";
 
 const ORANGE = "#d9711f";
 
 function typeIcon(type: string) {
   if (type === "admin_message") return <MessageSquare size={14} color={ORANGE} />;
+  if (type === "case_expiring") return <Clock size={14} color="#ef4444" />;
   if (type === "system") return <Star size={14} color="#3b82f6" />;
   return <AlertCircle size={14} color="#555" />;
 }
 
 interface NotificationBellProps {
   onOpenChat?: (sessionId: string) => void;
+  /** Navigate into the given case and reset its 60-day retention clock */
+  onExtendCase?: (caseId: string) => void;
+  /** Navigate to the Profile tab so the user can delete the case themselves */
+  onGoToProfile?: () => void;
 }
 
-export default function NotificationBell({ onOpenChat }: NotificationBellProps) {
+export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfile }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expiringPrompt, setExpiringPrompt] = useState<AppNotification | null>(null);
+  const [muting, setMuting] = useState(false);
   const unread = notifications.filter(n => !n.read).length;
 
   const load = useCallback(async () => {
@@ -49,10 +56,44 @@ export default function NotificationBell({ onOpenChat }: NotificationBellProps) 
 
   function handleNotifClick(n: AppNotification) {
     markRead(n.id);
+    if (n.type === "case_expiring" && n.metadata?.caseId) {
+      setExpiringPrompt(n);
+      return;
+    }
     if (n.type === "admin_message" && n.metadata?.sessionId && onOpenChat) {
       onOpenChat(n.metadata.sessionId as string);
       setOpen(false);
     }
+  }
+
+  async function handleMuteCase() {
+    const caseId = expiringPrompt?.metadata?.caseId as string | undefined;
+    if (!caseId) return;
+    setMuting(true);
+    try {
+      await api.cases.muteExpiryWarning(caseId);
+    } catch {
+    } finally {
+      setMuting(false);
+      setExpiringPrompt(null);
+      setOpen(false);
+    }
+  }
+
+  function handleExtendCase() {
+    const caseId = expiringPrompt?.metadata?.caseId as string | undefined;
+    setExpiringPrompt(null);
+    setOpen(false);
+    if (caseId) {
+      api.cases.touch(caseId).catch(() => {});
+      onExtendCase?.(caseId);
+    }
+  }
+
+  function handleGoDeleteCase() {
+    setExpiringPrompt(null);
+    setOpen(false);
+    onGoToProfile?.();
   }
 
   return (
@@ -157,6 +198,40 @@ export default function NotificationBell({ onOpenChat }: NotificationBellProps) 
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {expiringPrompt && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={() => setExpiringPrompt(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
+          <div style={{
+            position: "relative", zIndex: 1, background: "#111", border: "1px solid #222",
+            borderRadius: 16, width: "min(360px, 100%)", padding: 20,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.8)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Clock size={16} color="#ef4444" />
+              <span style={{ fontWeight: 800, fontSize: 14 }}>{expiringPrompt.title}</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.5, marginBottom: 18 }}>{expiringPrompt.body}</div>
+
+            <button
+              onClick={handleExtendCase}
+              style={{ width: "100%", background: ORANGE, color: "#000", border: "none", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>
+              Keep this case — extend 60 more days
+            </button>
+            <button
+              onClick={handleGoDeleteCase}
+              style={{ width: "100%", background: "#1a1a1a", color: "#ddd", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+              Delete this case in Profile
+            </button>
+            <button
+              onClick={handleMuteCase}
+              disabled={muting}
+              style={{ width: "100%", background: "none", color: "#666", border: "none", borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 600, cursor: muting ? "default" : "pointer" }}>
+              {muting ? "Stopping…" : "I'm done with this case — stop notifying me"}
+            </button>
           </div>
         </div>
       )}

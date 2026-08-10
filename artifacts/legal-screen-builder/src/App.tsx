@@ -5113,6 +5113,11 @@ export default function App() {
   const [newCaseUploadPct, setNewCaseUploadPct] = useState(0);
   const [newCaseUploadError, setNewCaseUploadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  // Server's per-case updatedAt (60-day retention clock) — not part of HLCase/
+  // caseData itself, so tracked separately here. Seeded from syncCasesFromServer,
+  // and bumped optimistically whenever setData fires (which is what actually
+  // resets the clock server-side, via the debounced syncCasesToServer below).
+  const [caseUpdatedAt, setCaseUpdatedAt] = useState<Record<string, string>>({});
   const [creditBalance, setCreditBalance] = useState<number | undefined>(undefined);
   const [planTier, setPlanTier] = useState<string>("free");
   const [showCreditShop, setShowCreditShop] = useState(false);
@@ -5142,6 +5147,15 @@ export default function App() {
     // Debounce server sync — avoids flooding during rapid updates (e.g. StoryView auto-save)
     if (serverSyncTimeoutRef.current) clearTimeout(serverSyncTimeoutRef.current);
     serverSyncTimeoutRef.current = setTimeout(() => syncCasesToServer(d.cases), 1500);
+    // Every case in d.cases is about to be re-upserted above, which resets its
+    // 60-day retention clock server-side — mirror that here so the countdown
+    // badge doesn't wait on the next syncCasesFromServer poll to catch up.
+    const now = new Date().toISOString();
+    setCaseUpdatedAt(prev => {
+      const next = { ...prev };
+      d.cases.forEach(c => { next[c.id] = now; });
+      return next;
+    });
   }
 
   // A phone closed/backgrounded within that 1500ms window loses the pending
@@ -5221,6 +5235,16 @@ export default function App() {
     if (!user?.id) return; // wait for the session to finish loading before syncing
     api.cases.list().then(serverCases => {
       if (!serverCases.length) return;
+      // Seed the retention countdown from the server's authoritative updatedAt —
+      // but never regress a more-recent optimistic value from an unsaved edit
+      // that just hasn't round-tripped through this fetch yet.
+      setCaseUpdatedAt(prev => {
+        const next = { ...prev };
+        serverCases.forEach(sc => {
+          if (!next[sc.id] || new Date(sc.updatedAt) > new Date(next[sc.id])) next[sc.id] = sc.updatedAt;
+        });
+        return next;
+      });
       setDataRaw(prev => {
         const localMap = new Map(prev.cases.map(c => [c.id, c]));
         let changed = false;
@@ -5511,6 +5535,35 @@ export default function App() {
     setNavTab("home");
   }
 
+  // Which case (if any) is currently open, across every case-specific view —
+  // drives the 60-day retention badge next to the notification bell.
+  function currentCaseId(v: AppView): string | null {
+    switch (v.type) {
+      case "case_detail": return v.hlCase.id;
+      case "case_parties":
+      case "case_court":
+      case "case_story":
+      case "case_timeline":
+      case "case_review":
+      case "case_assembly":
+      case "case_learning":
+      case "studio_workspace":
+        return v.caseId;
+      case "document_intake": return v.caseId;
+      case "tutor": return v.hlCase?.id ?? null;
+      default: return null;
+    }
+  }
+
+  function handleNotifExtendCase(caseId: string) {
+    setCaseUpdatedAt(prev => ({ ...prev, [caseId]: new Date().toISOString() }));
+    const fresh = data.cases.find(c => c.id === caseId);
+    if (fresh) {
+      setView({ type: "case_detail", hlCase: fresh });
+      setNavTab("home");
+    }
+  }
+
   function handleDeleteCaseWithSync(id: string) {
     setData(deleteCase(data, id));
     api.cases.delete(id).catch(() => {});
@@ -5779,8 +5832,26 @@ export default function App() {
     <div style={{ height: "100dvh", background: BG, color: "#fff", fontFamily: "Arial, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: "env(safe-area-inset-top)" }}>
       {/* Notification bell — fixed top-right (hidden on Tutor tab and Studio workspace, which has its own ⓘ button) */}
       {navTab !== "tutor" && !(navTab === "builder" && view.type === "studio_workspace") && (
-        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300 }}>
-          <NotificationBell onOpenChat={sid => setChatSessionId(sid)} />
+        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 8px)", right: 8, zIndex: 300, display: "flex", alignItems: "center", gap: 6 }}>
+          {(() => {
+            const caseId = currentCaseId(view);
+            const lastActive = caseId ? caseUpdatedAt[caseId] : null;
+            if (!lastActive) return null;
+            const daysLeft = Math.max(0, 60 - Math.floor((Date.now() - new Date(lastActive).getTime()) / (24 * 60 * 60 * 1000)));
+            const urgent = daysLeft <= 30;
+            return (
+              <div
+                title={`This case will be permanently deleted after 60 days of inactivity — ${daysLeft} days left`}
+                style={{ background: urgent ? "#2a0e00" : "#141414", border: `1px solid ${urgent ? "#4a1500" : "#242424"}`, borderRadius: 20, padding: "4px 10px", fontSize: 10, fontWeight: 800, color: urgent ? "#ef4444" : "#777", whiteSpace: "nowrap" }}>
+                {daysLeft}d left
+              </div>
+            );
+          })()}
+          <NotificationBell
+            onOpenChat={sid => setChatSessionId(sid)}
+            onExtendCase={handleNotifExtendCase}
+            onGoToProfile={() => { setView({ type: "home" }); setNavTab("profile"); }}
+          />
         </div>
       )}
 

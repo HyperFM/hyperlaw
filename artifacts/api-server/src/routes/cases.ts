@@ -1,19 +1,63 @@
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
 import { db } from "@workspace/db";
-import { casesTable, generatedDocumentsTable, uploadedDocumentsTable } from "@workspace/db";
-import { eq, and, desc, inArray, lt } from "drizzle-orm";
+import { casesTable, generatedDocumentsTable, uploadedDocumentsTable, notificationsTable } from "@workspace/db";
+import { eq, and, desc, inArray, lt, gte, sql } from "drizzle-orm";
 import { verifyPin } from "../services/security.js";
 
 const router = Router();
 
-// A case with zero saves (title/story/documents/studio work, anything that
-// touches updatedAt) for this long is treated as abandoned and permanently
-// deleted the next time this user's case list is loaded. There's no separate
-// cron/worker in this deployment, so the sweep runs lazily on GET /cases —
-// cheap (one indexed query per app load) and only matters when it matters:
-// if the user never opens the app again, nobody's around to notice either way.
-const CASE_INACTIVITY_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+// A case with zero saves (title/story/documents/studio work — anything that
+// touches updatedAt, in any tool including Studio) for this long is treated
+// as abandoned and permanently deleted the next time this user's case list
+// is loaded. There's no separate cron/worker in this deployment, so the
+// sweep runs lazily on GET /cases — cheap (one indexed query per app load)
+// and only matters when it matters: if the user never opens the app again,
+// nobody's around to notice either way.
+const CASE_INACTIVITY_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+// Warn once a case is halfway to deletion (30 days left) so the countdown
+// badge next to the notifications bell isn't the only signal — this fires
+// an actual notification the user can tap to extend, stop, or delete.
+const CASE_WARNING_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+async function warnDormantCases(userId: string): Promise<void> {
+  const warningCutoff = new Date(Date.now() - CASE_WARNING_MS);
+  const deleteCutoff = new Date(Date.now() - CASE_INACTIVITY_MS);
+  const dormant = await db
+    .select({ id: casesTable.id, title: casesTable.title, updatedAt: casesTable.updatedAt })
+    .from(casesTable)
+    .where(and(
+      eq(casesTable.userId, userId),
+      lt(casesTable.updatedAt, warningCutoff),
+      gte(casesTable.updatedAt, deleteCutoff),
+    ));
+  if (!dormant.length) return;
+
+  for (const c of dormant) {
+    // One warning per dormancy episode: skip if there's already a warning
+    // for this case newer than its last real update (i.e. sent since it
+    // went quiet this time around). Avoided a new "lastWarnedAt" column —
+    // this reuses the existing notifications table instead.
+    const [existing] = await db
+      .select({ id: notificationsTable.id })
+      .from(notificationsTable)
+      .where(and(
+        eq(notificationsTable.userId, userId),
+        inArray(notificationsTable.type, ["case_expiring", "case_muted"]),
+        sql`${notificationsTable.metadata}->>'caseId' = ${c.id}`,
+        gte(notificationsTable.createdAt, c.updatedAt),
+      ));
+    if (existing) continue; // already warned, or the user muted this case, this dormancy cycle
+
+    await db.insert(notificationsTable).values({
+      userId,
+      title: "Case going quiet",
+      body: `"${c.title}" hasn't been touched in 30 days. It'll be permanently deleted in 30 more days unless you open it.`,
+      type: "case_expiring",
+      metadata: { caseId: c.id },
+    });
+  }
+}
 
 async function sweepInactiveCases(userId: string): Promise<void> {
   const cutoff = new Date(Date.now() - CASE_INACTIVITY_MS);
@@ -37,6 +81,7 @@ router.get("/cases", async (req: Request, res: Response): Promise<void> => {
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   await sweepInactiveCases(auth.userId);
+  await warnDormantCases(auth.userId);
 
   const cases = await db
     .select()
@@ -140,30 +185,42 @@ router.put("/cases/:id/photo", async (req: Request, res: Response): Promise<void
   res.json({ ok: true });
 });
 
-// ── POST /cases/:id/studio-project/keep-alive — reset 30-day TTL ───────────────
-router.post("/cases/:id/studio-project/keep-alive", async (req: Request, res: Response): Promise<void> => {
+// ── POST /cases/:id/touch — reset the 60-day retention clock without an edit ───
+// Used by the "keep this case" option on the case_expiring notification: the
+// user tapping in only extends the clock if it results in a real save, so
+// this makes that tap itself count, even if they don't change anything.
+router.post("/cases/:id/touch", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-  await db
+  const [row] = await db
     .update(casesTable)
-    .set({ studioProjectExpiresAt: expiresAt, updatedAt: new Date() })
-    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
+    .set({ updatedAt: new Date() })
+    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)))
+    .returning({ updatedAt: casesTable.updatedAt });
 
-  res.json({ ok: true, expiresAt: expiresAt.toISOString() });
+  if (!row) { res.status(404).json({ error: "Case not found" }); return; }
+  res.json({ ok: true, updatedAt: row.updatedAt.toISOString() });
 });
 
-// ── DELETE /cases/:id/studio-project/clear-expiry — called after confirmed export
-router.delete("/cases/:id/studio-project/clear-expiry", async (req: Request, res: Response): Promise<void> => {
+// ── POST /cases/:id/mute-expiry-warning — stop the 30-day-left notification ────
+// Doesn't stop the 60-day deletion itself (the user said they're done with
+// the case, not that they want it kept forever) — just the nag. Recorded as
+// a notification row rather than a new column so warnDormantCases can reuse
+// its existing per-dormancy-cycle dedup check.
+router.post("/cases/:id/mute-expiry-warning", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  await db
-    .update(casesTable)
-    .set({ studioProjectExpiresAt: null, updatedAt: new Date() })
-    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
+  const caseId = String(req.params.id);
+  await db.insert(notificationsTable).values({
+    userId: auth.userId,
+    title: "Notifications stopped",
+    body: "You won't be reminded about this case again until you open it.",
+    type: "case_muted",
+    read: true,
+    metadata: { caseId },
+  });
 
   res.json({ ok: true });
 });

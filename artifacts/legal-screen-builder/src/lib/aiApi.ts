@@ -942,6 +942,11 @@ export const aiApi = {
     /** "Reiterate" flow — free-text note on what to fix when regenerating an
      *  already-existing screen. Blank/omitted just means try again fresh. */
     userFeedback?: string;
+    /** Review-and-correct flow — the existing screen's content, sent back so
+     *  the server patches it in place instead of drafting fresh. Always pair
+     *  with forceType (the existing selectedType) and userFeedback (the
+     *  correction) so the response stays to one candidate. */
+    existingContent?: Record<string, unknown>;
   }): Promise<{
     candidates: Array<{
       selectedType: string;

@@ -198,6 +198,13 @@ export interface ExhibitScreenData {
   /** Names the AI corrected against the case's known-entities list (e.g.
    *  "DeHurnton" → "Hernton") — always reported, never a silent rewrite. */
   corrections?: NameCorrection[];
+  /** Set when the user explicitly confirms this screen needs no more
+   *  review, despite confidenceFlags being non-empty — the flags stay
+   *  (they're still a true record of what the AI was unsure about) but the
+   *  review prompt won't nag about them again. Cleared automatically the
+   *  next time this screen is regenerated (Reiterate or a correction),
+   *  since that produces new content the user hasn't looked at yet. */
+  reviewedAt?: number;
 }
 
 /** A local-only photo or video clip inserted at a precise timestamp.

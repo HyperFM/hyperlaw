@@ -1065,7 +1065,7 @@ class ExhibitPreviewBoundary extends React.Component<
 }
 
 // ── Preview Screen Overlay ────────────────────────────────────────────────────
-function PreviewScreenOverlay({ marker, onDone, onReiterate, onDelete }: { marker: ExhibitMarker; onDone: () => void; onReiterate?: (marker: ExhibitMarker) => void; onDelete?: (marker: ExhibitMarker) => void }) {
+function PreviewScreenOverlay({ marker, onDone, onReiterate, onDelete, onNeedsReview }: { marker: ExhibitMarker; onDone: () => void; onReiterate?: (marker: ExhibitMarker) => void; onDelete?: (marker: ExhibitMarker) => void; onNeedsReview?: (marker: ExhibitMarker) => void }) {
   if (marker.type === "exhibit_screen" && marker.exhibitScreen) {
     const vw = typeof window !== "undefined" ? window.innerWidth : 390;
     const vh = typeof window !== "undefined" ? window.innerHeight : 844;
@@ -1096,16 +1096,28 @@ function PreviewScreenOverlay({ marker, onDone, onReiterate, onDelete }: { marke
             </ExhibitPreviewBoundary>
           </div>
         </div>
-        {/* What the AI itself wasn't sure about generating this screen — read
-            it before trusting the claim, especially anything about status
-            (charged/not charged, in custody/released) that could be stale by
-            the time this plays. */}
-        {marker.exhibitScreen.confidenceFlags && marker.exhibitScreen.confidenceFlags.length > 0 && (
-          <div style={{ position: "fixed", top: "max(16px, env(safe-area-inset-top))", left: 16, right: 16, background: "rgba(245,158,11,0.12)", border: "1px solid #f59e0b66", borderRadius: 10, padding: "10px 14px", display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <AlertCircle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ fontSize: 12, color: "#f59e0b", lineHeight: 1.5 }}>
+        {/* What the AI itself wasn't sure about generating this screen — made
+            deliberately hard to miss (not a slim banner) since this is the
+            single most important thing to read before trusting the slide,
+            especially anything about status (charged/not charged, in
+            custody/released) that could be stale by the time this plays.
+            Once the user taps Verified, reviewedAt is set and this stops
+            showing until the screen is regenerated. */}
+        {marker.exhibitScreen.confidenceFlags && marker.exhibitScreen.confidenceFlags.length > 0 && !marker.exhibitScreen.reviewedAt && (
+          <div style={{ position: "fixed", top: "max(16px, env(safe-area-inset-top))", left: 16, right: 16, background: "#1f1400", border: "1.5px solid #f59e0b", borderRadius: 14, padding: "14px 16px", boxShadow: "0 8px 28px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <AlertCircle size={16} color="#f59e0b" style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: 13, fontWeight: 900, color: "#f59e0b", letterSpacing: 0.3 }}>NEEDS REVIEW</div>
+            </div>
+            <div style={{ fontSize: 13.5, color: "#ffcf7a", lineHeight: 1.55, marginBottom: 12 }}>
               {marker.exhibitScreen.confidenceFlags.join(" · ")}
             </div>
+            {onNeedsReview && (
+              <button onClick={() => onNeedsReview(marker)}
+                style={{ width: "100%", background: "#f59e0b", border: "none", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Review this
+              </button>
+            )}
           </div>
         )}
         {/* Names auto-corrected against the case's own party list — never a
@@ -1283,6 +1295,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // Preview-mode sequenced walkthrough): that one auto-resumes video
   // playback when dismissed, which isn't wanted here.
   const [viewingScreenMarkerId, setViewingScreenMarkerId] = useState<string | null>(null);
+  // ── Review flow — for a screen the AI itself flagged as uncertain
+  // (confidenceFlags). Own state (not viewingScreenMarkerId) since it has
+  // its own video-popout mode and a correction form, neither of which the
+  // plain screen preview needs.
+  const [reviewingMarkerId, setReviewingMarkerId] = useState<string | null>(null);
+  const [reviewShowVideo, setReviewShowVideo] = useState(false);
+  const [reviewCorrectionText, setReviewCorrectionText] = useState("");
+  const [reviewSelectedPartyId, setReviewSelectedPartyId] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  // Empty placeholder the real <video> element (mainVideoElement) is
+  // fixed-positioned on top of when reviewShowVideo is true — same pattern
+  // as guidedVideoSlotRef above, never a second <video> element.
+  const reviewVideoSlotRef = useRef<HTMLDivElement>(null);
   // ── Delete all exhibit screens — two-step confirmation, same PIN gate as
   // deleting a case/account, since this wipes every generated screen at once.
   const [showDeleteAllScreensConfirm, setShowDeleteAllScreensConfirm] = useState(false);
@@ -1407,6 +1433,47 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       }
     };
   }, [guidedChunkId]);
+  // Same fixed-position pop-out as the guidedChunkId effect above, for the
+  // Review flow's "View Video" toggle — extends that pattern with another
+  // slot ref rather than a second <video> element (see that effect's own
+  // comment for why: an earlier second <video> crashed real footage on
+  // iOS/WKWebView with two decoders open on the same source).
+  useEffect(() => {
+    if (!reviewingMarkerId || !reviewShowVideo) return;
+    const slot = reviewVideoSlotRef.current;
+    const video = videoRef.current;
+    if (!slot || !video) return;
+    const correct = () => {
+      const r = slot.getBoundingClientRect();
+      video.style.position = "fixed";
+      video.style.top = `${r.top}px`;
+      video.style.left = `${r.left}px`;
+      video.style.width = `${r.width}px`;
+      video.style.height = `${r.height}px`;
+      video.style.maxHeight = "none";
+      video.style.zIndex = "981";
+      video.style.objectFit = "contain";
+    };
+    window.addEventListener("resize", correct);
+    correct();
+    // Jump straight to this screen's own moment so there's no hunting
+    // through the whole video to find what's being reviewed.
+    const marker = markers.find(m => m.id === reviewingMarkerId);
+    const chunk = marker?.chunkId ? chunks.find(c => c.id === marker.chunkId) : undefined;
+    if (chunk) seek(chunk.start);
+    return () => {
+      window.removeEventListener("resize", correct);
+      video.pause();
+      video.style.position = "";
+      video.style.top = "";
+      video.style.left = "";
+      video.style.width = "";
+      video.style.height = "";
+      video.style.maxHeight = "";
+      video.style.zIndex = "";
+      video.style.objectFit = "";
+    };
+  }, [reviewingMarkerId, reviewShowVideo]); // eslint-disable-line react-hooks/exhaustive-deps
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
   // corners on that snapshot with an ugly black/square fringe around them.
@@ -3273,6 +3340,79 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     showInsertToast("Screen deleted.");
   }
 
+  // ── Review flow — "Verified": the user looked at what the AI flagged and
+  // confirmed it's actually fine. Doesn't touch confidenceFlags (still an
+  // honest record of what the AI itself was unsure about) — just marks it
+  // reviewed so the prompt stops nagging until this screen is regenerated.
+  function markScreenVerified(markerId: string) {
+    setMarkers(markers.map(m =>
+      m.id === markerId && m.exhibitScreen
+        ? { ...m, exhibitScreen: { ...m.exhibitScreen, reviewedAt: Date.now() } }
+        : m
+    ), false);
+    setReviewingMarkerId(null);
+    setReviewShowVideo(false);
+    showInsertToast("Marked verified.");
+  }
+
+  // ── Review flow — "Submit correction": patches the existing screen with
+  // the user's answer (a party they picked, or their own free text) instead
+  // of drafting a fresh one. Sends the current content back so the server
+  // can apply the minimal change (see the existingContent/patchBlock
+  // comment server-side) — cheaper than a full Reiterate regenerate, and
+  // the point here is always a small, specific fix, never a redo.
+  async function submitExhibitCorrection(markerId: string) {
+    const marker = markers.find(m => m.id === markerId);
+    if (!marker || marker.type !== "exhibit_screen" || !marker.chunkId || !marker.exhibitScreen) return;
+    const chunk = chunks.find(c => c.id === marker.chunkId);
+    if (!chunk) return;
+    const selectedParty = hlCase.parties.find(p => p.id === reviewSelectedPartyId);
+    const correction = [
+      selectedParty ? `The person being referred to is ${[selectedParty.firstName, selectedParty.lastName].filter(Boolean).join(" ")}${selectedParty.title || selectedParty.agency ? ` (${[selectedParty.title, selectedParty.agency].filter(Boolean).join(", ")})` : ""}.` : "",
+      reviewCorrectionText.trim(),
+    ].filter(Boolean).join(" ");
+    if (!correction) { setReviewError("Pick a person or describe the correction first."); return; }
+    setReviewSubmitting(true);
+    setReviewError(null);
+    try {
+      const ordered = orderedChunksForExhibit();
+      const momentsTimeline = ordered
+        .filter(c => c.label.trim())
+        .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
+      const existingExhibits = markers
+        .filter(m => m.type === "exhibit_screen" && m.id !== markerId && m.exhibitScreen)
+        .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+      const result = await aiApi.generateExhibitScreen({
+        caseId: hlCase.id,
+        timestamp: formatTime(chunk.start),
+        dictation: chunk.label,
+        existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+        momentsTimeline,
+        forceType: marker.exhibitScreen.selectedType,
+        userFeedback: correction,
+        existingContent: marker.exhibitScreen.content,
+      });
+      const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+      if (!picked) throw new Error("No screen returned");
+      const updated = markers.map(m =>
+        m.id === markerId
+          ? { ...m, exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections } }
+          : m
+      );
+      pushUndoSnapshot();
+      setMarkers(updated, false);
+      setReviewingMarkerId(null);
+      setReviewShowVideo(false);
+      setReviewCorrectionText("");
+      setReviewSelectedPartyId("");
+      showInsertToast("Correction applied.");
+    } catch (err) {
+      setReviewError((err as Error).message || "Couldn't apply that correction — try again.");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }
+
   // ── Emergency fallback — replaces every current screen with a plain
   // "Exhibit N of Total" placeholder, one per moment, in existing moment
   // order. Deliberately the exact same screen_cut/ScreenInsert marker type
@@ -3433,6 +3573,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const issueCount = !court ? 1 : 0;
   const previewOverlayMarker = markers.find(m => m.id === previewOverlayMarkerId);
   const viewingScreenMarker = markers.find(m => m.id === viewingScreenMarkerId) ?? null;
+  const reviewingMarker = markers.find(m => m.id === reviewingMarkerId) ?? null;
   // Total time actually removed by video_cut markers (the cut tool, and
   // deleted moments) — subtracted from the raw duration so the time shown
   // next to the play button matches what actually plays, not the length
@@ -4576,7 +4717,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   const screenMarker = markers.find(m => m.type === "exhibit_screen" && m.chunkId === c.id);
                   if (screenMarker?.exhibitScreen) {
                     const flags = screenMarker.exhibitScreen.confidenceFlags ?? [];
-                    const hasFlags = flags.length > 0;
+                    const hasFlags = flags.length > 0 && !screenMarker.exhibitScreen.reviewedAt;
                     const corrections = screenMarker.exhibitScreen.corrections ?? [];
                     return (
                       <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
@@ -4727,7 +4868,138 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           onDone={() => setViewingScreenMarkerId(null)}
           onReiterate={m => { setReiterateMarkerId(m.id); setReiterateFeedback(""); setReiterateError(null); }}
           onDelete={m => deleteOneExhibitScreen(m.id)}
+          onNeedsReview={m => {
+            setViewingScreenMarkerId(null);
+            setReviewingMarkerId(m.id);
+            setReviewShowVideo(false);
+            setReviewCorrectionText("");
+            setReviewSelectedPartyId("");
+            setReviewError(null);
+          }}
         />
+      )}
+
+      {/* ── Review flow — opened from a flagged screen's "Review this" button.
+          Two modes: the review form (reason, party picker, correction text,
+          Verified/Submit), or (reviewShowVideo) the moment's actual footage
+          popped out via the same fixed-position pattern the guided flow
+          uses — never a second <video> element. */}
+      {reviewingMarkerId && reviewingMarker?.exhibitScreen && (
+        <div style={{ position: "fixed", inset: 0, background: "#0a0a0a", zIndex: 900, display: "flex", flexDirection: "column" }}>
+          {!reviewShowVideo ? (
+            <>
+              <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", paddingTop: "calc(10px + env(safe-area-inset-top))", borderBottom: "1px solid #1a1a1a" }}>
+                <button onClick={() => { setReviewingMarkerId(null); setReviewShowVideo(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+                  <X size={18} color="#666" />
+                </button>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#ccc" }}>Review Screen</div>
+                <div style={{ width: 18 }} />
+              </div>
+
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
+                <div style={{ background: "#1f1400", border: "1.5px solid #f59e0b", borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <AlertCircle size={16} color="#f59e0b" style={{ flexShrink: 0 }} />
+                    <div style={{ fontSize: 13, fontWeight: 900, color: "#f59e0b", letterSpacing: 0.3 }}>WHY THIS NEEDS REVIEW</div>
+                  </div>
+                  <div style={{ fontSize: 14, color: "#ffcf7a", lineHeight: 1.6 }}>
+                    {(reviewingMarker.exhibitScreen.confidenceFlags ?? []).join(" · ") || "The AI flagged this screen as uncertain."}
+                  </div>
+                </div>
+
+                <button onClick={() => setReviewShowVideo(true)}
+                  style={{ width: "100%", background: "#141414", border: "1px solid #2a2a2a", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", marginBottom: 20 }}>
+                  <PlayCircle size={16} color={ORANGE} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#ddd" }}>View the video for this moment</span>
+                </button>
+
+                {hlCase.parties.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                      Is this about one of these people?
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {hlCase.parties.map(p => {
+                        const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
+                        const selected = reviewSelectedPartyId === p.id;
+                        return (
+                          <button key={p.id} onClick={() => setReviewSelectedPartyId(selected ? "" : p.id)}
+                            style={{ background: selected ? ORANGE : "#141414", border: `1px solid ${selected ? ORANGE : "#2a2a2a"}`, borderRadius: 20, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, color: selected ? "#000" : "#ccc", cursor: "pointer" }}>
+                            {name}{p.title || p.agency ? ` · ${[p.title, p.agency].filter(Boolean).join(", ")}` : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                    Or describe the correction
+                  </div>
+                  <textarea
+                    value={reviewCorrectionText}
+                    onChange={e => setReviewCorrectionText(e.target.value)}
+                    placeholder="e.g. the badge number is 4471, not 4417…"
+                    disabled={reviewSubmitting}
+                    style={{ width: "100%", minHeight: 80, background: "#111", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#ddd", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", outline: "none" }}
+                  />
+                </div>
+
+                {reviewError && (
+                  <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{reviewError}</div>
+                )}
+              </div>
+
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid #1a1a1a" }}>
+                <button
+                  onClick={() => submitExhibitCorrection(reviewingMarkerId)}
+                  disabled={reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim())}
+                  style={{ width: "100%", background: reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#1a1a1a" : ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: reviewSubmitting || (!reviewSelectedPartyId && !reviewCorrectionText.trim()) ? "#666" : "#000", cursor: reviewSubmitting ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {reviewSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={15} />}
+                  {reviewSubmitting ? "Applying correction…" : "Submit correction"}
+                </button>
+                <button
+                  onClick={() => markScreenVerified(reviewingMarkerId)}
+                  disabled={reviewSubmitting}
+                  style={{ width: "100%", background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: reviewSubmitting ? "default" : "pointer" }}>
+                  Looks correct — Verified, no more review needed
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", paddingTop: "calc(10px + env(safe-area-inset-top))" }}>
+                <button onClick={() => setReviewShowVideo(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  <X size={18} color="#666" /><span style={{ fontSize: 13, fontWeight: 700, color: "#666" }}>Back to review</span>
+                </button>
+                <div style={{ width: 18 }} />
+              </div>
+              <div style={{ flex: 1, minHeight: 0, position: "relative", margin: "0 16px 16px" }}>
+                <div ref={reviewVideoSlotRef} style={{ width: "100%", height: "100%", borderRadius: 12 }} />
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, pointerEvents: "none", zIndex: 982 }}>
+                  <button onClick={() => skipMain(-5)} title="Back 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                    <RotateCcw size={16} color="#fff" />
+                    <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
+                  </button>
+                  <button onClick={togglePlay} style={{ pointerEvents: "auto", width: 42, height: 42, borderRadius: 21, background: "rgba(0,0,0,0.65)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {isPlaying ? <Pause size={17} color="#fff" /> : <Play size={17} color="#fff" style={{ marginLeft: 2 }} />}
+                  </button>
+                  <button onClick={() => skipMain(5)} title="Forward 5s" style={{ pointerEvents: "auto", background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 20, cursor: "pointer", padding: "6px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                    <RotateCcw size={16} color="#fff" style={{ transform: "scaleX(-1)" }} />
+                    <span style={{ fontSize: 8, color: "#ccc", fontWeight: 700 }}>5s</span>
+                  </button>
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, padding: "0 16px calc(12px + env(safe-area-inset-bottom))" }}>
+                <button onClick={() => setReviewShowVideo(false)}
+                  style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                  Done watching — back to review
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* ── Reiterate feedback modal — sits on top of the full preview.

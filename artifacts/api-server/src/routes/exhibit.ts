@@ -412,6 +412,7 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     momentsTimeline = [] as Array<{ timestamp: string; label: string }>,
     forceType,
     userFeedback,
+    existingContent,
   } = req.body as {
     caseId: string;
     timestamp: string;
@@ -428,6 +429,12 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
      *  regenerate-this-one-screen flow — optional, left blank just means
      *  "try again," not "there was something specifically wrong." */
     userFeedback?: string;
+    /** The review-and-correct flow's existing screen content — when present
+     *  (alongside forceType and userFeedback), the model patches this in
+     *  place instead of drafting fresh, and forceType already caps the
+     *  response to one candidate instead of 2-3, both of which cut the
+     *  usual generation cost for what's meant to be a small fix. */
+    existingContent?: Record<string, unknown>;
   };
 
   if (!dictation?.trim()) {
@@ -506,11 +513,21 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     ? `\n\nUSER FEEDBACK ON THE PREVIOUS VERSION OF THIS SCREEN: "${userFeedback.trim()}" — address this specifically when generating the new version.`
     : "";
 
+  // "Review and correct" flow — the user answered a specific gap the AI
+  // itself flagged (a missing name, an ambiguous claim) via userFeedback
+  // above; this gives the model the actual existing content so it PATCHES
+  // in place instead of drafting from scratch, which combined with
+  // forceType's single-candidate cap keeps this meaningfully cheaper than a
+  // full regenerate.
+  const patchBlock = existingContent
+    ? `\n\nEXISTING SCREEN CONTENT TO CORRECT — this is the current, already-approved layout. Make the MINIMAL change needed to apply the feedback above; keep every other field, wording, icon, and structure exactly as-is unless the feedback specifically requires changing it. Do not redesign or rewrite this from scratch:\n${JSON.stringify(existingContent)}`
+    : "";
+
   const userMessage = `VIDEO TIMESTAMP: ${timestamp}
 
 USER DICTATION:
 ${dictation}
-${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}
+${priorBlock}${timelineBlock}${forceBlock}${feedbackBlock}${patchBlock}
 
 SOURCE MATERIAL:
 ${sourceText}`;

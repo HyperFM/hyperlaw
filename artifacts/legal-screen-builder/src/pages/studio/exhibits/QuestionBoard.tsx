@@ -52,7 +52,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -107,10 +107,10 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
                 {renderExhibitIcon(step.icon, orange)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: orange, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                <div style={{ fontSize: 25, fontWeight: 900, color: orange, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
                   {step.label}
                 </div>
-                <div style={{ fontSize: 15, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
+                <div style={{ fontSize: 22, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
                   {step.quote.text}
                 </div>
               </div>
@@ -130,14 +130,14 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
               flexDirection: "column",
             }}
           >
-            <div style={{ fontSize: 11, color: gray, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
+            <div style={{ fontSize: 25, color: gray, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
               The Question
             </div>
-            <div style={{ fontSize: 19, fontWeight: 900, color: orange, lineHeight: 1.35, flex: 1 }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: orange, lineHeight: 1.35, flex: 1 }}>
               {data.leftColumn.questionBox.prompt}
             </div>
             <div style={{ height: 1, background: `${orange}44`, margin: "12px 0" }} />
-            <div style={{ fontSize: 14, color: white, lineHeight: 1.5, fontWeight: 400 }}>
+            <div style={{ fontSize: 21, color: white, lineHeight: 1.5, fontWeight: 400 }}>
               {data.leftColumn.questionBox.answer}
             </div>
           </div>
@@ -148,7 +148,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
 
         {/* RIGHT COLUMN */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: gray, lineHeight: 1.55, marginBottom: 14, fontWeight: 400 }}>
+          <div style={{ fontSize: 20, color: gray, lineHeight: 1.55, marginBottom: 14, fontWeight: 400 }}>
             {data.rightColumn.intro}
           </div>
 
@@ -156,7 +156,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
             {data.rightColumn.checklist.map((item, i) => (
               <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 <div style={classificationDot(item.classification)} />
-                <div style={{ fontSize: 15, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
+                <div style={{ fontSize: 22, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
                   {item.text}
                 </div>
               </div>
@@ -173,7 +173,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
               border: "1px solid #222",
             }}
           >
-            <div style={{ fontSize: 15, fontWeight: 900, color: orange, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 22, fontWeight: 900, color: orange, lineHeight: 1.4 }}>
               {data.rightColumn.closingHighlight}
             </div>
           </div>
@@ -181,7 +181,7 @@ export const QuestionBoard: React.FC<Props> = ({ data, orientation = "square" })
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 16, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 16, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

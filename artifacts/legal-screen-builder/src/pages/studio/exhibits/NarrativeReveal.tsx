@@ -78,7 +78,7 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -114,7 +114,7 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
             <div style={{ width: 26, height: 26, flexShrink: 0, marginTop: 2 }}>
               {renderExhibitIcon(fact.icon, gray)}
             </div>
-            <div style={{ fontSize: 17, fontWeight: 400, color: grayLight, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 24, fontWeight: 400, color: grayLight, lineHeight: 1.5 }}>
               {fact.text.text}
             </div>
           </div>
@@ -132,7 +132,7 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
           padding: "18px 22px",
         }}
       >
-        <div style={{ fontSize: 12, color: gray, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
+        <div style={{ fontSize: 26, color: gray, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
           {data.pivotQuote.leadIn}
         </div>
         <div style={{ color: orange, fontSize: 36, lineHeight: 1, fontWeight: 900, marginBottom: 4 }}>"</div>
@@ -148,7 +148,7 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
             border: `2px solid ${orange}`,
             borderRadius: 6,
             padding: "8px 18px",
-            fontSize: 13,
+            fontSize: 20,
             fontWeight: 900,
             color: orange,
             letterSpacing: 0.5,
@@ -160,12 +160,12 @@ export const NarrativeReveal: React.FC<Props> = ({ data, orientation = "square" 
       </div>
 
       {/* Closing paragraph */}
-      <div style={{ marginLeft: 24, marginTop: 12, fontSize: 14, color: gray, lineHeight: 1.55, fontWeight: 400 }}>
+      <div style={{ marginLeft: 24, marginTop: 12, fontSize: 21, color: gray, lineHeight: 1.55, fontWeight: 400 }}>
         {renderWithBold(data.closingParagraph.text, data.closingParagraph.boldFragment)}
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

@@ -48,7 +48,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -94,7 +94,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
         >
           <div
             style={{
-              fontSize: 12,
+              fontSize: 26,
               fontWeight: 900,
               color: gray,
               letterSpacing: 1,
@@ -106,7 +106,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
           >
             {data.leftSide.label}
           </div>
-          <div style={{ fontSize: 18, fontWeight: 400, color: grayLight, lineHeight: 1.6, flex: 1 }}>
+          <div style={{ fontSize: 25, fontWeight: 400, color: grayLight, lineHeight: 1.6, flex: 1 }}>
             {data.leftSide.content.text}
           </div>
           <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 7 }}>
@@ -119,7 +119,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 11, color: gray, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span style={{ fontSize: 25, color: gray, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
               {classificationLabel(data.leftSide.content.classification)}
             </span>
           </div>
@@ -147,7 +147,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 11,
+              fontSize: 25,
               fontWeight: 900,
               color: orange,
               margin: "12px 0",
@@ -174,7 +174,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
         >
           <div
             style={{
-              fontSize: 12,
+              fontSize: 26,
               fontWeight: 900,
               color: orange,
               letterSpacing: 1,
@@ -186,7 +186,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
           >
             {data.rightSide.label}
           </div>
-          <div style={{ fontSize: 18, fontWeight: 400, color: white, lineHeight: 1.6, flex: 1 }}>
+          <div style={{ fontSize: 25, fontWeight: 400, color: white, lineHeight: 1.6, flex: 1 }}>
             {data.rightSide.content.text}
           </div>
           <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 7 }}>
@@ -199,7 +199,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 11, color: gray, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span style={{ fontSize: 25, color: gray, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
               {classificationLabel(data.rightSide.content.classification)}
             </span>
           </div>
@@ -219,7 +219,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
       >
         <div
           style={{
-            fontSize: 17,
+            fontSize: 24,
             fontWeight: 800,
             color: data.takeaway.phrasedAsQuestion ? orange : grayLight,
             lineHeight: 1.45,
@@ -230,7 +230,7 @@ export const SplitScreen: React.FC<Props> = ({ data, orientation = "square" }) =
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

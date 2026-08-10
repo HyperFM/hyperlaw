@@ -46,7 +46,7 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -86,7 +86,7 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
               {data.quote.text}
             </div>
             {data.quote.contextNote && (
-              <div style={{ fontSize: 15, color: gray, marginTop: 10, fontWeight: 400 }}>
+              <div style={{ fontSize: 22, color: gray, marginTop: 10, fontWeight: 400 }}>
                 {data.quote.contextNote}
               </div>
             )}
@@ -105,10 +105,10 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
               {renderExhibitIcon(finding.icon, orange)}
             </div>
             <div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: white, lineHeight: 1.3 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: white, lineHeight: 1.3 }}>
                 {finding.title}
               </div>
-              <div style={{ fontSize: 16, fontWeight: 400, color: grayLight, lineHeight: 1.4, marginTop: 2 }}>
+              <div style={{ fontSize: 23, fontWeight: 400, color: grayLight, lineHeight: 1.4, marginTop: 2 }}>
                 {finding.body.text}
               </div>
             </div>
@@ -137,7 +137,7 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
             <div
               key={i}
               style={{
-                fontSize: 18,
+                fontSize: 25,
                 fontWeight: i === data.conclusion.lines.length - 1 ? 400 : 900,
                 color: i === 1 ? orange : white,
                 lineHeight: 1.4,
@@ -150,7 +150,7 @@ export const HeroHeadlineArgument: React.FC<HeroArgumentProps> = ({
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 16, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 16, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

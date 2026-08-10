@@ -46,7 +46,7 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -115,10 +115,10 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
               {renderExhibitIcon(item.icon, item.icon === "x" ? "#ef4444" : item.icon === "check" ? "#22c55e" : orange)}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: white, lineHeight: 1.3, marginBottom: 4 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: white, lineHeight: 1.3, marginBottom: 4 }}>
                 {item.label}
               </div>
-              <div style={{ fontSize: 11, color: gray, fontWeight: 700, letterSpacing: 0.3 }}>
+              <div style={{ fontSize: 25, color: gray, fontWeight: 700, letterSpacing: 0.3 }}>
                 {item.source.origin.replace("_", " ")} · {item.source.ref}
               </div>
             </div>
@@ -141,7 +141,7 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
           <div
             key={i}
             style={{
-              fontSize: 16,
+              fontSize: 23,
               fontWeight: i === 0 ? 900 : 400,
               color: i === 0 ? white : grayLight,
               lineHeight: 1.45,
@@ -154,7 +154,7 @@ export const EvidenceGrid: React.FC<Props> = ({ data, orientation = "square" }) 
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

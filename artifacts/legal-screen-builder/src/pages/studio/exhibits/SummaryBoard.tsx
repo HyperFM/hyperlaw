@@ -42,7 +42,7 @@ export const SummaryBoard: React.FC<Props> = ({ data, orientation = "square" }) 
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -94,7 +94,7 @@ export const SummaryBoard: React.FC<Props> = ({ data, orientation = "square" }) 
                 border: `1px solid ${orange}55`,
                 borderRadius: 6,
                 padding: "4px 10px",
-                fontSize: 12,
+                fontSize: 26,
                 fontWeight: 900,
                 color: orange,
                 letterSpacing: 0.3,
@@ -104,7 +104,7 @@ export const SummaryBoard: React.FC<Props> = ({ data, orientation = "square" }) 
             >
               {point.exhibitRef}
             </div>
-            <div style={{ fontSize: 16, color: grayLight, lineHeight: 1.5, fontWeight: 400, flex: 1 }}>
+            <div style={{ fontSize: 23, color: grayLight, lineHeight: 1.5, fontWeight: 400, flex: 1 }}>
               {point.summary}
             </div>
           </div>
@@ -124,14 +124,14 @@ export const SummaryBoard: React.FC<Props> = ({ data, orientation = "square" }) 
           background: `${orange}0d`,
         }}
       >
-        <div style={{ fontSize: 11, color: orange, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
+        <div style={{ fontSize: 25, color: orange, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
           Final Takeaway
         </div>
         {data.finalTakeaway.lines.map((line, i) => (
           <div
             key={i}
             style={{
-              fontSize: i === 0 ? 19 : 15,
+              fontSize: i === 0 ? 26 : 22,
               fontWeight: i === 0 ? 900 : 400,
               color: i === 0 ? white : gray,
               lineHeight: 1.45,
@@ -144,7 +144,7 @@ export const SummaryBoard: React.FC<Props> = ({ data, orientation = "square" }) 
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

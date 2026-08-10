@@ -45,7 +45,7 @@ export const QuoteFocus: React.FC<Props> = ({ data, orientation = "square" }) =>
           <div style={{ color: orange, fontSize: 22, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase" }}>
             {data.header.actor}
           </div>
-          <div style={{ color: gray, fontSize: 15, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
+          <div style={{ color: gray, fontSize: 22, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginTop: 4 }}>
             {data.header.category}
           </div>
         </div>
@@ -114,7 +114,7 @@ export const QuoteFocus: React.FC<Props> = ({ data, orientation = "square" }) =>
         >
           "{data.dominantQuote.text}"
         </div>
-        <div style={{ marginTop: 12, fontSize: 13, color: gray, fontWeight: 700, letterSpacing: 0.5 }}>
+        <div style={{ marginTop: 12, fontSize: 20, color: gray, fontWeight: 700, letterSpacing: 0.5 }}>
           — {data.dominantQuote.source.ref}
         </div>
       </div>
@@ -136,7 +136,7 @@ export const QuoteFocus: React.FC<Props> = ({ data, orientation = "square" }) =>
                 marginTop: 7,
               }}
             />
-            <div style={{ fontSize: 16, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
+            <div style={{ fontSize: 23, color: grayLight, lineHeight: 1.5, fontWeight: 400 }}>
               {item.text}
             </div>
           </div>
@@ -156,7 +156,7 @@ export const QuoteFocus: React.FC<Props> = ({ data, orientation = "square" }) =>
       >
         <div
           style={{
-            fontSize: 16,
+            fontSize: 23,
             fontWeight: 800,
             color: data.implication.phrasedAsQuestion ? orange : grayLight,
             lineHeight: 1.45,
@@ -167,7 +167,7 @@ export const QuoteFocus: React.FC<Props> = ({ data, orientation = "square" }) =>
       </div>
 
       {/* Footer citations */}
-      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 14, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
+      <div style={{ marginLeft: 24, marginTop: 14, fontSize: 21, fontWeight: 700, color: orange, letterSpacing: 0.5 }}>
         {data.footerCitations.join("  •  ")}
       </div>
     </div>

@@ -186,10 +186,24 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
   return (
     <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "20px 20px 120px" }}>
-        <button onClick={() => setSelectedCaseId(null)}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 18, display: "flex", alignItems: "center", gap: 6, color: "#666", fontSize: 13, fontWeight: 700 }}>
+        {/* Leaving this screen mid-generation was interrupting the request —
+            the fix is to make leaving impossible while it's running, not
+            just discouraged. Disabled outright (not just styled dim) so a
+            fast double-tap can't sneak through mid-transition either. */}
+        <button onClick={() => { if (!generating) setSelectedCaseId(null); }} disabled={generating}
+          style={{ background: "none", border: "none", cursor: generating ? "not-allowed" : "pointer", padding: 0, marginBottom: 18, display: "flex", alignItems: "center", gap: 6, color: generating ? "#333" : "#666", fontSize: 13, fontWeight: 700, opacity: generating ? 0.5 : 1 }}>
           <ArrowLeft size={15} /> All cases
         </button>
+
+        {generating && (
+          <div style={{ background: "#1f1400", border: "1.5px solid #f59e0b", borderRadius: 12, padding: "12px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <Loader2 size={15} color="#f59e0b" className="animate-spin" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 12.5, color: "#ffcf7a", lineHeight: 1.55 }}>
+              <strong style={{ color: "#f59e0b" }}>Writing your script — stay on this screen.</strong> Leaving now (going back, switching tabs) will interrupt it and lose the progress. This screen is locked until it finishes.
+            </div>
+          </div>
+        )}
+
         <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>{selectedCase.title}</div>
         <div style={{ color: "#666", fontSize: 12, marginBottom: 18 }}>
           {ordered.length} moment{ordered.length !== 1 ? "s" : ""} · {selectedCase.studioProject?.organizedSlots?.some(Boolean) ? "in your organized order" : "in video order"}
@@ -208,8 +222,8 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
                 {generating ? "Writing…" : hasScript ? "Regenerate Script" : "Generate Script"}
               </button>
               {hasScript && (
-                <button onClick={copyScript}
-                  style={{ background: "none", border: "1px solid #252525", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#999" }}>
+                <button onClick={copyScript} disabled={generating}
+                  style={{ background: "none", border: "1px solid #252525", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, cursor: generating ? "not-allowed" : "pointer", fontWeight: 800, fontSize: 13, color: generating ? "#444" : "#999", opacity: generating ? 0.5 : 1 }}>
                   {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
                   {copied ? "Copied" : "Copy"}
                 </button>
@@ -311,6 +325,23 @@ export default function IllustrativeAidScriptView({ cases, onUpdateCase, onBack 
           </>
         )}
       </div>
+
+      {/* Full-screen click guard while generating — disabling this view's
+          own buttons isn't enough on its own, since the app's bottom nav
+          bar (zIndex 100) and notification bell sit OUTSIDE this
+          component and would still be reachable underneath it. This sits
+          above both (zIndex 950) and swallows every tap, including
+          scroll, so there's no way to navigate off this screen — not just
+          discouraged from it — until generation finishes. Transparent on
+          purpose: the screen underneath (including the disclaimer above)
+          stays fully visible, just frozen. */}
+      {generating && (
+        <div
+          onClick={e => e.stopPropagation()}
+          onTouchMove={e => e.preventDefault()}
+          style={{ position: "fixed", inset: 0, zIndex: 950, background: "transparent", touchAction: "none" }}
+        />
+      )}
     </div>
   );
 }

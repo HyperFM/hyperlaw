@@ -1550,6 +1550,11 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   const jurisdictionMatches = jurisdictionFocused ? searchJurisdictions(jurisdiction) : [];
   const [locationSearchState, setLocationSearchState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [locationResults, setLocationResults] = useState<Array<{ name: string; level: string; note: string }>>([]);
+  // Persistent case-details summary — driven by hlCase itself (saved data),
+  // not the one-time upload toast below, which used to be the only place
+  // parties/timeline/claims were ever visible and vanished the moment you
+  // navigated away and came back.
+  const [caseDetailsOpen, setCaseDetailsOpen] = useState(true);
 
   async function searchByLocation() {
     if (!jurisdiction.trim()) return;
@@ -1786,6 +1791,69 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             </div>
             <button onClick={() => { setEditTitle(hlCase.title); setEditingTitle(true); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 6, marginTop: 2 }}><Edit3 size={15} /></button>
+          </div>
+        )}
+
+        {/* Case Details — persistent, driven by hlCase's own saved data so it's
+            always here when you come back to this case, not just right after
+            an upload analysis finishes. */}
+        {(hlCase.parties.length > 0 || hlCase.timeline.length > 0 || (hlCase.structuredCase?.claims?.length ?? 0) > 0 || hlCase.notes?.trim()) && (
+          <div style={{ marginBottom: 20 }}>
+            <button onClick={() => setCaseDetailsOpen(o => !o)}
+              style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: caseDetailsOpen ? 10 : 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: "#444", textTransform: "uppercase" }}>Case Details</div>
+              {caseDetailsOpen ? <ChevronUp size={15} color="#444" /> : <ChevronDown size={15} color="#444" />}
+            </button>
+            {caseDetailsOpen && (
+              <div style={{ background: "#0f0f0f", border: "1px solid #1e1e1e", borderRadius: 12, padding: 14 }}>
+                {hlCase.notes?.trim() && (
+                  <div style={{ fontSize: 13, color: "#bbb", lineHeight: 1.6, fontFamily: "Georgia, serif", marginBottom: 12, padding: "10px 12px", background: "#111", borderRadius: 8, borderLeft: `3px solid ${ORANGE}`, whiteSpace: "pre-wrap" }}>
+                    {hlCase.notes}
+                  </div>
+                )}
+                {(hlCase.structuredCase?.claims?.length ?? 0) > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                      Claims ({hlCase.structuredCase!.claims.length})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                      {hlCase.structuredCase!.claims.map((c, i) => (
+                        <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>{c}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {hlCase.parties.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                      Parties ({hlCase.parties.length})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                      {hlCase.parties.map(p => (
+                        <div key={p.id} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
+                          <span style={{ fontWeight: 700 }}>{[p.firstName, p.lastName].filter(Boolean).join(" ")}</span>
+                          {p.type === "official" && (p.title || p.agency) ? ` — ${[p.title, p.agency].filter(Boolean).join(", ")}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {hlCase.timeline.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                      Timeline ({hlCase.timeline.length})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                      {[...hlCase.timeline].sort((a, b) => a.order - b.order).map(ev => (
+                        <div key={ev.id} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
+                          <span style={{ fontWeight: 700 }}>{ev.title}</span>{ev.description ? ` — ${ev.description}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2053,7 +2121,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                       <textarea
                         value={intakeAnswers.additionalContext}
                         onChange={e => setIntakeAnswers(a => ({ ...a, additionalContext: e.target.value }))}
-                        placeholder="e.g. The officer's name is misspelled throughout. There were two witnesses present: Maria Santos and James Lee. The report omits what happened after I was handcuffed…"
+                        placeholder="e.g. I have a bench trial scheduled for August the tenth next week. The officer's name is misspelled throughout. There were two witnesses present: Maria Santos and James Lee. The report omits what happened after I was handcuffed…"
                         rows={5}
                         style={{
                           width: "100%", background: "#0a0a0a", border: "1px solid #2a2a2a",
@@ -2181,7 +2249,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                       {uploadResult.analysis.caseSummary}
                     </div>
                   )}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                     {(uploadResult.analysis.parties?.length ?? 0) > 0 && (
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6", background: "#8b5cf611", border: "1px solid #8b5cf633", borderRadius: 6, padding: "2px 8px" }}>
                         {uploadResult.analysis.parties.length} parties found
@@ -2197,7 +2265,60 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                         {uploadResult.analysis.claims.length} claims found
                       </span>
                     )}
+                    {(uploadResult.analysis.evidence?.length ?? 0) > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", background: "#3b82f611", border: "1px solid #3b82f633", borderRadius: 6, padding: "2px 8px" }}>
+                        {uploadResult.analysis.evidence!.length} evidence items
+                      </span>
+                    )}
                   </div>
+
+                  {/* Full extraction — the pills above only show counts; this is
+                      everything the AI actually pulled from the document, so
+                      the user can see it's more than "a portion" was saved. */}
+                  {(uploadResult.analysis.claims?.length ?? 0) > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Claims Identified</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                        {uploadResult.analysis.claims.map((c, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>{c}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(uploadResult.analysis.parties?.length ?? 0) > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Parties</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                        {uploadResult.analysis.parties.map((p, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
+                            <span style={{ fontWeight: 700 }}>{p.name}</span>{p.role ? ` — ${p.role}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(uploadResult.analysis.events?.length ?? 0) > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Events</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                        {uploadResult.analysis.events.map((e, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
+                            {e.date ? <span style={{ fontWeight: 700 }}>{e.date} — </span> : null}{e.description}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(uploadResult.analysis.evidence?.length ?? 0) > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Evidence</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                        {uploadResult.analysis.evidence.map((ev, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>{ev.description}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3874,7 +3995,7 @@ function DocumentIntakeView({
                 <textarea
                   value={intakeAnswers.additionalContext}
                   onChange={e => setIntakeAnswers(a => ({ ...a, additionalContext: e.target.value }))}
-                  placeholder="e.g. The officer's name is misspelled throughout. There were two witnesses: Maria Santos and James Lee. The incident occurred at 2:45 AM, not 3 PM as stated in the report…"
+                  placeholder="e.g. I have a bench trial scheduled for August the tenth next week. The officer's name is misspelled throughout. There were two witnesses: Maria Santos and James Lee. The incident occurred at 2:45 AM, not 3 PM as stated in the report…"
                   rows={7}
                   style={{
                     width: "100%", background: "#111", border: "1px solid #222",

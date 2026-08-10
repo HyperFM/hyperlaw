@@ -325,6 +325,29 @@ export class AiService {
     return withRetry(() => this.client.messages.create(args));
   }
 
+  /** Cache-aware cost estimate for a raw createMessage() response — plain
+   *  buildMeta below assumes every input token is billed at the normal
+   *  rate, which understates cost for a cache WRITE (~1.25x normal) and
+   *  wildly overstates it for a cache READ (~0.1x normal). Exposed
+   *  publicly (unlike buildMeta) for exhibit.ts, the one caller that
+   *  actually uses prompt caching. */
+  estimateCallCost(usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  }): { estimatedCostMicroUsd: number; cacheHit: boolean } {
+    const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const estimatedCostMicroUsd = Math.round(
+      usage.input_tokens * INPUT_MICRO_USD_PER_TOKEN +
+      cacheCreation * INPUT_MICRO_USD_PER_TOKEN * 1.25 +
+      cacheRead * INPUT_MICRO_USD_PER_TOKEN * 0.1 +
+      usage.output_tokens * OUTPUT_MICRO_USD_PER_TOKEN
+    );
+    return { estimatedCostMicroUsd, cacheHit: cacheRead > 0 };
+  }
+
   private buildMeta(usage: { input_tokens: number; output_tokens: number }, responseTimeMs: number): AiCallMeta {
     return {
       inputTokens: usage.input_tokens,

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "../services/auth.js";
 import { aiService, MODEL } from "../services/ai.js";
+import { logAiCall } from "../services/aiCache.js";
 import { db, casesTable, uploadedDocumentsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 
@@ -356,6 +357,21 @@ router.post("/exhibit/court-script", requireAuth, async (req: Request, res: Resp
     return;
   }
 
+  {
+    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+    void logAiCall({
+      userId,
+      caseId,
+      feature: "court_script",
+      model: MODEL,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      estimatedCostMicroUsd,
+      responseTimeMs: Date.now() - start,
+      cacheHit,
+    });
+  }
+
   const rawText = response.content.find((b) => b.type === "text")?.text ?? "";
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -605,6 +621,26 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
     console.error(`[exhibit-generate] AI call failed status=${status ?? "?"}`, err);
     res.status(status && status < 500 ? status : 502).json({ error: (err as Error).message || "AI request failed" });
     return;
+  }
+
+  // Was never logged anywhere — every other AI feature in this app logs to
+  // aiLogsTable (visible in the admin AI cost dashboard), but this route
+  // reached the client directly and skipped it entirely. That's exactly
+  // why screen generation never showed up next to "case memory" and
+  // everything else in the admin panel.
+  {
+    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+    void logAiCall({
+      userId,
+      caseId,
+      feature: "exhibit_screen",
+      model: MODEL,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      estimatedCostMicroUsd,
+      responseTimeMs: Date.now() - start,
+      cacheHit,
+    });
   }
 
   // Extract JSON text

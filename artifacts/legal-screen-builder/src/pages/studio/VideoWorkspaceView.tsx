@@ -1237,13 +1237,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   });
   const [aiOrganizing, setAiOrganizing] = useState(false);
   const [aiOrganizeReason, setAiOrganizeReason] = useState<string | null>(null);
-  // Step 3's batch exhibit-screen generation — one AI call per moment,
-  // sequential (not parallel) so each screen's "existingExhibits" context
-  // includes every screen generated so far this run, same narrative-
-  // consistency signal the old one-at-a-time generator already passed.
+  // Step 3's exhibit-screen generation — one AI call per tap, one moment at
+  // a time (see generateNextExhibitScreen), not an automatic batch.
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const [batchErrors, setBatchErrors] = useState<string[]>([]);
+  // Live elapsed-seconds counter while a generation call is in flight — the
+  // button otherwise just says "Generating…" with no way to tell it's
+  // actually still working versus silently stuck, which is exactly what
+  // caused "is it even doing anything?" after tonight's real freezes.
+  const [generatingElapsedSec, setGeneratingElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!batchGenerating) { setGeneratingElapsedSec(0); return; }
+    const iv = setInterval(() => setGeneratingElapsedSec(s => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, [batchGenerating]);
   // Tap-to-view for a single generated exhibit screen in Step 3's list — its
   // own state, deliberately separate from previewOverlayMarkerId (the old
   // Preview-mode sequenced walkthrough): that one auto-resumes video
@@ -4729,7 +4737,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                   gap: 8, cursor: batchGenerating ? "default" : "pointer", fontWeight: 800, fontSize: 14,
                   color: batchGenerating ? "#666" : "#000" }}>
                 {batchGenerating
-                  ? <><Loader2 size={15} className="animate-spin" /> Generating…</>
+                  ? <><Loader2 size={15} className="animate-spin" /> Generating {(batchProgress?.done ?? 0) + 1} of {batchProgress?.total ?? "?"}… ({generatingElapsedSec}s)</>
                   : <><Wand2 size={15} /> Generate Next Screen{batchProgress ? ` (${batchProgress.done}/${batchProgress.total})` : ""}</>}
               </button>
             </div>

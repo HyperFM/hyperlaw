@@ -2015,37 +2015,14 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     insertToastTimer.current = setTimeout(() => setInsertToast(null), duration);
   }
 
-  function copyAllMomentInfo() {
-    const ordered = [...chunks].sort((a, b) => a.start - b.start);
-    // Deleted chunks are included too, tagged, so their name/label survives
-    // in whatever the user pastes this into — pasting it back through Paste
-    // Moments (which ignores the tag) is how a deletion gets recovered.
-    const deletedOrdered = [...deletedChunks].sort((a, b) => a.start - b.start);
-    // Short name is left out on purpose — the guided flow's two questions
-    // are the real content now, short names aren't part of that anymore.
-    const format = (c: VideoChunk, num: number, deleted: boolean) => {
-      const lines = [`Moment ${num}${deleted ? " (DELETED)" : ""} — ${formatTime(c.start)}–${formatTime(c.end)}`];
-      if (c.label?.trim()) lines.push(c.label.trim());
-      return lines.join("\n");
-    };
-    const text = [
-      ...ordered.map((c, i) => format(c, i + 1, false)),
-      ...deletedOrdered.map((c, i) => format(c, ordered.length + i + 1, true)),
-    ].join("\n\n");
-    navigator.clipboard.writeText(text)
-      .then(() => showInsertToast("Copied all moment info"))
-      .catch(() => showInsertToast("Couldn't copy — try again"));
-  }
-
-  // ── Copy All Edit Info — the reload banner's own copy button, deliberately
-  // different from copyAllMomentInfo above (which stays exactly as it is,
-  // unchanged, for the loaded-video screen). This one also includes raw
-  // cut-tool ranges — footage removed without ever becoming a moment, so
-  // copyAllMomentInfo has no record of it at all — interleaved among the
-  // moments in chronological order as plain "Cut" lines. A deleted MOMENT's
-  // own cut isn't repeated here as a bare Cut line since it's already fully
-  // represented below with its original label, same as copyAllMomentInfo.
-  function copyAllEditInfo() {
+  // Shared by both copy buttons below — every moment (active + deleted,
+  // tagged), interleaved with raw cut-tool ranges as "Cut — start–end"
+  // lines. Cuts used to only be included in Copy All Edit Info, not this
+  // one, meaning the button people actually see and use once a video is
+  // loaded silently dropped every cut — pasting that on another device
+  // brought moments back but left previously-cut filler footage back in.
+  // Both copy buttons now record the exact same thing.
+  function buildAllEditInfoText(): string {
     const ordered = [...chunks].sort((a, b) => a.start - b.start);
     const deletedOrdered = [...deletedChunks].sort((a, b) => a.start - b.start);
     const format = (c: VideoChunk, num: number, deleted: boolean) => {
@@ -2062,11 +2039,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     const cutLines = rawCuts.map(m => ({ start: m.timestamp, text: `Cut — ${formatTime(m.timestamp)}–${formatTime(m.cutEnd!)}` }));
     const interleaved = [...momentLines, ...cutLines].sort((a, b) => a.start - b.start).map(e => e.text);
 
-    const text = [
+    return [
       ...interleaved,
       ...deletedOrdered.map((c, i) => format(c, ordered.length + i + 1, true)),
     ].join("\n\n");
-    navigator.clipboard.writeText(text)
+  }
+
+  function copyAllMomentInfo() {
+    navigator.clipboard.writeText(buildAllEditInfoText())
+      .then(() => showInsertToast("Copied all moment info"))
+      .catch(() => showInsertToast("Couldn't copy — try again"));
+  }
+
+  function copyAllEditInfo() {
+    navigator.clipboard.writeText(buildAllEditInfoText())
       .then(() => showInsertToast("Copied all edit info"))
       .catch(() => showInsertToast("Couldn't copy — try again"));
   }
@@ -2359,6 +2345,44 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       return;
     }
     playSequencedStep(nextIndex);
+  }
+
+  /** Starts the full-screen, play-straight-through presentation — Exhibit ->
+   *  Clip -> Exhibit -> Clip in Organize order (or raw chronological order
+   *  if nothing's been organized), no download needed, meant for presenting
+   *  live off a laptop (e.g. HDMI'd to a courtroom screen). Guarded on the
+   *  same condition that used to crash this: the old toggle button was
+   *  removed entirely after clicking it while thumbnails were still being
+   *  prepared threw an unrecoverable error. Fullscreens the whole document
+   *  (not just the video element) so the fixed-position exhibit overlays —
+   *  which aren't DOM descendants of the video — keep rendering on top
+   *  instead of disappearing behind a native fullscreen boundary. */
+  function startPreview() {
+    if (!videoUrl || thumbsLoading || chunks.length === 0) return;
+    previewTriggeredRef.current = new Set();
+    setIsPreviewMode(true);
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+    if (previewSequence.length > 0) {
+      playSequencedStep(0);
+    } else {
+      seek(0);
+      const v = videoRef.current;
+      if (v) v.play().catch(() => {});
+    }
+  }
+
+  /** Manual stop — the sequence/video otherwise only exits preview on its own at the end. */
+  function exitPreview() {
+    if (sequencedHoldTimerRef.current) { clearTimeout(sequencedHoldTimerRef.current); sequencedHoldTimerRef.current = null; }
+    setPreviewSeqIndex(null);
+    setPreviewOverlayMarkerId(null);
+    setIsPreviewMode(false);
+    const v = videoRef.current;
+    if (v) v.pause();
+    setIsPlaying(false);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
 
   /** Opening-frame thumbnail for a chunk starting at `start` — same lookup the
@@ -4180,11 +4204,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             }}
           />
           {mainVideoElement}
-          {/* Preview mode badge */}
+          {/* Preview mode badge — also the only way to manually stop a live
+              presentation partway through, since it otherwise only ends on
+              its own at the last clip. */}
           {isPreviewMode && (
-            <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(217,113,31,0.9)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, color: "#000" }}>
-              ● PREVIEW
-            </div>
+            <button onClick={exitPreview}
+              style={{ position: "absolute", top: 10, left: 10, zIndex: 5, display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(217,113,31,0.9)", border: "none", borderRadius: 6, padding: "3px 6px 3px 10px",
+                fontSize: 11, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+              ● PREVIEW <X size={12} color="#000" />
+            </button>
           )}
           {/* Loading overlay — on top of the already-rendering video element */}
           {videoLoading && (
@@ -4379,13 +4408,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           </div>
           <div style={{ flex: 1 }} />
 
-          {/* Preview mode toggle removed — clicking it while the video was
-              still loading/preparing thumbnails threw a hard error with no
-              good recovery. Step 3 now shows generated screens inline as
-              they're made instead of needing a separate preview pass. The
-              underlying isPreviewMode/previewSequence machinery is left in
-              place (unreachable via UI) rather than torn out here — it's a
-              large, separate subsystem not otherwise touched by this change. */}
+          {/* Full-screen play-straight-through presentation — Exhibit ->
+              Clip -> Exhibit -> Clip in order, no download, for presenting
+              live off this device. Previously removed after crashing when
+              tapped mid-thumbnail-prep; now guarded against exactly that. */}
+          {videoUrl && chunks.length > 0 && (
+            <button
+              onClick={startPreview}
+              disabled={thumbsLoading}
+              title="Play the whole thing full-screen, in order, with exhibits — for presenting live"
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none",
+                border: `1px solid ${thumbsLoading ? "#222" : ORANGE + "55"}`, borderRadius: 8,
+                padding: "6px 12px", cursor: thumbsLoading ? "not-allowed" : "pointer",
+                fontWeight: 800, fontSize: 12, color: thumbsLoading ? "#444" : ORANGE, marginRight: 10 }}>
+              <Play size={13} color={thumbsLoading ? "#444" : ORANGE} /> Preview
+            </button>
+          )}
 
           {/* Cut tool — tap once to mark where a cut starts, tap again after
               moving the playhead to remove everything in between for good.

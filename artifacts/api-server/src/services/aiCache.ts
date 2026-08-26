@@ -37,7 +37,8 @@ export type AiFeature =
   | "guidance_session"
   | "estimate"
   | "exhibit_screen"
-  | "court_script";
+  | "court_script"
+  | "tutor_help";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

@@ -986,6 +986,16 @@ export const aiApi = {
   }> {
     return aiFetch("/exhibit/court-script", { method: "POST", body: JSON.stringify(input) });
   },
+
+  /** The Tutor — free, narrowly-scoped app-navigation help (Haiku-backed,
+   *  no credit charge). Deliberately separate from the paid Guidance
+   *  Session (aiApi.guidance.*), which is a different, credit-charging
+   *  feature for case-strengthening interviews. destination is one of a
+   *  fixed whitelist of real screens, or null if none applies — never a
+   *  freeform value the client should trust blindly. */
+  tutorHelp(message: string): Promise<{ reply: string; destination: string | null }> {
+    return aiFetch("/tutor/help", { method: "POST", body: JSON.stringify({ message }) });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

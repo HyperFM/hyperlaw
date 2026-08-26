@@ -38,6 +38,7 @@ import PreVerificationModal from "./components/PreVerificationModal";
 import DocGenConfirmModal from "./components/DocGenConfirmModal";
 import GuidanceMascot from "./components/GuidanceMascot";
 import DebugPanel from "./components/DebugPanel";
+import TutorPanel from "./components/TutorPanel";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import UserChatDrawer from "./components/UserChatDrawer";
@@ -4200,7 +4201,7 @@ function DocumentIntakeView({
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted, openPlansSignal }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted, openPlansSignal, trainingWheelsEnabled, onSetTrainingWheels }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
@@ -4209,6 +4210,8 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   onCasesDeleted: (ids: string[]) => void;
   /** Bumped by a parent to force-open the Plans overlay (e.g. from the upgrade gate). */
   openPlansSignal?: number;
+  trainingWheelsEnabled: boolean;
+  onSetTrainingWheels: (on: boolean) => void;
 }) {
   const logout = useLogout();
   const signOut = (opts: { redirectUrl: string }) => {
@@ -4634,6 +4637,27 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           {loginPasskeyError && (
             <div style={{ padding: "0 16px 14px", fontSize: 12, color: "#ef4444" }}>{loginPasskeyError}</div>
           )}
+        </div>
+      </div>
+
+      {/* Preferences */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PREFERENCES</div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          <button
+            onClick={() => onSetTrainingWheels(!trainingWheelsEnabled)}
+            style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <BookOpen size={16} color={trainingWheelsEnabled ? ORANGE : "#666"} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Training Wheels</div>
+              <div style={{ fontSize: 12, color: "#555" }}>
+                {trainingWheelsEnabled ? "On — the Tutor is available" : "Off — tap to turn the Tutor back on"}
+              </div>
+            </div>
+            <div style={{ width: 38, height: 22, borderRadius: 11, background: trainingWheelsEnabled ? ORANGE : "#2a2a2a", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 2, left: trainingWheelsEnabled ? 18 : 2, transition: "left 0.15s" }} />
+            </div>
+          </button>
         </div>
       </div>
 
@@ -5247,6 +5271,18 @@ export default function App() {
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
   const [navTab, setNavTab] = useState<NavTab>("home");
+  // Training Wheels — on by default (help until you don't need it). Purely
+  // client-side; this isn't a security- or billing-relevant preference, just
+  // whether the free Tutor panel shows up at all, so localStorage is enough —
+  // no server round-trip needed the way the passkey toggles require.
+  const [trainingWheelsEnabled, setTrainingWheelsEnabled] = useState(() => {
+    const v = localStorage.getItem("hl_training_wheels");
+    return v === null ? true : v === "true";
+  });
+  function setTrainingWheels(on: boolean) {
+    setTrainingWheelsEnabled(on);
+    localStorage.setItem("hl_training_wheels", String(on));
+  }
   const [view, setView] = useState<AppView>({ type: "home" });
   const [showNewIncident, setShowNewIncident] = useState(false);
   const [preLinkedCaseId, setPreLinkedCaseId] = useState<string | null>(null);
@@ -5720,6 +5756,33 @@ export default function App() {
     }
   }
 
+  // The Tutor only ever recommends one of a fixed set of destination keys
+  // (validated server-side too — see routes/tutor.ts) — this is the one
+  // place that actually acts on them. Case-scoped destinations fall back to
+  // home if nothing's currently open, since the Tutor panel itself has no
+  // case-picker of its own.
+  function handleTutorNavigate(destination: string) {
+    if (destination === "home") { setView({ type: "home" }); setNavTab("home"); return; }
+    if (destination === "about_creator") { setView({ type: "about_creator" }); return; }
+    const cid = currentCaseId(view);
+    if (!cid) { setView({ type: "home" }); setNavTab("home"); return; }
+    switch (destination) {
+      case "case_detail": {
+        const c = data.cases.find(x => x.id === cid);
+        if (c) setView({ type: "case_detail", hlCase: c });
+        return;
+      }
+      case "case_parties": setView({ type: "case_parties", caseId: cid }); return;
+      case "case_court": setView({ type: "case_court", caseId: cid }); return;
+      case "case_story": setView({ type: "case_story", caseId: cid }); return;
+      case "case_timeline": setView({ type: "case_timeline", caseId: cid }); return;
+      case "case_review": setView({ type: "case_review", caseId: cid }); return;
+      case "case_assembly": setView({ type: "case_assembly", caseId: cid }); return;
+      case "case_learning": setView({ type: "case_learning", caseId: cid }); return;
+      case "studio_workspace": setNavTab("builder"); setView({ type: "studio_workspace", caseId: cid }); return;
+    }
+  }
+
   function handleNotifExtendCase(caseId: string) {
     setCaseUpdatedAt(prev => ({ ...prev, [caseId]: new Date().toISOString() }));
     const fresh = data.cases.find(c => c.id === caseId);
@@ -5957,6 +6020,8 @@ export default function App() {
           onAboutCreator={() => setView({ type: "about_creator" })}
           onCasesDeleted={ids => setData(ids.reduce((acc, id) => deleteCase(acc, id), data))}
           openPlansSignal={openPlansSignal}
+          trainingWheelsEnabled={trainingWheelsEnabled}
+          onSetTrainingWheels={setTrainingWheels}
         />
       );
     }
@@ -6086,6 +6151,12 @@ export default function App() {
           present on every page and the log survives navigating between them,
           instead of only existing inside the Studio and disappearing on leaving it. */}
       <DebugPanel enabled={bypassPaywalls} />
+
+      {/* The Tutor — free, always-on-request app guidance. Mounted once at
+          the app root (same reasoning as DebugPanel above) so it persists
+          across navigation instead of resetting per view. Hidden entirely
+          when Training Wheels is off in Settings. */}
+      <TutorPanel enabled={trainingWheelsEnabled} onNavigate={handleTutorNavigate} />
 
       {showNewIncident && (
         <NewIncidentOverlay

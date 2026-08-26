@@ -13,10 +13,15 @@ export default function GuidanceMascot({
   size = 96,
   state = "idle",
   style,
+  costume,
 }: {
   size?: number;
   state?: MascotState;
   style?: React.CSSProperties;
+  /** Optional outfit — "judge" adds a robe collar and gavel for the Tutor.
+   *  Omit (the default, used everywhere else this mascot already appears,
+   *  e.g. the paid Guidance Session) to leave the plain brain unchanged. */
+  costume?: "judge";
 }): React.JSX.Element {
   // Unique suffix so multiple mascots on one screen don't share gradient / keyframe ids.
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, "");
@@ -99,6 +104,23 @@ export default function GuidanceMascot({
             />
           ) : (
             <path d="M52 74 Q 60 79 68 74" fill="none" stroke="#2a1403" strokeWidth="2.6" strokeLinecap="round" />
+          )}
+
+          {/* Judge costume — the Tutor's outfit. A robe collar peeking out
+              from behind the brain (classic jabot tabs) plus a small gavel
+              resting beside it. Purely additive — everywhere else this
+              mascot appears (e.g. the paid Guidance Session) omits
+              `costume` and renders exactly as before. */}
+          {costume === "judge" && (
+            <>
+              <path d="M38 84 C 45 96, 75 96, 82 84 L 78 100 C 65 106, 55 106, 42 100 Z" fill="#1a1a2e" stroke="#0a0a16" strokeWidth="1.5" />
+              <rect x="53" y="88" width="6" height="14" rx="2" fill="#f5f0e6" />
+              <rect x="61" y="88" width="6" height="14" rx="2" fill="#f5f0e6" />
+              <g transform="translate(90 82) rotate(28)">
+                <rect x="-3" y="-16" width="6" height="20" rx="2" fill="#8a5a2a" stroke="#5c3a1a" strokeWidth="1" />
+                <rect x="-10" y="-22" width="20" height="9" rx="2.5" fill="#8a5a2a" stroke="#5c3a1a" strokeWidth="1" />
+              </g>
+            </>
           )}
         </g>
       </svg>

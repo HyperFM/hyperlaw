@@ -16,6 +16,7 @@ import casesRouter from "./cases";
 import securityRouter from "./security";
 import ifpRouter from "./ifp";
 import exhibitRouter from "./exhibit";
+import tutorRouter from "./tutor";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use(casesRouter);
 router.use(securityRouter);
 router.use(ifpRouter);
 router.use(exhibitRouter);
+router.use(tutorRouter);
 
 export default router;

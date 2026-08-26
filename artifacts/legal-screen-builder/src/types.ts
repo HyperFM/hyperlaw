@@ -370,6 +370,34 @@ export interface StudioProject {
   updatedAt: number;
 }
 
+// ── Witness Examination ────────────────────────────────────────────────────────
+
+/** One question asked during a witness examination and (eventually) its answer.
+ *  yesNo and answerText are independent, not either/or — a witness can answer
+ *  "No" and also have exactly what they said typed in underneath. Both being
+ *  empty/undefined means the question was asked but never answered — kept in
+ *  the list rather than discarded so it stays visible as something to re-ask,
+ *  not silently lost. */
+export interface WitnessQAEntry {
+  id: string;
+  question: string;
+  yesNo?: "yes" | "no";
+  /** Exactly what the witness said, beyond or instead of a plain yes/no */
+  answerText?: string;
+  askedAt: number;
+  answeredAt?: number;
+}
+
+export interface WitnessExamination {
+  id: string;
+  caseId: string;
+  witnessName: string;
+  examinationType?: "direct" | "cross";
+  questions: WitnessQAEntry[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Structured Case (Organization Engine output) ──────────────────────────────
 
 /** A single concept in the interactive Index cloud map */
@@ -436,6 +464,8 @@ export interface HLCase {
   structuredCaseGeneratedAt?: number;
   // ── Exhibit Studio ───────────────────────────────────────────────────────────
   studioProject?: StudioProject;
+  // ── Witness Examination ──────────────────────────────────────────────────────
+  witnessExaminations?: WitnessExamination[];
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────

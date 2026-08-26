@@ -395,6 +395,17 @@ export interface WitnessExamination {
   id: string;
   caseId: string;
   witnessName: string;
+  /** Set when the witness is one of the case's already-known parties — the
+   *  AI already has context on them (role, relationship, prior facts), so
+   *  there's nothing extra to ask for. Omitted for someone not already
+   *  tracked on the case. */
+  partyId?: string;
+  /** Why this person is being examined / what their testimony is expected
+   *  to establish — only meaningful when partyId is unset, since an
+   *  existing party's relevance is already known from the rest of the
+   *  case. Free text, e.g. "the clerk upstairs, never had an issue with me
+   *  in two years, can speak to my good faith." */
+  purpose?: string;
   examinationType?: "direct" | "cross";
   questions: WitnessQAEntry[];
   createdAt: number;

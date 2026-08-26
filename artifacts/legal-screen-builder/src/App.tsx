@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, Gavel,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -493,7 +493,7 @@ const TOOL_BUBBLES = [
 // TOOL_BUBBLES itself since it navigates instead of expanding a detail card.
 const MARQUEE_ICONS = [
   { id: "illustrative-aid-script", icon: ScrollText },
-  { id: "witness-examination", icon: Gavel },
+  { id: "witness-examination", icon: SquareUser },
   ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
 ];
 
@@ -608,7 +608,7 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
           style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Gavel size={17} color={ORANGE} />
+              <SquareUser size={17} color={ORANGE} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Witness Examination</div>

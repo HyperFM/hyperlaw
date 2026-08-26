@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronRight, ArrowLeft, Gavel, Plus, Check, X, AlertCircle, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, ArrowLeft, SquareUser, Plus, Check, X, AlertCircle, Pencil, Trash2, Info } from "lucide-react";
 import type { HLCase, WitnessExamination, WitnessQAEntry } from "../../types";
 import { api } from "../../lib/api";
 
@@ -44,7 +44,7 @@ export default function WitnessExaminationView({ cases, onUpdateCase, onBack }: 
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Gavel size={19} color={ORANGE} />
+              <SquareUser size={19} color={ORANGE} />
             </div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>Witness Examination</div>
           </div>
@@ -60,7 +60,7 @@ export default function WitnessExaminationView({ cases, onUpdateCase, onBack }: 
                 <button key={c.id} onClick={() => setSelectedCaseId(c.id)}
                   style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%" }}>
                   <div style={{ width: 40, height: 40, background: "#1a1a1a", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Gavel size={18} color={ORANGE} />
+                    <SquareUser size={18} color={ORANGE} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 15, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
@@ -80,6 +80,20 @@ export default function WitnessExaminationView({ cases, onUpdateCase, onBack }: 
 
   // ── Examination list for the selected case ──────────────────────────────────
   if (!activeExam) {
+    const parties = selectedCase.parties;
+    const examinedPartyIds = new Set(examinations.filter(e => e.partyId).map(e => e.partyId));
+
+    function startExamination(witnessName: string, opts: { partyId?: string; purpose?: string; examinationType?: "direct" | "cross" }) {
+      const now = Date.now();
+      const newExam: WitnessExamination = {
+        id: crypto.randomUUID(), caseId: selectedCase!.id, witnessName,
+        partyId: opts.partyId, purpose: opts.purpose, examinationType: opts.examinationType,
+        questions: [], createdAt: now, updatedAt: now,
+      };
+      updateExaminations(selectedCase!, [...examinations, newExam]);
+      setActiveExamId(newExam.id);
+    }
+
     return (
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "20px 20px 120px" }}>
@@ -87,20 +101,48 @@ export default function WitnessExaminationView({ cases, onUpdateCase, onBack }: 
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 18, display: "flex", alignItems: "center", gap: 6, color: "#666", fontSize: 13, fontWeight: 700 }}>
             <ArrowLeft size={15} /> All cases
           </button>
-          <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 18 }}>{selectedCase.title}</div>
+          <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>{selectedCase.title}</div>
 
-          <NewExaminationButton onCreate={(witnessName, examinationType) => {
-            const now = Date.now();
-            const newExam: WitnessExamination = {
-              id: crypto.randomUUID(), caseId: selectedCase.id, witnessName, examinationType,
-              questions: [], createdAt: now, updatedAt: now,
-            };
-            updateExaminations(selectedCase, [...examinations, newExam]);
-            setActiveExamId(newExam.id);
-          }} />
+          <div style={{ background: "#0d1a2a", border: "1px solid #1a3060", borderRadius: 12, padding: "12px 14px", marginBottom: 20, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <Info size={14} color="#7ab0e0" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 12.5, color: "#7ab0e0", lineHeight: 1.55 }}>
+              This is for preparing beforehand — working out questions ahead of time, not something to fill out live in the courtroom during your actual court date.
+            </div>
+          </div>
+
+          {parties.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ALREADY IN THIS CASE</div>
+              <div style={{ fontSize: 12, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>
+                Pick whoever's already been subpoenaed or is expected to testify — HyperLaw already knows their role and history on this case, so there's nothing extra to fill in.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {parties.map(p => {
+                  const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || "Unnamed party";
+                  const already = examinedPartyIds.has(p.id);
+                  return (
+                    <button key={p.id} onClick={() => startExamination(name, { partyId: p.id })}
+                      style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color: "#fff" }}>{name}</div>
+                        <div style={{ fontSize: 11.5, color: "#666", marginTop: 1 }}>
+                          {[p.title, p.agency].filter(Boolean).join(", ") || p.type}
+                          {already ? " · already has an examination" : ""}
+                        </div>
+                      </div>
+                      <ChevronRight size={15} color="#333" style={{ flexShrink: 0 }} />
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          <NewExaminationButton onCreate={(witnessName, purpose, examinationType) => startExamination(witnessName, { purpose, examinationType })} />
 
           {examinations.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
+              <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>EXAMINATIONS</div>
               {[...examinations].sort((a, b) => b.updatedAt - a.updatedAt).map(exam => {
                 const unanswered = exam.questions.filter(q => !q.yesNo && !q.answerText?.trim()).length;
                 return (
@@ -179,25 +221,33 @@ export default function WitnessExaminationView({ cases, onUpdateCase, onBack }: 
   );
 }
 
-function NewExaminationButton({ onCreate }: { onCreate: (witnessName: string, examinationType?: "direct" | "cross") => void }) {
+function NewExaminationButton({ onCreate }: { onCreate: (witnessName: string, purpose: string, examinationType?: "direct" | "cross") => void }) {
   const [open, setOpen] = useState(false);
   const [witnessName, setWitnessName] = useState("");
+  const [purpose, setPurpose] = useState("");
   const [examinationType, setExaminationType] = useState<"direct" | "cross" | undefined>(undefined);
 
   if (!open) {
     return (
       <button onClick={() => setOpen(true)}
         style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 14, color: "#000" }}>
-        <Plus size={16} /> New Examination
+        <Plus size={16} /> Add New Examination Personnel
       </button>
     );
   }
   return (
     <div style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: 16 }}>
-      <div style={{ fontSize: 12, color: "#999", fontWeight: 700, marginBottom: 8 }}>WITNESS NAME</div>
+      <div style={{ fontSize: 12, color: "#999", fontWeight: 700, marginBottom: 8 }}>NAME</div>
       <input autoFocus value={witnessName} onChange={e => setWitnessName(e.target.value)}
-        placeholder="e.g. Officer Stockman"
+        placeholder="e.g. the clerk upstairs"
         style={{ width: "100%", background: "#0a0a0a", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 14, color: "#fff", boxSizing: "border-box", marginBottom: 14 }} />
+      <div style={{ fontSize: 12, color: "#999", fontWeight: 700, marginBottom: 8 }}>WHY ARE THEY BEING EXAMINED?</div>
+      <div style={{ fontSize: 11.5, color: "#666", lineHeight: 1.5, marginBottom: 8 }}>
+        Not an existing party on this case, so there's nothing on file about them yet — what's their purpose, in your own words? e.g. "the clerk upstairs, never had an issue with me in two years, can speak to my good faith and that I only asked a question, never demanded or hollered."
+      </div>
+      <textarea value={purpose} onChange={e => setPurpose(e.target.value)}
+        placeholder="What is their purpose?"
+        style={{ width: "100%", minHeight: 70, background: "#0a0a0a", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 13.5, color: "#fff", lineHeight: 1.5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", marginBottom: 14 }} />
       <div style={{ fontSize: 12, color: "#999", fontWeight: 700, marginBottom: 8 }}>TYPE (OPTIONAL)</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {(["direct", "cross"] as const).map(t => (
@@ -212,7 +262,7 @@ function NewExaminationButton({ onCreate }: { onCreate: (witnessName: string, ex
           style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>
           Cancel
         </button>
-        <button onClick={() => { if (witnessName.trim()) onCreate(witnessName.trim(), examinationType); }} disabled={!witnessName.trim()}
+        <button onClick={() => { if (witnessName.trim()) onCreate(witnessName.trim(), purpose.trim(), examinationType); }} disabled={!witnessName.trim()}
           style={{ flex: 1, background: witnessName.trim() ? ORANGE : "#2a2a2a", border: "none", borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: 800, color: witnessName.trim() ? "#000" : "#666", cursor: witnessName.trim() ? "pointer" : "default" }}>
           Start
         </button>

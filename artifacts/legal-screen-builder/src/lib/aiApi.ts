@@ -996,6 +996,29 @@ export const aiApi = {
   tutorHelp(message: string): Promise<{ reply: string; destination: string | null }> {
     return aiFetch("/tutor/help", { method: "POST", body: JSON.stringify({ message }) });
   },
+
+  /** One chunk of a long recording's audio (the client splits a full
+   *  recording into pieces under OpenAI's 25MB request limit before ever
+   *  calling this) — startOffsetSec shifts the returned segments onto the
+   *  full recording's own timeline. */
+  transcribeAudioChunk(audio: Blob, startOffsetSec: number, fileName: string): Promise<{ segments: Array<{ start: number; end: number; text: string }>; fullText: string }> {
+    const form = new FormData();
+    form.append("audio", audio, fileName);
+    form.append("startOffsetSec", String(startOffsetSec));
+    return aiFetch("/transcript/audio-chunk", { method: "POST", body: form });
+  },
+
+  /** Cross-references a finished transcript against one witness
+   *  examination's Q&A record — returns candidate moments the user
+   *  reviews, never auto-created chunks. */
+  matchTranscriptMoments(input: {
+    witnessExaminationId: string;
+    witnessName: string;
+    questions: Array<{ id: string; question: string; yesNo?: "yes" | "no"; answerText?: string }>;
+    segments: Array<{ start: number; end: number; text: string }>;
+  }): Promise<{ suggestedMoments: Array<{ id: string; witnessExaminationId: string; qaEntryId: string; start: number; end: number; reason: string }> }> {
+    return aiFetch("/transcript/match-moments", { method: "POST", body: JSON.stringify(input) });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

@@ -17,6 +17,7 @@ import securityRouter from "./security";
 import ifpRouter from "./ifp";
 import exhibitRouter from "./exhibit";
 import tutorRouter from "./tutor";
+import transcriptRouter from "./transcript";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(securityRouter);
 router.use(ifpRouter);
 router.use(exhibitRouter);
 router.use(tutorRouter);
+router.use(transcriptRouter);
 
 export default router;

@@ -366,6 +366,9 @@ export interface StudioProject {
   /** Ordered slot array for the Organize step — each entry is a chunk id or null */
   organizedSlots?: (string | null)[];
   jurisdictionVerification?: JurisdictionVerification;
+  /** Present once the loaded video has been transcribed via the Transcribe
+   *  & Suggest Moments tool. */
+  transcript?: VideoTranscript;
   createdAt: number;
   updatedAt: number;
 }
@@ -396,6 +399,44 @@ export interface WitnessExamination {
   questions: WitnessQAEntry[];
   createdAt: number;
   updatedAt: number;
+}
+
+// ── Video Transcript & Suggested Moments ───────────────────────────────────────
+// Stage 4 of the live-capture pipeline: transcribe long footage, then cross-
+// reference the transcript against an already-known structured record (a
+// WitnessExamination's Q&A entries) instead of blind diarization from a cold
+// transcript — see the hyperlaw_live_capture_closing_argument_pipeline_spec
+// memory. Every suggestion here is a recommendation the user reviews, never
+// an automatically-created moment.
+
+/** One timestamped slice of a transcribed video's audio. */
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** A candidate moment the AI found in the footage matching a specific
+ *  witness Q&A entry — the user confirms or adjusts before it becomes a
+ *  real VideoChunk. */
+export interface SuggestedMoment {
+  id: string;
+  witnessExaminationId: string;
+  qaEntryId: string;
+  start: number;
+  end: number;
+  /** Why the AI thinks this range matches that Q&A entry — shown to the
+   *  user so "just trust it" is never the only option. */
+  reason: string;
+  /** Undefined until the user reviews it. */
+  status?: "accepted" | "rejected";
+}
+
+export interface VideoTranscript {
+  segments: TranscriptSegment[];
+  fullText: string;
+  generatedAt: number;
+  suggestedMoments?: SuggestedMoment[];
 }
 
 // ── Structured Case (Organization Engine output) ──────────────────────────────

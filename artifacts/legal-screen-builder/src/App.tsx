@@ -5627,6 +5627,37 @@ export default function App() {
     setView({ type: "case_parties", caseId: newCase.id });
   }
 
+  // Same minimal case shell as handleCreateNewCase, but skips the intake
+  // wizard (parties/court/story/timeline) entirely and drops straight into
+  // the video editor -- for someone who just wants to start editing footage
+  // without building out a whole case first. Still a real case under the
+  // hood, since nothing else in this app persists a studio project without
+  // one -- just reached via a shortcut.
+  function handleCreateManualProject() {
+    if (data.cases.length >= 1 && !bypassPaywalls) {
+      setShowUpgradeGate(true);
+      return;
+    }
+    const newCase: HLCase = {
+      id: crypto.randomUUID(),
+      title: "Manual Project",
+      incidentIds: [],
+      notes: "",
+      status: "open",
+      createdAt: Date.now(),
+      parties: [],
+      court: null,
+      story: "",
+      timeline: [],
+      workflowStage: "parties",
+      intakeChecklist: [],
+    };
+    const d = addCase(data, newCase);
+    setData(d);
+    setNavTab("builder");
+    setView({ type: "studio_workspace", caseId: newCase.id });
+  }
+
   function handleContinueCase(hlCase: HLCase, stage: WorkflowStage) {
     const fresh = data.cases.find(c => c.id === hlCase.id) ?? hlCase;
     setNavTab("home");
@@ -6029,7 +6060,7 @@ export default function App() {
     if (navTab === "builder") {
       if (view.type === "studio_workspace") {
         const studioCase = data.cases.find(c => c.id === view.caseId);
-        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} />;
+        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} onCreateManualProject={handleCreateManualProject} />;
         return (
           <VideoWorkspaceView
             hlCase={studioCase}
@@ -6039,7 +6070,7 @@ export default function App() {
           />
         );
       }
-      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} />;
+      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} onCreateManualProject={handleCreateManualProject} />;
     }
 
     return (

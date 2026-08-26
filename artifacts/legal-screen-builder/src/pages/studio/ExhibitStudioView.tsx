@@ -8,9 +8,15 @@ interface Props {
   cases: HLCase[];
   onOpenStudio: (caseId: string) => void;
   onCreateCase: () => void;
+  /** Skips the full case-intake wizard entirely (parties/court/story/
+   *  timeline) and drops straight into the video editor — for someone who
+   *  just wants to work on footage without building out a whole case
+   *  first. Still technically creates a case under the hood (nothing else
+   *  in this app persists a project without one), just via a shortcut. */
+  onCreateManualProject: () => void;
 }
 
-export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase }: Props) {
+export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, onCreateManualProject }: Props) {
   const [showInfo, setShowInfo] = useState(false);
 
   const sorted = [...cases].sort((a, b) => b.createdAt - a.createdAt);
@@ -67,14 +73,22 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase }:
           }}>
             New Case
           </button>
+          <button onClick={onCreateManualProject} style={{ background: "none", border: "none", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+            + Manual Project — skip case setup, just start editing
+          </button>
         </div>
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>SELECT A CASE</div>
-            <button onClick={onCreateCase} style={{ background: "none", border: "none", color: ORANGE, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
-              + New Case
-            </button>
+            <div style={{ display: "flex", gap: 14 }}>
+              <button onClick={onCreateManualProject} style={{ background: "none", border: "none", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                + Manual Project
+              </button>
+              <button onClick={onCreateCase} style={{ background: "none", border: "none", color: ORANGE, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                + New Case
+              </button>
+            </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map(c => {

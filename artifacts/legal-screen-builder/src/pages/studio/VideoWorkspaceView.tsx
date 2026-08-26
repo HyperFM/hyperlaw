@@ -4714,6 +4714,22 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             </button>
           )}
 
+          {/* Suggest Moments from Testimony — deliberately its own clearly-
+              labeled button here in the persistent controls row (visible
+              regardless of which step is active), not tucked into a single
+              step. Only offered once there's a real, answered Witness
+              Examination on this case to match against. */}
+          {videoUrl && (hlCase.witnessExaminations ?? []).some(e => e.questions.some(q => q.yesNo || q.answerText?.trim())) && (
+            <button
+              onClick={() => setShowSuggestMoments(true)}
+              title="Transcribe this video and find where your captured Witness Examination Q&A actually happens in it"
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none",
+                border: `1px solid ${ORANGE}55`, borderRadius: 8, padding: "6px 12px", cursor: "pointer",
+                fontWeight: 800, fontSize: 12, color: ORANGE, marginRight: 10 }}>
+              <FileAudio size={13} color={ORANGE} /> Suggest Moments from Testimony
+            </button>
+          )}
+
           {/* Cut tool — tap once to mark where a cut starts, tap again after
               moving the playhead to remove everything in between for good.
               Replaces the old Split button and the old drag-a-moment-to-
@@ -4976,16 +4992,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <Bookmark size={18} color="#000" strokeWidth={2.5} />
               Chunk It
             </button>
-
-            {/* Suggest Moments from Testimony — only offered once there's a
-                real, answered Witness Examination on this case to match
-                against; otherwise there's nothing for it to find. */}
-            {videoUrl && (hlCase.witnessExaminations ?? []).some(e => e.questions.some(q => q.yesNo || q.answerText?.trim())) && (
-              <button onClick={() => setShowSuggestMoments(true)}
-                style={{ width: "100%", marginTop: 10, background: "none", border: `1px solid ${ORANGE}55`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: ORANGE }}>
-                <FileAudio size={14} color={ORANGE} /> Suggest Moments from Testimony
-              </button>
-            )}
 
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>

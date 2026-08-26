@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, Gavel, FileAudio,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, Gavel,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -27,7 +27,6 @@ import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
 import WitnessExaminationView from "./pages/tools/WitnessExaminationView";
-import TranscribeAndSuggestView from "./pages/tools/TranscribeAndSuggestView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
@@ -495,7 +494,6 @@ const TOOL_BUBBLES = [
 const MARQUEE_ICONS = [
   { id: "illustrative-aid-script", icon: ScrollText },
   { id: "witness-examination", icon: Gavel },
-  { id: "transcribe-suggest", icon: FileAudio },
   ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
 ];
 
@@ -516,16 +514,12 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
   const [openId, setOpenId] = useState<string | null>(null);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [witnessExamOpen, setWitnessExamOpen] = useState(false);
-  const [transcribeOpen, setTranscribeOpen] = useState(false);
 
   if (scriptOpen) {
     return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
   }
   if (witnessExamOpen) {
     return <WitnessExaminationView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setWitnessExamOpen(false)} />;
-  }
-  if (transcribeOpen) {
-    return <TranscribeAndSuggestView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setTranscribeOpen(false)} />;
   }
 
   // Inject the marquee/glow keyframes once
@@ -619,22 +613,6 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Witness Examination</div>
               <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>Capture Q&A live while a witness is on the stand.</div>
-            </div>
-            <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
-          </div>
-        </button>
-        {/* Transcribe & Suggest Moments — the third real tool, and the
-            payoff of building Witness Examination first: cross-references
-            real footage against the structured Q&A it already captured. */}
-        <button onClick={() => setTranscribeOpen(true)}
-          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <FileAudio size={17} color={ORANGE} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Transcribe &amp; Suggest Moments</div>
-              <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>Find where your captured Q&A actually happens in the footage.</div>
             </div>
             <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
           </div>

@@ -6,9 +6,9 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw, FileAudio,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk, WitnessExamination, TranscriptSegment, SuggestedMoment, VideoTranscript } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
@@ -950,6 +950,274 @@ function CutScreenBuilderModal({
   );
 }
 
+// ── Suggest Moments from Testimony ──────────────────────────────────────────
+// Stage 4 of the live-capture pipeline: transcribes the video ALREADY loaded
+// in this workspace and cross-references it against a WitnessExamination's
+// already-captured Q&A instead of blind diarization from a cold transcript.
+// Deliberately operates on this project's own loaded video, not a separately
+// picked file — no case picker, no video picker, both already established by
+// being inside this specific case's workspace. If someone needs to process a
+// second, unrelated video, that's a separate case/project, not this tool
+// trying to merge two sources (see the exhibit_studio_multi_video_vision
+// memory for why that's a real, unsolved, separate problem).
+
+const SUGGEST_CHUNK_SEC = 1200; // ~20 min per chunk, stays under OpenAI's 25MB request limit
+const SUGGEST_PLAYBACK_RATE = 4; // sped-up real playback — no way to pull audio out of <video> faster than it plays
+
+function formatHMS(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function recordSuggestAudioSegment(video: HTMLVideoElement, startSec: number, endSec: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const onSeeked = () => {
+      video.removeEventListener("seeked", onSeeked);
+      const captureStream = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream;
+      const stream = captureStream?.call(video);
+      if (!stream) { reject(new Error("This browser can't capture audio from video playback.")); return; }
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) { reject(new Error("No audio track found in this video.")); return; }
+
+      const recorder = new MediaRecorder(new MediaStream(audioTracks), { mimeType: "audio/webm", audioBitsPerSecond: 96_000 });
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onerror = () => reject(new Error("Recording failed for this segment."));
+      recorder.onstop = () => { video.pause(); resolve(new Blob(chunks, { type: "audio/webm" })); };
+
+      recorder.start();
+      video.playbackRate = SUGGEST_PLAYBACK_RATE;
+      video.play().catch(reject);
+
+      const checkDone = () => {
+        if (video.currentTime >= endSec || video.ended) recorder.stop();
+        else requestAnimationFrame(checkDone);
+      };
+      requestAnimationFrame(checkDone);
+    };
+    video.addEventListener("seeked", onSeeked);
+    video.currentTime = startSec;
+  });
+}
+
+type SuggestPhase = "pickExam" | "extracting" | "matching" | "review";
+
+function SuggestMomentsModal({
+  examinations,
+  videoRef,
+  duration,
+  existingTranscript,
+  onSaveTranscript,
+  onAcceptMoment,
+  onClose,
+}: {
+  examinations: WitnessExamination[];
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  duration: number;
+  existingTranscript?: VideoTranscript;
+  onSaveTranscript: (t: VideoTranscript) => void;
+  onAcceptMoment: (chunk: VideoChunk) => void;
+  onClose: () => void;
+}) {
+  const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<SuggestPhase>(existingTranscript ? "review" : "pickExam");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [segments, setSegments] = useState<TranscriptSegment[]>(existingTranscript?.segments ?? []);
+  const [suggestedMoments, setSuggestedMoments] = useState<SuggestedMoment[]>(existingTranscript?.suggestedMoments ?? []);
+  const [error, setError] = useState<string | null>(null);
+
+  const examinationsWithAnswers = examinations.filter(e => e.questions.some(q => q.yesNo || q.answerText?.trim()));
+  const selectedExam = examinationsWithAnswers.find(e => e.id === selectedExamId) ?? null;
+  const reviewExam = existingTranscript
+    ? examinationsWithAnswers.find(e => e.id === existingTranscript.suggestedMoments?.[0]?.witnessExaminationId) ?? examinationsWithAnswers[0]
+    : selectedExam;
+
+  async function start() {
+    const exam = selectedExam;
+    const video = videoRef.current;
+    if (!exam || !video || duration === 0) return;
+    setPhase("extracting");
+    setError(null);
+    const totalChunks = Math.max(1, Math.ceil(duration / SUGGEST_CHUNK_SEC));
+    setProgress({ done: 0, total: totalChunks });
+
+    const allSegments: TranscriptSegment[] = [];
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkStart = i * SUGGEST_CHUNK_SEC;
+        const chunkEnd = Math.min(duration, chunkStart + SUGGEST_CHUNK_SEC);
+        const blob = await recordSuggestAudioSegment(video, chunkStart, chunkEnd);
+        const res = await aiApi.transcribeAudioChunk(blob, chunkStart, `chunk-${i}.webm`);
+        allSegments.push(...res.segments);
+        setProgress({ done: i + 1, total: totalChunks });
+      }
+      setSegments(allSegments);
+
+      setPhase("matching");
+      const matchRes = await aiApi.matchTranscriptMoments({
+        witnessExaminationId: exam.id,
+        witnessName: exam.witnessName,
+        questions: exam.questions,
+        segments: allSegments,
+      });
+      setSuggestedMoments(matchRes.suggestedMoments);
+      onSaveTranscript({
+        segments: allSegments,
+        fullText: allSegments.map(s => s.text).join(" "),
+        generatedAt: Date.now(),
+        suggestedMoments: matchRes.suggestedMoments,
+      });
+      setPhase("review");
+    } catch (err) {
+      setError((err as Error).message || "Something went wrong during transcription — try again.");
+      setPhase("pickExam");
+    }
+  }
+
+  function respond(moment: SuggestedMoment, status: "accepted" | "rejected") {
+    const updated = suggestedMoments.map(m => (m.id === moment.id ? { ...m, status } : m));
+    setSuggestedMoments(updated);
+    onSaveTranscript({
+      segments,
+      fullText: segments.map(s => s.text).join(" "),
+      generatedAt: existingTranscript?.generatedAt ?? Date.now(),
+      suggestedMoments: updated,
+    });
+    if (status === "accepted" && reviewExam) {
+      const qa = reviewExam.questions.find(q => q.id === moment.qaEntryId);
+      const label = qa ? [qa.question, qa.yesNo ? qa.yesNo.toUpperCase() : null, qa.answerText].filter(Boolean).join("\n") : "";
+      onAcceptMoment({ id: crypto.randomUUID(), start: moment.start, end: moment.end, label });
+    }
+  }
+
+  function previewMoment(moment: SuggestedMoment) {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = 1;
+    v.currentTime = moment.start;
+    v.play().catch(() => {});
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 900, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      onClick={e => { if (e.target === e.currentTarget && phase !== "extracting" && phase !== "matching") onClose(); }}>
+      <div style={{ background: "#161311", borderTop: `1px solid ${ORANGE}44`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 540, maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: "1px solid #1e1e1e" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <FileAudio size={17} color={ORANGE} />
+            <div style={{ fontSize: 15, fontWeight: 900, color: "#fff" }}>Suggest Moments from Testimony</div>
+          </div>
+          {phase !== "extracting" && phase !== "matching" && (
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+              <X size={18} color="#666" />
+            </button>
+          )}
+        </div>
+
+        <div style={{ padding: 18, overflowY: "auto" }}>
+          {phase === "pickExam" && (
+            <>
+              <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6, marginBottom: 16 }}>
+                Transcribes this project's own video and finds where each answered question from a Witness Examination actually happens in it.
+              </div>
+              {examinationsWithAnswers.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#555", textAlign: "center", padding: "20px 0" }}>
+                  No answered examinations yet for this case — capture at least one with Witness Examination first.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {examinationsWithAnswers.map(exam => {
+                    const answered = exam.questions.filter(q => q.yesNo || q.answerText?.trim()).length;
+                    return (
+                      <button key={exam.id} onClick={() => setSelectedExamId(exam.id)}
+                        style={{ background: selectedExamId === exam.id ? `${ORANGE}22` : "#0d0d0d", border: `1px solid ${selectedExamId === exam.id ? ORANGE : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", textAlign: "left", cursor: "pointer" }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color: "#fff" }}>{exam.witnessName}</div>
+                        <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>{answered} answered question{answered !== 1 ? "s" : ""}</div>
+                      </button>
+                    );
+                  })}
+                  {error && (
+                    <div style={{ background: "#2a1010", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#ff8080" }}>{error}</div>
+                  )}
+                  <button onClick={start} disabled={!selectedExam || duration === 0}
+                    style={{ marginTop: 6, width: "100%", background: selectedExam ? ORANGE : "#2a2a2a", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 800, color: selectedExam ? "#000" : "#666", cursor: selectedExam ? "pointer" : "default" }}>
+                    Start
+                  </button>
+                  <div style={{ fontSize: 11, color: "#444", lineHeight: 1.5 }}>
+                    This plays the video at 4x speed to extract its audio — a real recording, not instant. Expect roughly {formatHMS(duration / 4)} for this {formatHMS(duration)}-long video.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {phase === "extracting" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Loader2 size={26} color={ORANGE} className="animate-spin" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700, marginBottom: 10 }}>Transcribing chunk {progress.done + 1} of {progress.total}…</div>
+              <div style={{ width: "100%", height: 6, background: "#1e1e1e", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.3s ease" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "#555", marginTop: 10 }}>Stay on this screen — leaving now interrupts it.</div>
+            </div>
+          )}
+
+          {phase === "matching" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Loader2 size={26} color={ORANGE} className="animate-spin" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700 }}>Matching questions to the transcript…</div>
+            </div>
+          )}
+
+          {phase === "review" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 13, color: "#999", marginBottom: 4 }}>
+                {suggestedMoments.length === 0
+                  ? "No confident matches found — the transcript may not clearly contain these exchanges."
+                  : `${suggestedMoments.length} suggested moment${suggestedMoments.length !== 1 ? "s" : ""} — review each before it becomes a real moment.`}
+              </div>
+              {suggestedMoments.map(m => {
+                const qa = reviewExam?.questions.find(q => q.id === m.qaEntryId);
+                return (
+                  <div key={m.id} style={{ background: "#0d0d0d", border: `1px solid ${m.status === "accepted" ? "#22c55e55" : m.status === "rejected" ? "#2a2a2a" : `${ORANGE}44`}`, borderRadius: 12, padding: 14, opacity: m.status === "rejected" ? 0.5 : 1 }}>
+                    <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, marginBottom: 6 }}>{formatHMS(m.start)}–{formatHMS(m.end)}</div>
+                    {qa && <div style={{ fontSize: 13.5, color: "#eee", lineHeight: 1.5, marginBottom: 6 }}>{qa.question}</div>}
+                    <div style={{ fontSize: 12, color: "#7ab0e0", lineHeight: 1.5, marginBottom: 10 }}>{m.reason}</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => previewMoment(m)}
+                        style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "8px", fontSize: 12, fontWeight: 700, color: "#999", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <Play size={12} /> Preview
+                      </button>
+                      {m.status !== "accepted" && m.status !== "rejected" ? (
+                        <>
+                          <button onClick={() => respond(m, "rejected")}
+                            style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: "8px", fontSize: 12, fontWeight: 700, color: "#999", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                            <X size={12} /> Skip
+                          </button>
+                          <button onClick={() => respond(m, "accepted")}
+                            style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 10, padding: "8px", fontSize: 12, fontWeight: 800, color: "#000", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                            <Check size={12} /> Accept
+                          </button>
+                        </>
+                      ) : m.status === "accepted" ? (
+                        <div style={{ flex: 1, textAlign: "center", fontSize: 12, fontWeight: 700, color: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <Check size={12} /> Added
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Preparing-video message — cycles through on-brand lines while thumbnail
 // extraction runs, crossfading between them instead of sitting static. ───────
 const PREPARING_MESSAGES = [
@@ -1261,6 +1529,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
 
   // ── Cut screen builder ─────────────────────────────────────────
   const [showCutBuilder, setShowCutBuilder] = useState(false);
+  const [showSuggestMoments, setShowSuggestMoments] = useState(false);
   // ── Chunk / step state ─────────────────────────────────────────
   const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
   // Deleted chunks live here instead of being thrown away — kept separate
@@ -2547,6 +2816,26 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     setLastChunkedId(id);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
     openGuidedFlow(newChunk);
+  }
+
+  // ── Suggest Moments from Testimony — transcript + suggestion persistence.
+  // Separate from triggerAutosave (which doesn't carry a transcript field)
+  // since this is occasional, not part of every edit's save path — same
+  // direct onUpdateCase + api.cases.upsert pattern IllustrativeAidScriptView
+  // and WitnessExaminationView already use as standalone tool components.
+  function saveTranscript(transcript: VideoTranscript) {
+    const project = getOrCreateProject();
+    const next: StudioProject = { ...project, transcript, updatedAt: Date.now() };
+    const updatedCase = { ...hlCase, studioProject: next };
+    onUpdateCase(updatedCase);
+    api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>).catch(() => {});
+  }
+
+  function acceptSuggestedMoment(newChunk: VideoChunk) {
+    const updated = [...chunks, newChunk].sort((a, b) => a.start - b.start);
+    pushUndoSnapshot();
+    setChunks(updated);
+    triggerAutosave(markers, updated, organizedSlots, currentStep);
   }
 
   // ── Unchunk — merges a chunk forward into the one ahead of it (not the one
@@ -4688,6 +4977,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               Chunk It
             </button>
 
+            {/* Suggest Moments from Testimony — only offered once there's a
+                real, answered Witness Examination on this case to match
+                against; otherwise there's nothing for it to find. */}
+            {videoUrl && (hlCase.witnessExaminations ?? []).some(e => e.questions.some(q => q.yesNo || q.answerText?.trim())) && (
+              <button onClick={() => setShowSuggestMoments(true)}
+                style={{ width: "100%", marginTop: 10, background: "none", border: `1px solid ${ORANGE}55`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 13, color: ORANGE }}>
+                <FileAudio size={14} color={ORANGE} /> Suggest Moments from Testimony
+              </button>
+            )}
+
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                 {chunks
@@ -5407,6 +5706,19 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           existingMarkers={markers}
           onInsert={handleCutInsert}
           onCancel={() => setShowCutBuilder(false)}
+        />
+      )}
+
+      {/* ── Suggest Moments from Testimony ────────────────────────────── */}
+      {showSuggestMoments && (
+        <SuggestMomentsModal
+          examinations={hlCase.witnessExaminations ?? []}
+          videoRef={videoRef}
+          duration={duration}
+          existingTranscript={hlCase.studioProject?.transcript}
+          onSaveTranscript={saveTranscript}
+          onAcceptMoment={acceptSuggestedMoment}
+          onClose={() => setShowSuggestMoments(false)}
         />
       )}
 

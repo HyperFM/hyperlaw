@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { getAuth } from "../services/auth.js";
@@ -210,7 +211,7 @@ ${transcriptBlock}`;
       typeof m.start === "number" && typeof m.end === "number" && m.end > m.start,
     )
     .map(m => ({
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       witnessExaminationId,
       qaEntryId: m.questionId as string,
       start: m.start as number,

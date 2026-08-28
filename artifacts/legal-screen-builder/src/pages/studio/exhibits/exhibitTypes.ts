@@ -88,4 +88,12 @@ export const EXHIBIT_TYPES: ExhibitTypeConfig[] = [
     description: "Set up context right before a critical video clip plays.",
     guidance: "Facts block sets up what's about to be seen. CTA should explicitly cue the viewer to watch the upcoming clip.",
   },
+  {
+    id: "testimony_card",
+    name: "Testimony Card",
+    layout: "testimony_card",
+    icon: "mic",
+    description: "A widescreen title card for testimony or courtroom footage — speaker, a dominant statement, and a supporting quote.",
+    guidance: "Use for moments sourced from witness testimony or courtroom recordings. Renders full 1920x1080, not the square/portrait exhibit format, so it drops directly into a video timeline before or after a testimony clip. speakerName should be the actual witness/party name; title is the one dominant statement the card makes; quote is optional supporting language in their own words.",
+  },
 ];

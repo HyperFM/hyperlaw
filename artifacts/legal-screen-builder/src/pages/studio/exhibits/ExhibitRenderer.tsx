@@ -7,6 +7,7 @@ import { Timeline } from "./Timeline";
 import { QuoteFocus } from "./QuoteFocus";
 import { EvidenceGrid } from "./EvidenceGrid";
 import { SummaryBoard } from "./SummaryBoard";
+import { TestimonyCard } from "./TestimonyCard";
 
 // Native design dimensions — the outer landscape canvas exhibit screens sit on
 const NATIVE_W = 1920;
@@ -40,6 +41,11 @@ interface ExhibitRendererProps {
  */
 export function ExhibitRenderer({ content, scale = 1 }: ExhibitRendererProps) {
   const layout = (content.layout as string) ?? "";
+  // Testimony Card renders itself natively at 1920×1080 (matches the outer
+  // canvas exactly) rather than the 1254×1254 square every other layout
+  // uses — it must NOT go through the FIT_SCALE letterbox transform, or it
+  // would be shrunk and pillarboxed inside its own already-widescreen frame.
+  const isNativeWidescreen = layout === "testimony_card";
 
   return (
     <div
@@ -57,9 +63,9 @@ export function ExhibitRenderer({ content, scale = 1 }: ExhibitRendererProps) {
     >
       <div
         style={{
-          width: COMPONENT_W,
-          height: COMPONENT_H,
-          transform: `scale(${scale * FIT_SCALE})`,
+          width: isNativeWidescreen ? NATIVE_W : COMPONENT_W,
+          height: isNativeWidescreen ? NATIVE_H : COMPONENT_H,
+          transform: `scale(${isNativeWidescreen ? scale : scale * FIT_SCALE})`,
           transformOrigin: "center center",
           pointerEvents: "none",
           userSelect: "none",
@@ -92,6 +98,7 @@ function renderLayout(layout: string, content: Record<string, unknown>): React.R
     case "quote_focus":            return <QuoteFocus data={p} />;
     case "evidence_grid":          return <EvidenceGrid data={p} />;
     case "summary_board":          return <SummaryBoard data={p} />;
+    case "testimony_card":         return <TestimonyCard data={p} />;
     default:
       // Graceful fallback — render a minimal black slide with the layout name.
       // Sized to match the real components (COMPONENT_W×COMPONENT_H) so the

@@ -6,7 +6,7 @@ import {
   ArrowLeft, Play, Pause, Plus, Mic, MicOff, Undo2, Redo2,
   Check, Film, Upload, X, AlertCircle, CheckCircle2, XCircle,
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
-  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw, FileAudio,
+  Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw, FileAudio, Zap,
 } from "lucide-react";
 import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk, WitnessExamination, TranscriptSegment, SuggestedMoment, VideoTranscript } from "../../types";
 import { aiApi } from "../../lib/aiApi";
@@ -1218,6 +1218,261 @@ function SuggestMomentsModal({
   );
 }
 
+// ── APEX Override ────────────────────────────────────────────────────────────
+// Apex-tier-only, deliberately SEPARATE pipeline from Suggest Moments above —
+// that tool matches a transcript against a Witness Examination's already-
+// typed Q&A; this one works cold, off the entire video, with no prerequisite.
+// A long raw recording (hours) can't be chunked clip-by-clip the way the
+// manual flow assumes, so this finds its own moments, cuts everything else
+// (non-destructively — same video_cut marker every other cut tool here uses),
+// and hands back real VideoChunks the caller merges in.
+
+const APEX_WINDOW_SEC = 3000; // ~50 min per moment-finding window
+const APEX_WINDOW_OVERLAP_SEC = 300; // ~5 min of extra context pulled into each window's fetch, both sides
+const APEX_PAD_SEC = 600; // ~10 min kept on each side of a found moment, for the user to personalize later
+
+/** Pads each found moment with buffer on both sides, then resolves any
+ *  resulting overlap between neighbors by splitting the ORIGINAL (unpadded)
+ *  gap between them at its midpoint — so padding never eats into a
+ *  neighboring moment's own core range, only the dead space between them. */
+function padApexMoments(
+  moments: Array<{ id: string; start: number; end: number; label: string }>,
+  videoDurationSec: number,
+): Array<{ id: string; start: number; end: number; label: string }> {
+  const sorted = [...moments].sort((a, b) => a.start - b.start);
+  const padded = sorted.map(m => ({
+    ...m,
+    start: Math.max(0, m.start - APEX_PAD_SEC),
+    end: Math.min(videoDurationSec, m.end + APEX_PAD_SEC),
+  }));
+  for (let i = 0; i < padded.length - 1; i++) {
+    if (padded[i].end > padded[i + 1].start) {
+      const mid = (sorted[i].end + sorted[i + 1].start) / 2;
+      padded[i].end = mid;
+      padded[i + 1].start = mid;
+    }
+  }
+  return padded;
+}
+
+type ApexPhase = "intro" | "transcribing" | "finding" | "generatingScreens" | "done";
+
+function ApexOverrideModal({
+  caseId,
+  videoRef,
+  duration,
+  existingTranscript,
+  onSaveTranscript,
+  onApplyMoments,
+  onGenerateScreens,
+  onClose,
+}: {
+  caseId: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  duration: number;
+  existingTranscript?: VideoTranscript;
+  onSaveTranscript: (t: VideoTranscript) => void;
+  onApplyMoments: (chunks: VideoChunk[]) => void;
+  /** Sequential, one /exhibit/generate call per chunk (never batched into
+   *  one call) — same cost-safety shape as the manual flow's one-at-a-time
+   *  Generate Screens, just run automatically instead of requiring a tap
+   *  per moment. onProgress fires after every attempt, success or not. */
+  onGenerateScreens: (chunks: VideoChunk[], onProgress: (done: number, total: number, error?: string) => void) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [phase, setPhase] = useState<ApexPhase>("intro");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [foundCount, setFoundCount] = useState(0);
+  const [screenProgress, setScreenProgress] = useState({ done: 0, total: 0 });
+  const [screenErrors, setScreenErrors] = useState<string[]>([]);
+
+  async function start() {
+    const video = videoRef.current;
+    if (!video || duration === 0) return;
+    setError(null);
+
+    // ── Transcribe the full video. Persisted after EVERY chunk (not once at
+    // the end) so an interruption over a multi-hour run doesn't lose
+    // whatever's already done — re-entering resumes past whatever's already
+    // covered instead of restarting from zero. ──
+    let segments = [...(existingTranscript?.segments ?? [])];
+    const alreadyCoveredSec = segments.length > 0 ? Math.max(...segments.map(s => s.end)) : 0;
+    const totalChunks = Math.max(1, Math.ceil(duration / SUGGEST_CHUNK_SEC));
+    const startChunk = Math.min(totalChunks, Math.floor(alreadyCoveredSec / SUGGEST_CHUNK_SEC));
+    setPhase("transcribing");
+    setProgress({ done: startChunk, total: totalChunks });
+
+    try {
+      for (let i = startChunk; i < totalChunks; i++) {
+        const chunkStart = i * SUGGEST_CHUNK_SEC;
+        const chunkEnd = Math.min(duration, chunkStart + SUGGEST_CHUNK_SEC);
+        const blob = await recordSuggestAudioSegment(video, chunkStart, chunkEnd);
+        const res = await aiApi.transcribeAudioChunk(blob, chunkStart, `chunk-${i}.webm`);
+        segments = [...segments, ...res.segments];
+        onSaveTranscript({
+          segments,
+          fullText: segments.map(s => s.text).join(" "),
+          generatedAt: existingTranscript?.generatedAt ?? Date.now(),
+        });
+        setProgress({ done: i + 1, total: totalChunks });
+      }
+
+      // ── Find moments cold, in ~50-min windows tiling the full transcript
+      // (each window's fetch pulls extra context past its own nominal edges,
+      // so a true start just before a window boundary is still visible to
+      // whichever call needs it — see the route's own comment for why). ──
+      setPhase("finding");
+      const windowStarts: number[] = [];
+      for (let w = 0; w < duration; w += APEX_WINDOW_SEC) windowStarts.push(w);
+      setProgress({ done: 0, total: windowStarts.length });
+
+      const allFound: Array<{ id: string; start: number; end: number; label: string; reason: string }> = [];
+      for (let i = 0; i < windowStarts.length; i++) {
+        const windowStartSec = windowStarts[i];
+        const windowEndSec = Math.min(duration, windowStartSec + APEX_WINDOW_SEC);
+        const fetchStart = Math.max(0, windowStartSec - APEX_WINDOW_OVERLAP_SEC);
+        const fetchEnd = Math.min(duration, windowEndSec + APEX_WINDOW_OVERLAP_SEC);
+        const windowSegments = segments.filter(s => s.end > fetchStart && s.start < fetchEnd);
+        if (windowSegments.length > 0) {
+          const res = await aiApi.findTranscriptMoments({ caseId, segments: windowSegments, windowStartSec: fetchStart, windowEndSec: fetchEnd });
+          allFound.push(...res.moments);
+        }
+        setProgress({ done: i + 1, total: windowStarts.length });
+      }
+
+      // De-dupe overlapping finds from neighboring windows' shared overlap
+      // zone — keep whichever kept an earlier start (the more fully
+      // backed-up "true start" of the two).
+      const sortedFound = allFound.sort((a, b) => a.start - b.start);
+      const deduped: typeof sortedFound = [];
+      for (const m of sortedFound) {
+        const last = deduped[deduped.length - 1];
+        if (last && m.start < last.end) continue;
+        deduped.push(m);
+      }
+
+      const padded = padApexMoments(deduped, duration);
+      const newChunks: VideoChunk[] = padded.map(p => ({ id: p.id, start: p.start, end: p.end, label: p.label }));
+      setFoundCount(newChunks.length);
+      onApplyMoments(newChunks);
+
+      // ── Straight into screen generation, no extra tap — one continuous
+      // automatic pass, per the whole point of this tool. Sequential under
+      // the hood (see onGenerateScreens' own doc comment), just no manual
+      // step in between from the user's side. ──
+      if (newChunks.length > 0) {
+        setPhase("generatingScreens");
+        setScreenProgress({ done: 0, total: newChunks.length });
+        setScreenErrors([]);
+        await onGenerateScreens(newChunks, (done, total, genErr) => {
+          setScreenProgress({ done, total });
+          if (genErr) setScreenErrors(prev => [...prev, genErr]);
+        });
+      }
+      setPhase("done");
+    } catch (err) {
+      setError((err as Error).message || "Something went wrong — what's done so far is saved, try again to pick up where it left off.");
+      setPhase("intro");
+    }
+  }
+
+  const busy = phase === "transcribing" || phase === "finding" || phase === "generatingScreens";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 900, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div style={{ background: "#161311", borderTop: `1px solid ${ORANGE}44`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 540, maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: "1px solid #1e1e1e" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Zap size={17} color={ORANGE} />
+            <div style={{ fontSize: 15, fontWeight: 900, color: "#fff" }}>APEX Override</div>
+          </div>
+          {!busy && (
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+              <X size={18} color="#666" />
+            </button>
+          )}
+        </div>
+
+        <div style={{ padding: 18, overflowY: "auto" }}>
+          {phase === "intro" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: 13, color: "#999", lineHeight: 1.6 }}>
+                Transcribes this entire video and finds the moments worth using on its own — no pre-typed questions needed — then cuts everything else out (recoverable, not deleted). You'll land back in Chunk &amp; Label with the moments already marked, ready to review.
+              </div>
+              {error && (
+                <div style={{ background: "#2a1010", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#ff8080" }}>{error}</div>
+              )}
+              <button onClick={start} disabled={duration === 0}
+                style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Start
+              </button>
+              <div style={{ fontSize: 11, color: "#444", lineHeight: 1.5 }}>
+                This plays the video at 4x speed to extract its audio — a real recording, not instant. Expect roughly {formatHMS(duration / 4)} for this {formatHMS(duration)}-long video. Keep this tab open and active the whole time — progress is saved as it goes, so closing early won't lose what's already done.
+              </div>
+            </div>
+          )}
+
+          {phase === "transcribing" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Loader2 size={26} color={ORANGE} className="animate-spin" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700, marginBottom: 10 }}>Transcribing chunk {progress.done + 1} of {progress.total}…</div>
+              <div style={{ width: "100%", height: 6, background: "#1e1e1e", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.3s ease" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "#555", marginTop: 10 }}>Stay on this screen — leaving now pauses it, but what's done so far is saved.</div>
+            </div>
+          )}
+
+          {phase === "finding" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Loader2 size={26} color={ORANGE} className="animate-spin" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700, marginBottom: 10 }}>Scanning window {progress.done + 1} of {progress.total} for moments…</div>
+              <div style={{ width: "100%", height: 6, background: "#1e1e1e", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.3s ease" }} />
+              </div>
+            </div>
+          )}
+
+          {phase === "generatingScreens" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Loader2 size={26} color={ORANGE} className="animate-spin" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700, marginBottom: 10 }}>Generating screen {screenProgress.done + 1} of {screenProgress.total}…</div>
+              <div style={{ width: "100%", height: 6, background: "#1e1e1e", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${(screenProgress.done / Math.max(1, screenProgress.total)) * 100}%`, height: "100%", background: ORANGE, transition: "width 0.3s ease" }} />
+              </div>
+              {screenErrors.length > 0 && (
+                <div style={{ marginTop: 12, textAlign: "left", background: "#2a1010", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 14px", fontSize: 11, color: "#ff8080", lineHeight: 1.5 }}>
+                  {screenErrors.map((e, i) => <div key={i}>{e}</div>)}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: "#555", marginTop: 10 }}>One screen at a time, in order — a slow automatic pass, not instant.</div>
+            </div>
+          )}
+
+          {phase === "done" && (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Check size={28} color="#22c55e" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 700, marginBottom: 6 }}>
+                Found {foundCount} moment{foundCount !== 1 ? "s" : ""}
+                {screenProgress.total > 0 && ` — generated ${screenProgress.total - screenErrors.length} of ${screenProgress.total} screens`}.
+              </div>
+              <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>
+                Everything else is cut (not deleted). Review moments in Chunk &amp; Label, screens in Exhibit — Organize is next.
+              </div>
+              <button onClick={onClose}
+                style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Done
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Preparing-video message — cycles through on-brand lines while thumbnail
 // extraction runs, crossfading between them instead of sitting static. ───────
 const PREPARING_MESSAGES = [
@@ -1442,9 +1697,11 @@ interface Props {
   onBack: () => void;
   /** For the PIN gate on "delete all exhibit screens" — same PinGateModal pattern as case/account deletion. */
   userId?: string | null;
+  /** Gates the APEX Override entry point — Apex Litigant tier only. */
+  isApex?: boolean;
 }
 
-export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userId }: Props) {
+export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userId, isApex }: Props) {
   // ── Video state ────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null); // dedicated thumbnail extractor
@@ -1530,6 +1787,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // ── Cut screen builder ─────────────────────────────────────────
   const [showCutBuilder, setShowCutBuilder] = useState(false);
   const [showSuggestMoments, setShowSuggestMoments] = useState(false);
+  const [showApexOverride, setShowApexOverride] = useState(false);
   // ── Chunk / step state ─────────────────────────────────────────
   const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
   // Deleted chunks live here instead of being thrown away — kept separate
@@ -2836,6 +3094,105 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     pushUndoSnapshot();
     setChunks(updated);
     triggerAutosave(markers, updated, organizedSlots, currentStep);
+  }
+
+  // ── APEX Override's batch commit — merges every auto-found (already
+  // padded) moment into the real chunk list, then cuts every remaining gap
+  // in the full merged timeline (same video_cut primitive removeChunk and
+  // cutRange use elsewhere), all in one update instead of one setState per
+  // moment. Known limitation: re-running APEX Override on a video that
+  // already has chunks/cuts from a prior run isn't idempotent yet — it
+  // re-derives gaps from scratch rather than reconciling with what's there. ──
+  function applyApexMoments(newChunks: VideoChunk[]) {
+    if (newChunks.length === 0) {
+      showInsertToast("APEX Override didn't find any confident moments in this video.");
+      return;
+    }
+    const merged = [...chunks, ...newChunks].sort((a, b) => a.start - b.start);
+    const cutMarkers: ExhibitMarker[] = [];
+    let cursor = 0;
+    for (const c of merged) {
+      if (c.start > cursor + 0.5) {
+        cutMarkers.push({
+          id: crypto.randomUUID(), timestamp: cursor, cutEnd: c.start,
+          label: "Cut", dictation: "", whyItMatters: "",
+          status: "ready", createdAt: Date.now(), type: "video_cut",
+        });
+      }
+      cursor = Math.max(cursor, c.end);
+    }
+    if (duration > cursor + 0.5) {
+      cutMarkers.push({
+        id: crypto.randomUUID(), timestamp: cursor, cutEnd: duration,
+        label: "Cut", dictation: "", whyItMatters: "",
+        status: "ready", createdAt: Date.now(), type: "video_cut",
+      });
+    }
+    const newMarkers = [...markers, ...cutMarkers].sort((a, b) => a.timestamp - b.timestamp);
+    pushUndoSnapshot();
+    setMarkersRaw(newMarkers);
+    setChunks(merged);
+    triggerAutosave(newMarkers, merged, organizedSlots, currentStep, deletedChunks);
+    showInsertToast(`APEX Override found ${newChunks.length} moment${newChunks.length !== 1 ? "s" : ""} and cut the rest — review them in Chunk & Label.`);
+  }
+
+  // ── APEX Override's automatic screen generation — same single-call-per-
+  // moment shape as the manual Generate Screens button below
+  // (generateNextExhibitScreen), just looped through every auto-found
+  // moment in one continuous pass instead of requiring a tap per screen.
+  // Deliberately still one /exhibit/generate call per chunk, never batched
+  // into a single request — preserves the cost-safety reasoning behind the
+  // manual flow's one-at-a-time design (see that function's own comment)
+  // while still being hands-off here, which is the whole point of this tool.
+  async function generateApexExhibitScreens(
+    newChunks: VideoChunk[],
+    onProgress: (done: number, total: number, error?: string) => void,
+  ) {
+    const ordered = [...newChunks].sort((a, b) => a.start - b.start);
+    const momentsTimeline = orderedChunksForExhibit()
+      .filter(c => c.label.trim())
+      .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
+
+    pushUndoSnapshot();
+    let done = 0;
+    for (const chunk of ordered) {
+      let succeeded = false;
+      let lastErrorMsg: string | undefined;
+      for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS && !succeeded; attempt++) {
+        try {
+          const existingExhibits = markersRef.current
+            .filter(m => m.type === "exhibit_screen" && m.exhibitScreen)
+            .map(m => `${m.label}: ${m.exhibitScreen!.selectedType.replace(/_/g, " ")}`);
+          const result = await aiApi.generateExhibitScreen({
+            caseId: hlCase.id,
+            timestamp: formatTime(chunk.start),
+            dictation: chunk.label,
+            existingExhibits: existingExhibits.length > 0 ? existingExhibits : undefined,
+            momentsTimeline,
+          });
+          const picked = result.candidates[result.recommendedIndex] ?? result.candidates[0];
+          if (!picked) throw new Error("No screen returned");
+          const latestMarkers = markersRef.current;
+          const id = crypto.randomUUID();
+          const screenNum = latestMarkers.filter(m => m.type === "exhibit_screen").length + 1;
+          const newMarker: ExhibitMarker = {
+            id, timestamp: chunk.start, chunkId: chunk.id,
+            label: `AI Screen ${screenNum}`,
+            dictation: "", whyItMatters: "",
+            status: "ready", holdSec: 8, createdAt: Date.now(),
+            type: "exhibit_screen",
+            exhibitScreen: { selectedType: picked.selectedType, content: picked.content, alternativeLayouts: [], verificationResults: picked.verificationResults, confidenceFlags: picked.confidenceFlags, corrections: picked.corrections },
+          };
+          const updatedMarkers = [...latestMarkers, newMarker].sort((a, b) => a.timestamp - b.timestamp);
+          setMarkers(updatedMarkers, false);
+          succeeded = true;
+        } catch (err) {
+          lastErrorMsg = (err as Error).message || "failed";
+        }
+      }
+      done++;
+      onProgress(done, ordered.length, succeeded ? undefined : `Moment at ${formatTime(chunk.start)}: ${lastErrorMsg} — skipped after ${MAX_GENERATION_ATTEMPTS} attempts.`);
+    }
   }
 
   // ── Unchunk — merges a chunk forward into the one ahead of it (not the one
@@ -4730,6 +5087,23 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             </button>
           )}
 
+          {/* APEX Override — Apex Litigant tier only, deliberately separate
+              from Suggest Moments above (see the modal's own header comment
+              for why). Works cold off the whole video, no prerequisite. */}
+          {videoUrl && isApex && (
+            <button
+              onClick={() => setShowApexOverride(true)}
+              title="Transcribe this entire video and let AI find, cut, and mark the moments worth using — no prep needed"
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none",
+                border: "1px solid #55555588", borderRadius: 8, padding: "6px 12px", cursor: "pointer",
+                fontWeight: 800, fontSize: 12, marginRight: 10 }}>
+              <Zap size={13} color="#888" />
+              {"APEX Override".split("").map((ch, i) => (
+                <span key={i} style={{ color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#999") }}>{ch}</span>
+              ))}
+            </button>
+          )}
+
           {/* Cut tool — tap once to mark where a cut starts, tap again after
               moving the playhead to remove everything in between for good.
               Replaces the old Split button and the old drag-a-moment-to-
@@ -5725,6 +6099,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           onSaveTranscript={saveTranscript}
           onAcceptMoment={acceptSuggestedMoment}
           onClose={() => setShowSuggestMoments(false)}
+        />
+      )}
+
+      {/* ── APEX Override ──────────────────────────────────────────────── */}
+      {showApexOverride && (
+        <ApexOverrideModal
+          caseId={hlCase.id}
+          videoRef={videoRef}
+          duration={duration}
+          existingTranscript={hlCase.studioProject?.transcript}
+          onSaveTranscript={saveTranscript}
+          onApplyMoments={applyApexMoments}
+          onGenerateScreens={generateApexExhibitScreens}
+          onClose={() => setShowApexOverride(false)}
         />
       )}
 

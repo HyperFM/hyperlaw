@@ -123,6 +123,7 @@ EXHIBIT TYPES OVERVIEW:
 - missing_investigation: evidence_grid layout — steps never taken (x icons)
 - question_analysis: question_board layout — event → response → central question
 - watch_this_moment: narrative_reveal layout — context before a key video moment
+- testimony_card: testimony_card layout — a widescreen title card for a moment sourced from witness testimony or courtroom footage (only select this type when the moment is clearly testimony/courtroom-recording content, not general evidence)
 
 LAYOUT SCHEMAS (abbreviated — follow these shapes exactly):
 
@@ -134,8 +135,9 @@ timeline: { layout, header, headline:string[], events:[{label,detail:ClaimField,
 quote_focus: { layout, header, headline:string[], dominantQuote:{text,source}, context:ClaimField[], implication:{text,phrasedAsQuestion}, footerCitations }
 evidence_grid: { layout, header, headline:string[], items:[{icon,label,source}], conclusion:{lines:string[]}, footerCitations }
 summary_board: { layout, header, headline:string[], recapPoints:[{exhibitRef,summary}], finalTakeaway:{lines:string[]}, footerCitations }
+testimony_card: { layout, speakerName, cardNumber, title, quote? } — NOTE: this layout does NOT use header/headline/footerCitations/ClaimField like the others. speakerName is the witness/party's real name (all caps display, resolve from PARTIES IN THIS CASE if provided). cardNumber is a short label like "#5". title is the one dominant statement the card makes — short, punchy, no more than ~15 words. quote is optional supporting language in the speaker's own words, or omit entirely if there isn't a clean direct quote to use.
 
-headline is ALWAYS an array of short bold lines (1-3 short lines that together read as one punchy statement) — for every layout listed above, never a single plain string, even when it's only one line long. The renderer requires the array form and will fail to display the screen otherwise.
+headline is ALWAYS an array of short bold lines (1-3 short lines that together read as one punchy statement) — for every layout that has a headline field (every one above except testimony_card), never a single plain string, even when it's only one line long. The renderer requires the array form and will fail to display the screen otherwise.
 
 Every "icon" field (in findings/facts/steps/items above) MUST be exactly one of these, spelled exactly as shown — never invent or guess a different name, the renderer will fail to display the screen otherwise: mic (a quote/statement), check (confirms/corroborates), x (absence/failure/denial), speech (an admission), scale (a legal standard), camera (no evidence/no cameras), clock (timing), calendar (a prior/dated event), person, document, question, arrow, shield, shieldCheck, comment, play.
 
@@ -161,7 +163,7 @@ RETURN FORMAT — valid JSON only, no preamble:
 {
   "candidates": [
     {
-      "selectedType": "<one of the 10 exhibit type IDs>",
+      "selectedType": "<one of the 11 exhibit type IDs>",
       "content": { <the complete layout object matching the chosen layout's schema> },
       "rationale": "<one sentence: why this framing is persuasive>",
       "confidence_flags": ["<anything you were not fully certain about — an unclear name, an ambiguous quote, a status claim that might be contradicted later in the video, a number that seems inconsistent. Empty array if none.>"],
@@ -220,7 +222,7 @@ Return ONLY valid JSON, no preamble:
 // (like the document-truncation and structuredCase fixes below) applies to
 // slides and scripts alike without maintaining two copies. ─────────────────
 
-function buildPartiesAndCourtBlocks(cd: Record<string, unknown>) {
+export function buildPartiesAndCourtBlocks(cd: Record<string, unknown>) {
   const parties = Array.isArray(cd.parties) ? (cd.parties as Record<string, unknown>[]) : [];
   const court = cd.court && typeof cd.court === "object" ? (cd.court as Record<string, unknown>) : null;
 
@@ -246,7 +248,7 @@ function buildPartiesAndCourtBlocks(cd: Record<string, unknown>) {
  *  generation prompt before — silently invisible to both slides and
  *  scripts. Included here so status/claim reasoning has real material to
  *  check against, not just one moment's own raw text. */
-function buildStructuredCaseBlock(cd: Record<string, unknown>): string | null {
+export function buildStructuredCaseBlock(cd: Record<string, unknown>): string | null {
   const sc = cd.structuredCase && typeof cd.structuredCase === "object" ? cd.structuredCase as Record<string, unknown> : null;
   if (!sc) return null;
   const parts: string[] = [];

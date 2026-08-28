@@ -1019,6 +1019,20 @@ export const aiApi = {
   }): Promise<{ suggestedMoments: Array<{ id: string; witnessExaminationId: string; qaEntryId: string; start: number; end: number; reason: string }> }> {
     return aiFetch("/transcript/match-moments", { method: "POST", body: JSON.stringify(input) });
   },
+
+  /** APEX Override's discovery step — finds significant moments COLD in one
+   *  window of a transcript (no pre-typed Q&A to anchor against), reasoning
+   *  about each moment's true start through interruptions/objections. Call
+   *  once per ~50-minute window (with ~5min overlap baked into `segments`)
+   *  rather than over an entire multi-hour transcript in one call. */
+  findTranscriptMoments(input: {
+    caseId: string;
+    segments: Array<{ start: number; end: number; text: string }>;
+    windowStartSec: number;
+    windowEndSec: number;
+  }): Promise<{ moments: Array<{ id: string; start: number; end: number; label: string; reason: string }> }> {
+    return aiFetch("/transcript/find-moments", { method: "POST", body: JSON.stringify(input) });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

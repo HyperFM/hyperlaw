@@ -9,7 +9,7 @@ export {
   SourceRef, ClaimField, HeaderSchema,
   HeroHeadlineLayout, NarrativeRevealLayout, QuestionBoardLayout,
   SplitScreenLayout, TimelineLayout, QuoteFocusLayout,
-  EvidenceGridLayout, SummaryBoardLayout,
+  EvidenceGridLayout, SummaryBoardLayout, TestimonyCardLayout,
   ExhibitLayout, ExhibitGenerationResponse,
 } from "./exhibitLayoutSchemas";
 export type { ExhibitLayoutType, ExhibitGenerationResponseType } from "./exhibitLayoutSchemas";
@@ -23,6 +23,7 @@ export { Timeline } from "./Timeline";
 export { QuoteFocus } from "./QuoteFocus";
 export { EvidenceGrid } from "./EvidenceGrid";
 export { SummaryBoard } from "./SummaryBoard";
+export { TestimonyCard } from "./TestimonyCard";
 
 // Composed exhibit UI (generator pipeline)
 export { ExhibitRenderer } from "./ExhibitRenderer";

@@ -4,6 +4,9 @@ import multer from "multer";
 import { getAuth } from "../services/auth.js";
 import { aiService, MODEL } from "../services/ai.js";
 import { logAiCall } from "../services/aiCache.js";
+import { db, casesTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { buildPartiesAndCourtBlocks, buildStructuredCaseBlock } from "./exhibit.js";
 
 const router = Router();
 
@@ -220,6 +223,131 @@ ${transcriptBlock}`;
     }));
 
   res.json({ suggestedMoments });
+});
+
+// ── POST /transcript/find-moments ───────────────────────────────────────────
+// APEX Override's discovery step — the opposite problem from match-moments
+// above. There's no pre-typed Q&A to anchor against; Claude has to find
+// significant moments COLD, reasoning only from the transcript itself plus
+// the case's known parties/claims. Runs per ~50-minute window (with ~5min of
+// overlap baked into the segments the caller sends) rather than over an
+// entire multi-hour transcript in one call — keeps context bounded and the
+// "true start" backtracking reasoning below accurate over a manageable span.
+router.post("/transcript/find-moments", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { caseId, segments, windowStartSec, windowEndSec } = req.body as {
+    caseId: string;
+    segments: Array<{ start: number; end: number; text: string }>;
+    windowStartSec: number;
+    windowEndSec: number;
+  };
+
+  if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
+  if (!Array.isArray(segments) || segments.length === 0) {
+    res.json({ moments: [] });
+    return;
+  }
+  if (!Number.isFinite(windowStartSec) || !Number.isFinite(windowEndSec) || windowEndSec <= windowStartSec) {
+    res.status(400).json({ error: "Invalid window range" });
+    return;
+  }
+
+  const [caseRow] = await db
+    .select()
+    .from(casesTable)
+    .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+
+  if (!caseRow) { res.status(404).json({ error: "Case not found" }); return; }
+
+  const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
+  const { partiesBlock, courtBlock } = buildPartiesAndCourtBlocks(cd);
+  const contextBlock = [partiesBlock, courtBlock, buildStructuredCaseBlock(cd)].filter(Boolean).join("\n\n");
+
+  const transcriptBlock = segments
+    .map(s => `[${s.start.toFixed(1)}-${s.end.toFixed(1)}] ${s.text}`)
+    .join("\n");
+
+  // The range actually covered by the segments given (includes the overlap
+  // padding the caller adds) — moments are validated against this, not the
+  // nominal window, since the whole point of the overlap is letting a true
+  // start that falls just before windowStartSec still be found and returned.
+  const coveredStart = Math.min(...segments.map(s => s.start));
+  const coveredEnd = Math.max(...segments.map(s => s.end));
+
+  const systemPrompt = `You are reviewing a window of a timestamped courtroom/testimony transcript COLD — there is no pre-existing list of questions or claims to match against. Find every moment in this window that would matter as evidence: admissions, contradictions, evasive non-answers, escalations, or anything a self-represented litigant would want to pull out and use.
+
+THE MOST IMPORTANT RULE — finding the TRUE START of each moment: never anchor a moment's start to just the key line itself (the admission, the contradiction, the answer). Read backward through the transcript from that line to find where the underlying EXCHANGE actually begins — the start of the question that led to it. Keep backing up through false starts, a rephrased question, an objection, or the judge interjecting — the moment must start at the true beginning of the exchange, not mid-sentence and not mid-objection, so a viewer sees the full context, not a fragment. This is real reasoning per moment, not a fixed offset — some exchanges have a clean single-sentence question, others get interrupted three times before the real answer lands.
+
+${contextBlock ? `Use the case's known parties and claims below to judge what's actually significant here — a moment matters more when it touches something already claimed or disputed in this case.\n\n${contextBlock}\n\n` : ""}Only report moments whose full exchange (start through end) falls within ${coveredStart.toFixed(1)}-${coveredEnd.toFixed(1)} seconds — the range actually covered by the transcript below. Skip anything you're not confident about rather than guessing.
+
+Respond with ONLY raw JSON, no markdown fences, no commentary, in this exact shape:
+{"moments": [{"start": <number>, "end": <number>, "label": "<short, specific, human-readable summary — this becomes the clip's label, not a generic phrase like 'important moment'>", "reason": "<one sentence: why this matters as evidence>"}]}`;
+
+  const userMessage = `TIMESTAMPED TRANSCRIPT WINDOW (${windowStartSec.toFixed(1)}-${windowEndSec.toFixed(1)}s nominal, ${coveredStart.toFixed(1)}-${coveredEnd.toFixed(1)}s actually covered below):\n${transcriptBlock}`;
+
+  const start = Date.now();
+  let response: Awaited<ReturnType<typeof aiService.createMessage>>;
+  try {
+    response = await aiService.createMessage({
+      model: MODEL,
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    }, { timeoutMs: 120_000 });
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    console.error(`[transcript-find-moments] AI call failed status=${status ?? "?"}`, err);
+    res.status(status && status < 500 ? status : 502).json({ error: "Couldn't scan this window right now — try again." });
+    return;
+  }
+
+  {
+    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+    void logAiCall({
+      userId,
+      feature: "transcript_find_moments",
+      model: MODEL,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      estimatedCostMicroUsd,
+      responseTimeMs: Date.now() - start,
+      cacheHit,
+    });
+  }
+
+  const rawText = response.content.find(b => b.type === "text")?.text ?? "";
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    res.json({ moments: [] });
+    return;
+  }
+
+  let rawMoments: Array<{ start?: number; end?: number; label?: string; reason?: string }> = [];
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { moments?: typeof rawMoments };
+    rawMoments = Array.isArray(parsed.moments) ? parsed.moments : [];
+  } catch {
+    res.json({ moments: [] });
+    return;
+  }
+
+  const moments = rawMoments
+    .filter(m =>
+      typeof m.start === "number" && typeof m.end === "number" && m.end > m.start &&
+      m.start >= coveredStart - 1 && m.end <= coveredEnd + 1 &&
+      typeof m.label === "string" && m.label.trim().length > 0,
+    )
+    .map(m => ({
+      id: randomUUID(),
+      start: m.start as number,
+      end: m.end as number,
+      label: (m.label as string).trim(),
+      reason: typeof m.reason === "string" ? m.reason : "",
+    }));
+
+  res.json({ moments });
 });
 
 export default router;

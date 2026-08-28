@@ -518,6 +518,15 @@ export interface HLCase {
   studioProject?: StudioProject;
   // ── Witness Examination ──────────────────────────────────────────────────────
   witnessExaminations?: WitnessExamination[];
+  /** True only for a case created via Exhibit Studio's "+ Manual Project"
+   *  shortcut when the user declined to tie it to an existing case. Still a
+   *  real, fully-synced HLCase — this flag just hides it from every
+   *  case-browsing list OUTSIDE Exhibit Studio (home dashboard, Tools case
+   *  pickers, Profile's case list, the Tutor case bubble bar, nav case
+   *  counts) so a disposable video-only project doesn't clutter case lists
+   *  meant for the user's real, built-out cases. Exhibit Studio's own case
+   *  list intentionally ignores this flag. */
+  exhibitOnly?: boolean;
 }
 
 // ─── Generated Document ───────────────────────────────────────────────────────

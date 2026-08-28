@@ -143,6 +143,21 @@ export const SummaryBoardLayout = z.object({
   footerCitations: z.array(z.string()),
 });
 
+// 9. Testimony Card — the one layout that does NOT share the 1254×1254
+// square-then-letterbox treatment every layout above uses. It's a
+// full-native 1920×1080 widescreen title card meant to drop directly into
+// a video timeline before/after a testimony or courtroom-footage clip, so
+// it has to match the footage's own aspect ratio rather than being
+// pillarboxed like every other exhibit type. See ExhibitRenderer.tsx and
+// renderAIExhibitSlide.tsx for the native-sizing special case this requires.
+export const TestimonyCardLayout = z.object({
+  layout: z.literal("testimony_card"),
+  speakerName: z.string(),
+  cardNumber: z.string(),
+  title: z.string(),
+  quote: z.string().optional(),
+});
+
 export const ExhibitLayout = z.discriminatedUnion("layout", [
   HeroHeadlineLayout,
   NarrativeRevealLayout,
@@ -152,6 +167,7 @@ export const ExhibitLayout = z.discriminatedUnion("layout", [
   QuoteFocusLayout,
   EvidenceGridLayout,
   SummaryBoardLayout,
+  TestimonyCardLayout,
 ]);
 
 export type ExhibitLayoutType = z.infer<typeof ExhibitLayout>;

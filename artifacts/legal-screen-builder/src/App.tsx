@@ -671,11 +671,16 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   const dragDepthRef = useRef(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
+  // Cases created via Exhibit Studio's "+ Manual Project" shortcut (no real
+  // intake done) stay out of the home dashboard entirely — see
+  // HLCase.exhibitOnly.
+  const homeCases = data.cases.filter(c => !c.exhibitOnly);
+
   // Most recent active case for the "Continue Your Case" card
-  const activeCases = [...data.cases]
+  const activeCases = [...homeCases]
     .filter(c => c.status !== "closed")
     .sort((a, b) => b.createdAt - a.createdAt);
-  const closedCases = data.cases.filter(c => c.status === "closed");
+  const closedCases = homeCases.filter(c => c.status === "closed");
 
   const recentIncidents = [...data.incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
 
@@ -684,7 +689,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 3);
 
-  const hasCases = data.cases.length > 0;
+  const hasCases = homeCases.length > 0;
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 120px" }}>
@@ -4222,6 +4227,10 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const email = user?.email || "";
   const isAdmin = user?.isAdmin ?? false;
 
+  // Cases created via Exhibit Studio's "+ Manual Project" shortcut stay out
+  // of the profile's case count/management list — see HLCase.exhibitOnly.
+  const manageableCases = data.cases.filter(c => !c.exhibitOnly);
+
   const [showPlans, setShowPlans] = useState(false);
   useEffect(() => { if (openPlansSignal) setShowPlans(true); }, [openPlansSignal]);
   const [showSupport, setShowSupport] = useState(false);
@@ -4458,7 +4467,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>{displayName}</div>
           {email && <div style={{ color: "#555", fontSize: 12, marginBottom: 2 }}>{email}</div>}
-          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {data.cases.length} cases</div>
+          <div style={{ color: "#555", fontSize: 13 }}>HyperLaw · {manageableCases.length} cases</div>
         </div>
       </div>
 
@@ -4547,7 +4556,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
             <FileText size={15} color="#666" />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Manage Cases</div>
-              <div style={{ fontSize: 12, color: "#555" }}>Select and delete cases · {data.cases.length} total</div>
+              <div style={{ fontSize: 12, color: "#555" }}>Select and delete cases · {manageableCases.length} total</div>
             </div>
             <ChevronRight size={15} color="#333" />
           </button>
@@ -4825,7 +4834,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
       />
       <ManageCasesModal
         open={showManageCases}
-        cases={data.cases.map(c => ({ id: c.id, title: c.title }))}
+        cases={manageableCases.map(c => ({ id: c.id, title: c.title }))}
         userId={user?.id}
         onClose={() => setShowManageCases(false)}
         onDeleted={(ids) => onCasesDeleted(ids)}
@@ -5632,7 +5641,8 @@ export default function App() {
   // the video editor -- for someone who just wants to start editing footage
   // without building out a whole case first. Still a real case under the
   // hood, since nothing else in this app persists a studio project without
-  // one -- just reached via a shortcut.
+  // one -- just reached via a shortcut. Marked exhibitOnly so it stays out
+  // of every case list outside Exhibit Studio -- see HLCase.exhibitOnly.
   function handleCreateManualProject() {
     if (data.cases.length >= 1 && !bypassPaywalls) {
       setShowUpgradeGate(true);
@@ -5651,6 +5661,38 @@ export default function App() {
       timeline: [],
       workflowStage: "parties",
       intakeChecklist: [],
+      exhibitOnly: true,
+    };
+    const d = addCase(data, newCase);
+    setData(d);
+    setNavTab("builder");
+    setView({ type: "studio_workspace", caseId: newCase.id });
+  }
+
+  // Same "no case, skip setup" shortcut as handleCreateManualProject —
+  // APEX Override's own picker (ExhibitStudioView) offers this only when
+  // the user declines to tie the project to an existing case. The real
+  // pipeline (transcribe/find/cut/pad) only runs once inside
+  // VideoWorkspaceView, gated there separately by isApex.
+  function handleCreateApexOverride() {
+    if (data.cases.length >= 1 && !bypassPaywalls) {
+      setShowUpgradeGate(true);
+      return;
+    }
+    const newCase: HLCase = {
+      id: crypto.randomUUID(),
+      title: "APEX Override Project",
+      incidentIds: [],
+      notes: "",
+      status: "open",
+      createdAt: Date.now(),
+      parties: [],
+      court: null,
+      story: "",
+      timeline: [],
+      workflowStage: "parties",
+      intakeChecklist: [],
+      exhibitOnly: true,
     };
     const d = addCase(data, newCase);
     setData(d);
@@ -6038,7 +6080,10 @@ export default function App() {
     }
 
     if (navTab === "tools") {
-      return <ToolsView cases={data.cases} onUpdateCase={c => setData(updateCase(data, c))} />;
+      // Exhibit-only manual projects (created via Exhibit Studio's "+
+      // Manual Project" shortcut) skip real intake and don't belong in a
+      // tool's case picker here — see HLCase.exhibitOnly.
+      return <ToolsView cases={data.cases.filter(c => !c.exhibitOnly)} onUpdateCase={c => setData(updateCase(data, c))} />;
     }
 
     if (navTab === "profile") {
@@ -6060,17 +6105,38 @@ export default function App() {
     if (navTab === "builder") {
       if (view.type === "studio_workspace") {
         const studioCase = data.cases.find(c => c.id === view.caseId);
-        if (!studioCase) return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} onCreateManualProject={handleCreateManualProject} />;
+        if (!studioCase) return (
+          <ExhibitStudioView
+            cases={data.cases}
+            onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })}
+            onCreateCase={handleCreateNewCase}
+            onCreateManualProject={handleCreateManualProject}
+            isApex={planTier === "apex" || isTester}
+            onRequireApexUpgrade={() => setShowUpgradeGate(true)}
+            onCreateApexOverride={handleCreateApexOverride}
+          />
+        );
         return (
           <VideoWorkspaceView
             hlCase={studioCase}
             onUpdateCase={c => setData(updateCase(data, c))}
             onBack={() => setView({ type: "home" })}
             userId={user?.id}
+            isApex={planTier === "apex" || isTester}
           />
         );
       }
-      return <ExhibitStudioView cases={data.cases} onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })} onCreateCase={handleCreateNewCase} onCreateManualProject={handleCreateManualProject} />;
+      return (
+        <ExhibitStudioView
+          cases={data.cases}
+          onOpenStudio={caseId => setView({ type: "studio_workspace", caseId })}
+          onCreateCase={handleCreateNewCase}
+          onCreateManualProject={handleCreateManualProject}
+          isApex={planTier === "apex" || isTester}
+          onRequireApexUpgrade={() => setShowUpgradeGate(true)}
+          onCreateApexOverride={handleCreateApexOverride}
+        />
+      );
     }
 
     return (
@@ -6118,7 +6184,7 @@ export default function App() {
 
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
-          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.length} />
+          <DesktopSideNav active={navTab} onChange={handleNavChange} onFab={handleCreateNewCase} caseCount={data.cases.filter(c => !c.exhibitOnly).length} />
         )}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {!isOnline && (
@@ -6167,7 +6233,7 @@ export default function App() {
       {/* Floating case bubble strip — Index (tutor) tab only, mobile, when active cases exist */}
       {isMobile && navTab === "tutor" && (() => {
         const bubbleCases = [...data.cases]
-          .filter(c => c.status !== "closed")
+          .filter(c => c.status !== "closed" && !c.exhibitOnly)
           .sort((a, b) => b.createdAt - a.createdAt);
         return bubbleCases.length > 0
           ? <CaseBubbleBar cases={bubbleCases} onOpenCase={handleSelectTutorCase} />
@@ -6175,7 +6241,7 @@ export default function App() {
       })()}
 
       {isMobile && view.type !== "document_intake" && (
-        <BottomNavBar active={navTab} onChange={handleNavChange} caseCount={data.cases.length} />
+        <BottomNavBar active={navTab} onChange={handleNavChange} caseCount={data.cases.filter(c => !c.exhibitOnly).length} />
       )}
 
       {/* Admin/tester diagnostic log — mounted once here (not per-view) so it's

@@ -18,6 +18,7 @@ import { Timeline }              from "./exhibits/Timeline";
 import { QuoteFocus }            from "./exhibits/QuoteFocus";
 import { EvidenceGrid }          from "./exhibits/EvidenceGrid";
 import { SummaryBoard }          from "./exhibits/SummaryBoard";
+import { TestimonyCard }         from "./exhibits/TestimonyCard";
 
 type Orientation = "square" | "portrait";
 
@@ -40,6 +41,9 @@ function pickLayoutElement(content: Record<string, unknown>, orientation: Orient
     case "quote_focus":            return <QuoteFocus            data={p} orientation={o} />;
     case "evidence_grid":          return <EvidenceGrid          data={p} orientation={o} />;
     case "summary_board":          return <SummaryBoard          data={p} orientation={o} />;
+    // Testimony Card ignores orientation — it only ever renders at native
+    // 1920×1080, handled via the componentSize/fitScale special-case below.
+    case "testimony_card":         return <TestimonyCard         data={p} />;
     default: {
       const dim = orientation === "portrait" ? { width: 1080, height: 1920 } : { width: 1254, height: 1254 };
       return (
@@ -94,7 +98,14 @@ export async function renderAIExhibitSlide(
   // Scaling the component down to fit the host, still centered, pillarboxes
   // it (equal black bars left/right) instead — the originally intended look
   // per this file's own header comment.
-  const componentSize = orientation === "portrait" ? { w: 1080, h: 1920 } : { w: 1254, h: 1254 };
+  // Testimony Card is the one layout NOT designed at 1254×1254 (or
+  // 1080×1920 portrait) — it renders itself natively at full 1920×1080,
+  // matching the landscape host exactly, so fitScale is a no-op for it
+  // the same way it already is for portrait's matching native size.
+  const isTestimonyCard = content.layout === "testimony_card";
+  const componentSize = isTestimonyCard
+    ? { w: 1920, h: 1080 }
+    : orientation === "portrait" ? { w: 1080, h: 1920 } : { w: 1254, h: 1254 };
   const fitScale = Math.min(nativeW / componentSize.w, nativeH / componentSize.h);
 
   // 1. Off-screen host at native dimensions — black bg, component centered via flex

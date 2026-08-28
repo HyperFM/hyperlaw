@@ -1788,6 +1788,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const [showCutBuilder, setShowCutBuilder] = useState(false);
   const [showSuggestMoments, setShowSuggestMoments] = useState(false);
   const [showApexOverride, setShowApexOverride] = useState(false);
+  // ── Restart Project — wipes every moment/screen/organization on this
+  // project, three deliberate steps deep (explain → PIN → one more "are you
+  // sure" after the PIN) since unlike Delete All Screens, this can't be
+  // rebuilt with a button tap — it's genuinely everything, gone.
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [showRestartPin, setShowRestartPin] = useState(false);
+  const [showRestartFinalConfirm, setShowRestartFinalConfirm] = useState(false);
   // ── Chunk / step state ─────────────────────────────────────────
   const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
   // Deleted chunks live here instead of being thrown away — kept separate
@@ -3193,6 +3200,39 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       done++;
       onProgress(done, ordered.length, succeeded ? undefined : `Moment at ${formatTime(chunk.start)}: ${lastErrorMsg} — skipped after ${MAX_GENERATION_ATTEMPTS} attempts.`);
     }
+  }
+
+  // ── Restart Project — wipes every moment, screen, cut, and the
+  // transcript, back to a blank slate. The video itself stays loaded (it
+  // was never server-stored in the first place — see the local-only video
+  // model) so there's nothing to re-pick; only the WORK built on top of it
+  // is gone. Persisted immediately, not debounced through triggerAutosave —
+  // there's no undo waiting behind this the way there is for every other
+  // edit here, so it can't be left to a background retry.
+  function restartProject() {
+    const project = getOrCreateProject();
+    const reset: StudioProject = {
+      ...project,
+      markers: [],
+      chunks: [],
+      deletedChunks: [],
+      organizedSlots: Array(10).fill(null),
+      workflowStep: 1,
+      transcript: undefined,
+      updatedAt: Date.now(),
+    };
+    const updatedCase = { ...hlCase, studioProject: reset };
+    onUpdateCase(updatedCase);
+    api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>).catch(() => {});
+    setMarkersRaw([]);
+    setChunks([]);
+    setDeletedChunks([]);
+    setOrganizedSlots(Array(10).fill(null));
+    setCurrentStep(1);
+    setUndoStack([]);
+    setRedoStack([]);
+    generationAttemptsRef.current = {};
+    showInsertToast("Project restarted — every moment, screen, and cut has been cleared.");
   }
 
   // ── Unchunk — merges a chunk forward into the one ahead of it (not the one
@@ -4671,6 +4711,40 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           style={{ background: "none", border: "none", cursor: redoStack.length ? "pointer" : "not-allowed", padding: 4, opacity: redoStack.length ? 1 : 0.3 }}>
           <Redo2 size={15} color="#666" />
         </button>
+        {/* ── Restart Project — orange-outlined so it reads as distinct from
+            the plain Undo/Redo it sits next to, but not filled/solid the
+            way Emergency Fallback is, since that one needs to grab
+            attention under pressure and this one very deliberately
+            shouldn't be reached for casually. */}
+        {videoUrl && (
+          <button
+            onClick={() => setShowRestartConfirm(true)}
+            title="Restart this project — permanently deletes every moment, screen, and cut"
+            style={{ background: "none", border: `1.5px solid ${ORANGE}`, borderRadius: "50%", width: 24, height: 24, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 4 }}>
+            <RotateCcw size={12} color={ORANGE} />
+          </button>
+        )}
+        {/* ── APEX Override toggle — Apex Litigant tier only. Relocated here
+            from the persistent controls row so it's reachable from any
+            step, including on a project someone already built up manually —
+            not just a fresh empty one. Styled as a switch since tapping it
+            reads more like "switch this project over to the automatic
+            pipeline" than a one-off action button. */}
+        {videoUrl && isApex && (
+          <button
+            onClick={() => setShowApexOverride(true)}
+            title="APEX Override — transcribe this entire video and let AI find, cut, and mark the moments worth using"
+            style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", marginLeft: 2 }}>
+            <div style={{ width: 28, height: 15, borderRadius: 8, background: showApexOverride ? ORANGE : "#333", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 2, left: showApexOverride ? 15 : 2, width: 11, height: 11, borderRadius: "50%", background: "#000", transition: "left 0.2s" }} />
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 900, whiteSpace: "nowrap" }}>
+              {"APEX".split("").map((ch, i) => (
+                <span key={i} style={{ color: i % 2 === 0 ? ORANGE : "#999" }}>{ch}</span>
+              ))}
+            </span>
+          </button>
+        )}
         {/* Export moved to Step 4 (Verification Export) — no longer a
             top-bar shortcut, so export happens after the verification
             flow, not around it. */}
@@ -5084,23 +5158,6 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 border: `1px solid ${ORANGE}55`, borderRadius: 8, padding: "6px 12px", cursor: "pointer",
                 fontWeight: 800, fontSize: 12, color: ORANGE, marginRight: 10 }}>
               <FileAudio size={13} color={ORANGE} /> Suggest Moments from Testimony
-            </button>
-          )}
-
-          {/* APEX Override — Apex Litigant tier only, deliberately separate
-              from Suggest Moments above (see the modal's own header comment
-              for why). Works cold off the whole video, no prerequisite. */}
-          {videoUrl && isApex && (
-            <button
-              onClick={() => setShowApexOverride(true)}
-              title="Transcribe this entire video and let AI find, cut, and mark the moments worth using — no prep needed"
-              style={{ display: "flex", alignItems: "center", gap: 6, background: "none",
-                border: "1px solid #55555588", borderRadius: 8, padding: "6px 12px", cursor: "pointer",
-                fontWeight: 800, fontSize: 12, marginRight: 10 }}>
-              <Zap size={13} color="#888" />
-              {"APEX Override".split("").map((ch, i) => (
-                <span key={i} style={{ color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#999") }}>{ch}</span>
-              ))}
             </button>
           )}
 
@@ -6472,6 +6529,85 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         onClose={() => setShowDeleteAllScreensPin(false)}
         onSuccess={() => { setShowDeleteAllScreensPin(false); deleteAllExhibitScreens(); }}
       />
+
+      {/* ── Restart Project — step 1: explain, PIN required notice ────── */}
+      {showRestartConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowRestartConfirm(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: `1px solid ${ORANGE}`, borderRadius: 16, padding: 24, maxWidth: 360, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", border: `1.5px solid ${ORANGE}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <RotateCcw size={16} color={ORANGE} />
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Restart this project?</div>
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
+              This deletes every moment, every exhibit screen, and every cut on this project — everything gets wiped back to a blank slate. Your loaded video stays, but none of the work built on top of it does.
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 22 }}>
+              Your PIN is required to continue.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowRestartConfirm(false)}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => { setShowRestartConfirm(false); setShowRestartPin(true); }}
+                style={{ flex: 1, background: ORANGE, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#000", cursor: "pointer" }}>
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restart Project — step 2: PIN gate ─────────────────────────── */}
+      <PinGateModal
+        open={showRestartPin}
+        title="Confirm restarting this project"
+        description="Enter your PIN to continue restarting this project."
+        confirmLabel="Continue"
+        userId={userId}
+        onClose={() => setShowRestartPin(false)}
+        onSuccess={() => { setShowRestartPin(false); setShowRestartFinalConfirm(true); }}
+      />
+
+      {/* ── Restart Project — step 3: one more "are you sure" after the PIN
+          — this is genuinely everything on the project, gone for good, not
+          rebuildable with a button tap the way Delete All Screens is, so it
+          gets one extra deliberate step the other destructive actions here
+          don't. ────────────────────────────────────────────────────────── */}
+      {showRestartFinalConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 950, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowRestartFinalConfirm(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#161311", border: "1px solid #ef444488", borderRadius: 16, padding: 24, maxWidth: 360, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#2a0000", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertCircle size={17} color="#ef4444" />
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Do you really want to do this?</div>
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
+              You will lose every moment and every exhibit screen on this project, permanently. This isn't recoverable — nothing here is backed up beyond what's on your screen right now.
+            </div>
+            <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 22 }}>
+              If you want to keep the edited video you've already built, export it first — once you restart, that edit is gone.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowRestartFinalConfirm(false)}
+                style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => { setShowRestartFinalConfirm(false); restartProject(); }}
+                style={{ flex: 1, background: "#ef4444", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer" }}>
+                Yes, restart everything
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Jurisdiction result sheet ──────────────────────────────── */}
       {showVerifResult && verification && (

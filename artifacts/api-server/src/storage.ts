@@ -22,6 +22,15 @@ export class Storage {
       .where(eq(usersTable.id, userId));
   }
 
+  /** Test-only plan switcher — see the planTier column comment in schema.
+   *  Callers must check isAdmin/isTester themselves before calling this. */
+  async setPlanTier(userId: string, planTier: string) {
+    await db
+      .update(usersTable)
+      .set({ planTier, updatedAt: new Date() })
+      .where(eq(usersTable.id, userId));
+  }
+
   async getCreditBalance(userId: string): Promise<number> {
     const user = await this.getUser(userId);
     return user?.creditBalance ?? 0;

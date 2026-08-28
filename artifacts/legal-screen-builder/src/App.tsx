@@ -3435,13 +3435,50 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
 }
 
 // ─── PLANS OVERLAY ────────────────────────────────────────────────────────────
-function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCredits?: () => void }) {
+function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely, onPlanChanged }: {
+  onClose: () => void;
+  onBuyCredits?: () => void;
+  /** Which plan the account is actually on right now — drives the checkmark
+   *  badge below. */
+  currentPlanTier: string;
+  /** Admin/tester accounts only — see routes/stripe.ts's
+   *  POST /stripe/set-plan-tier. Everyone else keeps the original behavior
+   *  (closes this modal, opens the Credit Shop) since real billing isn't
+   *  wired up yet. */
+  canSwitchFreely: boolean;
+  /** Called after a successful free switch so the parent can refetch
+   *  planTier and recompute isApex everywhere it's used. */
+  onPlanChanged: () => void;
+}) {
   const [visible, setVisible] = useState(false);
   const [activeIndex, setActiveIndex] = useState(1);
   const startXRef = useRef(0);
   const currentXRef = useRef(0);
   const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  async function handlePlanClick(planId: string) {
+    // The free-tier card is a plain CTA into case-building, not a real
+    // "switch to this tier" action, for anyone — always the original
+    // behavior regardless of account type.
+    if (!canSwitchFreely || planId === "firstfiling") {
+      handleClose();
+      onBuyCredits?.();
+      return;
+    }
+    setSwitchError(null);
+    setSwitching(planId);
+    try {
+      await aiApi.setPlanTier(planId as "prosay" | "apex");
+      onPlanChanged();
+    } catch (err) {
+      setSwitchError((err as Error).message || "Couldn't switch plans — try again.");
+    } finally {
+      setSwitching(null);
+    }
+  }
 
   const ORANGE = "#F45D01";
   const ORANGE_HOT = "#FF7A1A";
@@ -3485,7 +3522,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
         { text: "<b>Readiness engine</b> — know your case strength before you file", tbd: false },
         { text: "<b>Advanced reminders</b> — deadline tracking across all your cases", tbd: false },
       ],
-      ctaLabel: "Select Pro-Say", ctaStyle: "primary" as const,
+      ctaLabel: "Speak Up", ctaStyle: "primary" as const,
     },
     {
       id: "apex", name: "Apex Litigant", tagline: "THE MANEATER PACKAGE — NO CAP",
@@ -3499,7 +3536,7 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
         { text: "<b>Priority everything</b> — support, Index, document analysis, front of the line", tbd: false },
         { text: "<b>Run your entire practice</b> — fight every battle at once, on your terms", tbd: false },
       ],
-      ctaLabel: "Select Apex Litigant", ctaStyle: "primary" as const,
+      ctaLabel: "Buy Down", ctaStyle: "primary" as const,
     },
   ];
 
@@ -3598,6 +3635,14 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
                           {plan.badge}
                         </div>
                       )}
+                      {/* Currently-selected marker — only ever true for
+                          admin/tester accounts right now, since that's the
+                          only path that actually sets planTier. */}
+                      {plan.id === currentPlanTier && (
+                        <div style={{ position: "absolute", top: 14, right: 14, width: 26, height: 26, borderRadius: "50%", background: "#000", border: `1.5px solid ${PAPER}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke={PAPER} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ width: 13, height: 13 }}><path d="M20 6L9 17l-5-5" /></svg>
+                        </div>
+                      )}
                       <div style={{ width: 128, height: 128, margin: "10px 0 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <img src={PLAN_ICONS[i]} alt={plan.name} style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(0 0 20px rgba(244,93,1,.4))", userSelect: "none" }} draggable={false} />
                       </div>
@@ -3618,14 +3663,15 @@ function PlansOverlay({ onClose, onBuyCredits }: { onClose: () => void; onBuyCre
                           </li>
                         ))}
                       </ul>
+                      {switchError && switching === null && plan.id !== "firstfiling" && (
+                        <div style={{ color: "#ff8080", fontSize: 11.5, marginBottom: 10, lineHeight: 1.5 }}>{switchError}</div>
+                      )}
                       <button
-                        onClick={() => {
-                          handleClose();
-                          onBuyCredits?.();
-                        }}
-                        style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none" }}
+                        onClick={() => handlePlanClick(plan.id)}
+                        disabled={switching !== null || plan.id === currentPlanTier}
+                        style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: (switching !== null || plan.id === currentPlanTier) ? "default" : "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.id === currentPlanTier ? "#000" : plan.ctaStyle === "primary" ? `linear-gradient(90deg,${ORANGE},${ORANGE_HOT})` : "transparent", color: plan.id === currentPlanTier ? PAPER : plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" && plan.id !== currentPlanTier ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none", opacity: switching !== null && switching !== plan.id ? 0.5 : 1 }}
                       >
-                        {plan.ctaLabel}
+                        {plan.id === currentPlanTier ? "✓ Selected" : switching === plan.id ? "Switching…" : plan.ctaLabel}
                       </button>
                     </div>
                   </div>
@@ -4206,7 +4252,7 @@ function DocumentIntakeView({
 }
 
 // ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
-function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted, openPlansSignal, trainingWheelsEnabled, onSetTrainingWheels }: {
+function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreator, onCasesDeleted, openPlansSignal, trainingWheelsEnabled, onSetTrainingWheels, planTier, canSwitchPlansFreely, onPlanChanged }: {
   data: AppData;
   onOpenCase: (c: HLCase) => void;
   onEasterEgg: () => void;
@@ -4217,6 +4263,9 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   openPlansSignal?: number;
   trainingWheelsEnabled: boolean;
   onSetTrainingWheels: (on: boolean) => void;
+  planTier: string;
+  canSwitchPlansFreely: boolean;
+  onPlanChanged: () => void;
 }) {
   const logout = useLogout();
   const signOut = (opts: { redirectUrl: string }) => {
@@ -4888,7 +4937,15 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         )}
       </div>
 
-      {showPlans && <PlansOverlay onClose={() => setShowPlans(false)} onBuyCredits={onBuyCredits} />}
+      {showPlans && (
+        <PlansOverlay
+          onClose={() => setShowPlans(false)}
+          onBuyCredits={onBuyCredits}
+          currentPlanTier={planTier}
+          canSwitchFreely={canSwitchPlansFreely}
+          onPlanChanged={onPlanChanged}
+        />
+      )}
       {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
       {showCreditHistory && <CreditHistoryModal onClose={() => setShowCreditHistory(false)} />}
     </div>
@@ -5311,6 +5368,7 @@ export default function App() {
   const [planTier, setPlanTier] = useState<string>("free");
   const [showCreditShop, setShowCreditShop] = useState(false);
   const [showUpgradeGate, setShowUpgradeGate] = useState(false);
+  const [showApexUpgradeGate, setShowApexUpgradeGate] = useState(false);
   const [openPlansSignal, setOpenPlansSignal] = useState(0);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
@@ -6098,6 +6156,9 @@ export default function App() {
           openPlansSignal={openPlansSignal}
           trainingWheelsEnabled={trainingWheelsEnabled}
           onSetTrainingWheels={setTrainingWheels}
+          planTier={planTier}
+          canSwitchPlansFreely={isAdmin || isTester}
+          onPlanChanged={fetchCreditBalance}
         />
       );
     }
@@ -6112,7 +6173,7 @@ export default function App() {
             onCreateCase={handleCreateNewCase}
             onCreateManualProject={handleCreateManualProject}
             isApex={planTier === "apex" || isTester}
-            onRequireApexUpgrade={() => setShowUpgradeGate(true)}
+            onRequireApexUpgrade={() => setShowApexUpgradeGate(true)}
             onCreateApexOverride={handleCreateApexOverride}
           />
         );
@@ -6133,7 +6194,7 @@ export default function App() {
           onCreateCase={handleCreateNewCase}
           onCreateManualProject={handleCreateManualProject}
           isApex={planTier === "apex" || isTester}
-          onRequireApexUpgrade={() => setShowUpgradeGate(true)}
+          onRequireApexUpgrade={() => setShowApexUpgradeGate(true)}
           onCreateApexOverride={handleCreateApexOverride}
         />
       );
@@ -6301,6 +6362,43 @@ export default function App() {
             </button>
             <button
               onClick={() => setShowUpgradeGate(false)}
+              style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>
+              Not Now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── APEX Override upgrade gate — deliberately separate from the
+          generic Free Plan Limit gate above (that one's copy, "you've used
+          your free case," is just factually wrong here — someone can hit
+          this with cases to spare, just not on Apex). Same pitch as the
+          APEX Override option in the New Project picker. ────────────── */}
+      {showApexUpgradeGate && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 500, display: "flex", alignItems: "flex-end" }}
+          onClick={() => setShowApexUpgradeGate(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "28px 24px calc(28px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+            <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 24px" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: `${ORANGE}18`, border: `1px solid ${ORANGE}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertCircle size={20} color={ORANGE} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 2 }}>Apex Litigant Exclusive</div>
+                <div style={{ color: "#555", fontSize: 13 }}>APEX Override isn't on your current plan</div>
+              </div>
+            </div>
+            <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
+              This is man eater material. Load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower — but it's Apex Litigant only.
+            </p>
+            <button
+              onClick={() => { setShowApexUpgradeGate(false); setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" }); }}
+              style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
+              View Plans &amp; Upgrade
+            </button>
+            <button
+              onClick={() => setShowApexUpgradeGate(false)}
               style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>
               Not Now
             </button>

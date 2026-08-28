@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Info, ChevronRight, CheckCircle2, AlertCircle, XCircle, Folder, Film, X, FolderOpen, Zap } from "lucide-react";
+import { Info, ChevronRight, CheckCircle2, AlertCircle, XCircle, Folder, Film, X, FolderOpen, Zap, Plus, FilePlus2, PenLine } from "lucide-react";
 import type { HLCase } from "../../types";
 
 const ORANGE = "#d9711f";
@@ -19,25 +19,32 @@ interface Props {
    *  project to one of their existing cases in the picker below. */
   onCreateManualProject: () => void;
   /** Apex Litigant tier gate for the APEX Override entry point below —
-   *  the button itself stays visible to everyone (so it's discoverable,
+   *  the option itself stays visible to everyone (so it's discoverable,
    *  not hidden behind a wall), but a non-Apex click goes to
    *  onRequireApexUpgrade instead of opening the picker. */
   isApex: boolean;
   onRequireApexUpgrade: () => void;
   /** Same shape as onCreateManualProject — exhibitOnly shell case, video
-   *  workspace's own APEX Override button (Apex-gated) does the real work
-   *  once a video is loaded. */
+   *  workspace's own APEX Override toggle does the real work once a video
+   *  is loaded. */
   onCreateApexOverride: () => void;
 }
 
 export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, onCreateManualProject, isApex, onRequireApexUpgrade, onCreateApexOverride }: Props) {
   const [showInfo, setShowInfo] = useState(false);
+  const [showNewProjectPicker, setShowNewProjectPicker] = useState(false);
   const [showManualPicker, setShowManualPicker] = useState(false);
   const [showApexPicker, setShowApexPicker] = useState(false);
 
-  function handleApexButtonClick() {
+  function handleApexOptionClick() {
     if (!isApex) { onRequireApexUpgrade(); return; }
+    setShowNewProjectPicker(false);
     setShowApexPicker(true);
+  }
+
+  function handleManualOptionClick() {
+    setShowNewProjectPicker(false);
+    setShowManualPicker(true);
   }
 
   const sorted = [...cases].sort((a, b) => b.createdAt - a.createdAt);
@@ -90,42 +97,25 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
           <div style={{ fontSize: 13, color: "#444", maxWidth: 260, lineHeight: 1.55, marginBottom: 6 }}>
             Create a case first, then build exhibits from your video evidence.
           </div>
-          <button onClick={onCreateCase} style={{
-            background: `linear-gradient(90deg, ${ORANGE}, #ff8c00)`, border: "none",
+          <button onClick={() => setShowNewProjectPicker(true)} style={{
+            background: "#fff", border: "none",
             borderRadius: 12, padding: "12px 24px", color: "#000", fontSize: 14, fontWeight: 900,
-            cursor: "pointer",
+            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8,
           }}>
-            New Case
-          </button>
-          <button onClick={() => setShowManualPicker(true)} style={{ background: "none", border: "none", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
-            + Manual Project — skip case setup, just start editing
-          </button>
-          <button onClick={handleApexButtonClick} style={{ background: "none", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 10, display: "flex", alignItems: "center", gap: 4 }}>
-            <Zap size={12} color="#888" />
-            <span style={{ color: "#888" }}>+</span>
-            {"APEX Override".split("").map((ch, i) => (
-              <span key={i} style={{ color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#888") }}>{ch}</span>
-            ))}
+            <Plus size={16} color="#000" /> New Project
           </button>
         </div>
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>SELECT A CASE</div>
-            <div style={{ display: "flex", gap: 14 }}>
-              <button onClick={() => setShowManualPicker(true)} style={{ background: "none", border: "none", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
-                + Manual Project
-              </button>
-              <button onClick={handleApexButtonClick} style={{ background: "none", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3 }}>
-                <span style={{ color: "#888" }}>+</span>
-                {"APEX Override".split("").map((ch, i) => (
-                  <span key={i} style={{ color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#888") }}>{ch}</span>
-                ))}
-              </button>
-              <button onClick={onCreateCase} style={{ background: "none", border: "none", color: ORANGE, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
-                + New Case
-              </button>
-            </div>
+            <button onClick={() => setShowNewProjectPicker(true)} style={{
+              background: "#fff", border: "none", borderRadius: 8, padding: "6px 14px",
+              color: "#000", fontSize: 12, fontWeight: 800, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 5,
+            }}>
+              <Plus size={13} color="#000" /> New Project
+            </button>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map(c => {
@@ -166,6 +156,81 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
         </>
       )}
       </div>
+
+      {/* ── New Project picker — one entry point, three explained options.
+          Explanation sits right on each option, always visible, not
+          revealed after tapping — so the choice is informed up front. ──── */}
+      {showNewProjectPicker && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 900,
+          display: "flex", alignItems: "flex-end", justifyContent: "center",
+        }} onClick={() => setShowNewProjectPicker(false)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 480, maxHeight: "85vh", overflowY: "auto",
+              background: "#111", border: "1px solid #222", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+              padding: "20px 20px calc(20px + env(safe-area-inset-bottom))",
+            }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>New Project</div>
+              <button onClick={() => setShowNewProjectPicker(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 4, display: "flex" }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* New Case — first, recommended */}
+              <button onClick={() => { setShowNewProjectPicker(false); onCreateCase(); }}
+                style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", width: "100%" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = ORANGE + "55")}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <FilePlus2 size={17} color={ORANGE} />
+                  <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>New Case</div>
+                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: ORANGE, letterSpacing: 0.3, textTransform: "uppercase" }}>Recommended</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: "#999", lineHeight: 1.55 }}>
+                  Creates a new case across your whole HyperLaw account, registered with every tool for the full experience. This is the recommended way to start another project in Exhibit Studio.
+                </div>
+              </button>
+
+              {/* APEX Override — second */}
+              <button onClick={handleApexOptionClick}
+                style={{ background: "#0d0d0d", border: "1px solid #333", borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", width: "100%" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "88")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <Zap size={17} color={ORANGE} />
+                  {"APEX Override Project".split("").map((ch, i) => (
+                    <span key={i} style={{ fontWeight: 800, fontSize: 15, color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#ccc") }}>{ch}</span>
+                  ))}
+                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: "#666", letterSpacing: 0.3, textTransform: "uppercase" }}>Apex Litigant</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: "#999", lineHeight: 1.55 }}>
+                  Apex Litigant exclusive. This is man eater material — load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower.
+                </div>
+              </button>
+
+              {/* Manual Project — last, not recommended */}
+              <button onClick={handleManualOptionClick}
+                style={{ background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", width: "100%" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = "#555")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <PenLine size={17} color="#888" />
+                  <div style={{ fontWeight: 800, fontSize: 15, color: "#ccc" }}>Manual Project</div>
+                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: "#777", letterSpacing: 0.3, textTransform: "uppercase" }}>Not Recommended</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: "#777", lineHeight: 1.55 }}>
+                  Starts a project from scratch, not tied to any case — for whatever reason you need that. Not recommended if you want the full HyperLaw experience, with every tool working together off the same case for the most effective result.
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Manual Project picker — is this for an existing case? ───────── */}
       {showManualPicker && (

@@ -277,6 +277,12 @@ export const usersTable = pgTable("users", {
   adminSecurityAnswerHash: text("admin_security_answer_hash"),
   stripeCustomerId: text("stripe_customer_id"),
   creditBalance: integer("credit_balance").notNull().default(0),
+  /** "free" | "prosay" | "apex" — real Stripe billing isn't wired up yet
+   *  (see routes/stripe.ts), so this is set directly via
+   *  POST /stripe/set-plan-tier, which only isAdmin/isTester accounts can
+   *  call — a test-only switcher, not a real subscription. Once Stripe is
+   *  live, this becomes the source of truth /stripe/credits reads from. */
+  planTier: text("plan_tier").notNull().default("free"),
   /** True once the user has dismissed the one-time Welcome modal (per-user, not per-device). */
   hasSeenWelcome: boolean("has_seen_welcome").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),

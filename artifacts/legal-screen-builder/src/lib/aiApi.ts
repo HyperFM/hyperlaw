@@ -666,6 +666,13 @@ export const aiApi = {
     return aiFetch("/stripe/credits");
   },
 
+  /** Test-only plan switcher while real Stripe billing is disabled —
+   *  admin/tester accounts only, enforced server-side. Rejects with a
+   *  clear error for anyone else. */
+  setPlanTier(planTier: "free" | "prosay" | "apex"): Promise<{ planTier: string }> {
+    return aiFetch("/stripe/set-plan-tier", { method: "POST", body: JSON.stringify({ planTier }) });
+  },
+
   /** List credit-pack products from Stripe */
   creditProducts(): Promise<{ data: CreditProduct[] }> {
     return aiFetch("/stripe/products");

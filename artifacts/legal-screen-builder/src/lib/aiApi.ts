@@ -1040,6 +1040,24 @@ export const aiApi = {
   }): Promise<{ moments: Array<{ id: string; start: number; end: number; label: string; reason: string }> }> {
     return aiFetch("/transcript/find-moments", { method: "POST", body: JSON.stringify(input) });
   },
+
+  /** "Analyze Photos as Evidence" — every currently-inserted photo, sent
+   *  together in one call (order matters: `photos` results are indexed to
+   *  match the order `photoFiles` was given in) so Claude can catch
+   *  redundancy across the whole set, not just describe each in isolation.
+   *  Free studio tool, no credit charge — same as exhibit-screen
+   *  generation and the transcript routes. */
+  analyzePhotos(
+    caseId: string,
+    photoFiles: Blob[],
+    momentsTimeline: Array<{ timestamp: string; label: string }>,
+  ): Promise<{ photos: Array<{ index: number; contribution: string; redundant: boolean; redundantBecause: string | null }> }> {
+    const form = new FormData();
+    form.append("caseId", caseId);
+    form.append("momentsTimeline", JSON.stringify(momentsTimeline));
+    photoFiles.forEach((f, i) => form.append("photos", f, `photo-${i}.jpg`));
+    return aiFetch("/exhibit/analyze-photos", { method: "POST", body: form });
+  },
 };
 
 // ── Formatting helpers (used by AdminPanel) ───────────────────────────────────

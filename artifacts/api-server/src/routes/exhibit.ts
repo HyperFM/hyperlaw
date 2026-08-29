@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import multer from "multer";
 import { getAuth } from "../services/auth.js";
 import { aiService, MODEL } from "../services/ai.js";
 import { logAiCall } from "../services/aiCache.js";
@@ -11,6 +12,18 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const { userId } = getAuth(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   next();
+}
+
+const uploadPhotos = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+function handlePhotoUploadError(err: unknown, _req: Request, res: Response, next: NextFunction): void {
+  if (err && (err as NodeJS.ErrnoException).code === "LIMIT_FILE_SIZE") {
+    res.status(413).json({ error: "One of those photos is too large. Maximum size is 20 MB each." });
+    return;
+  }
+  next(err);
 }
 
 // ── Source verification ───────────────────────────────────────────────────────
@@ -708,5 +721,125 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
 
   res.json({ candidates, recommendedIndex, recommendationReason });
 });
+
+// ── POST /exhibit/analyze-photos ────────────────────────────────────────────
+// Vision analysis for photos inserted into the video timeline as evidence
+// (media_insert markers, client-side only — see MediaInsert in types.ts).
+// Analyzes every photo in ONE call, together, so Claude can catch
+// redundancy ACROSS the set (a photo that shows nothing a sibling photo or
+// an existing moment doesn't already cover) — not just describe each photo
+// in isolation. A free studio tool, same as /exhibit/generate and the
+// transcript routes — logged via logAiCall for cost visibility, never
+// billed to the user.
+router.post(
+  "/exhibit/analyze-photos",
+  requireAuth,
+  uploadPhotos.array("photos", 12),
+  handlePhotoUploadError,
+  async (req: Request, res: Response): Promise<void> => {
+    const { userId } = getAuth(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const multerReq = req as Request & { files?: Array<{ buffer: Buffer; mimetype: string; originalname: string }> };
+    const files = multerReq.files ?? [];
+    if (files.length === 0) { res.status(400).json({ error: "No photos provided" }); return; }
+
+    const { caseId } = req.body as { caseId?: string };
+    if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
+
+    let momentsTimeline: Array<{ timestamp: string; label: string }> = [];
+    try {
+      const raw = req.body.momentsTimeline;
+      if (typeof raw === "string" && raw.trim()) momentsTimeline = JSON.parse(raw);
+    } catch { /* malformed timeline JSON — proceed without it rather than fail the whole request */ }
+
+    const [caseRow] = await db
+      .select()
+      .from(casesTable)
+      .where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+
+    if (!caseRow) { res.status(404).json({ error: "Case not found" }); return; }
+
+    const cd = (caseRow.caseData ?? {}) as Record<string, unknown>;
+    const { partiesBlock, courtBlock } = buildPartiesAndCourtBlocks(cd);
+    const contextBlock = [partiesBlock, courtBlock, buildStructuredCaseBlock(cd)].filter(Boolean).join("\n\n");
+
+    const timelineBlock = momentsTimeline.length > 0
+      ? `OTHER MOMENTS ALREADY IN THIS VIDEO (for checking whether a photo shows something already covered elsewhere — not something to describe):\n${momentsTimeline.map(m => `${m.timestamp}: ${m.label}`).join("\n")}`
+      : null;
+
+    const imageBlocks = files.map(f => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: (f.mimetype || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        data: f.buffer.toString("base64"),
+      },
+    }));
+
+    const systemPrompt = `You are reviewing photos a self-represented litigant is inserting as evidence into a video-based exhibit. The photos are given to you in order, numbered 0 through ${files.length - 1} in that order.
+
+For EACH photo, in light of the case's known parties/court/claims below and every OTHER photo in this same set, determine:
+1. What this specific photo actually contributes as evidence — what it shows and what it proves or supports. Be concrete and specific to what's actually visible, not generic ("shows the scene").
+2. Whether it's REDUNDANT — meaning it shows nothing that isn't already fully covered by another photo in this set or by one of the other moments listed below. A photo is NOT redundant just because it's related to the same event as another photo — it's redundant only when it adds no new information a viewer wouldn't already have from what's already there.
+
+${contextBlock ? `${contextBlock}\n\n` : ""}${timelineBlock ? `${timelineBlock}\n\n` : ""}Respond with ONLY raw JSON, no markdown fences, no commentary, in this exact shape:
+{"photos": [{"index": <number, 0-based, matching the order given>, "contribution": "<one or two sentences, specific to this photo>", "redundant": <bool>, "redundantBecause": "<if redundant, name specifically what already covers this — otherwise null>"}]}`;
+
+    const start = Date.now();
+    let response: Awaited<ReturnType<typeof aiService.createMessage>>;
+    try {
+      response = await aiService.createMessage({
+        model: MODEL,
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: [...imageBlocks, { type: "text", text: "Analyze these photos as described." }] }],
+      }, { timeoutMs: 120_000 });
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      console.error(`[exhibit-analyze-photos] AI call failed status=${status ?? "?"}`, err);
+      res.status(status && status < 500 ? status : 502).json({ error: "Couldn't analyze these photos right now — try again." });
+      return;
+    }
+
+    {
+      const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+      void logAiCall({
+        userId,
+        feature: "exhibit_analyze_photos",
+        model: MODEL,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        estimatedCostMicroUsd,
+        responseTimeMs: Date.now() - start,
+        cacheHit,
+      });
+    }
+
+    const rawText = response.content.find(b => b.type === "text")?.text ?? "";
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) { res.json({ photos: [] }); return; }
+
+    let rawPhotos: Array<{ index?: number; contribution?: string; redundant?: boolean; redundantBecause?: string | null }> = [];
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as { photos?: typeof rawPhotos };
+      rawPhotos = Array.isArray(parsed.photos) ? parsed.photos : [];
+    } catch {
+      res.json({ photos: [] });
+      return;
+    }
+
+    const photos = rawPhotos
+      .filter(p => typeof p.index === "number" && p.index >= 0 && p.index < files.length && typeof p.contribution === "string")
+      .map(p => ({
+        index: p.index as number,
+        contribution: p.contribution as string,
+        redundant: p.redundant === true,
+        redundantBecause: typeof p.redundantBecause === "string" ? p.redundantBecause : null,
+      }));
+
+    res.json({ photos });
+  },
+);
 
 export default router;

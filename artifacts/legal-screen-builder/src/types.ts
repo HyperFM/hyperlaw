@@ -216,6 +216,15 @@ export interface MediaInsert {
   fileName: string;
   /** Populated for clips after loadedmetadata fires */
   durationSec?: number;
+  /** Set once "Analyze Photos as Evidence" has looked at this photo —
+   *  what it actually contributes as evidence, per Claude, considering the
+   *  case's known details and every other photo/moment in the video. */
+  evidenceContribution?: string;
+  /** True when Claude found this photo redundant with another photo or
+   *  moment already in the video — see redundantBecause for what it
+   *  duplicates. Undefined until analyzed. */
+  redundant?: boolean;
+  redundantBecause?: string;
 }
 
 /** Data for a screen that is cut into the video at a specific timestamp */

@@ -1795,6 +1795,9 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showRestartPin, setShowRestartPin] = useState(false);
   const [showRestartFinalConfirm, setShowRestartFinalConfirm] = useState(false);
+  // ── Analyze Photos as Evidence ──────────────────────────────────
+  const [analyzingPhotos, setAnalyzingPhotos] = useState(false);
+  const [photoAnalysisError, setPhotoAnalysisError] = useState<string | null>(null);
   // ── Chunk / step state ─────────────────────────────────────────
   const [chunks, setChunks] = useState<VideoChunk[]>(() => hlCase.studioProject?.chunks ?? []);
   // Deleted chunks live here instead of being thrown away — kept separate
@@ -4346,6 +4349,59 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     );
   }
 
+  // ── Analyze Photos as Evidence — every currently-inserted photo, sent
+  // together in one call so Claude can catch redundancy ACROSS the set
+  // (a photo that adds nothing a sibling photo or another moment doesn't
+  // already cover), not just describe each one alone. Free studio tool,
+  // same cost treatment as Generate Screens. blobUrls are re-fetchable
+  // within the same session (never revoked until unmount), so this needs
+  // no change to how insertPhotosForMoments already stores photos.
+  async function analyzePhotosAsEvidence() {
+    if (analyzingPhotos) return;
+    const photoMarkers = markers.filter(m => m.type === "media_insert" && m.mediaInsert?.kind === "photo");
+    if (photoMarkers.length === 0) {
+      showInsertToast("No inserted photos to analyze yet — use Insert Exhibit first.");
+      return;
+    }
+    setAnalyzingPhotos(true);
+    setPhotoAnalysisError(null);
+    try {
+      const blobs = await Promise.all(photoMarkers.map(async m => (await fetch(m.mediaInsert!.blobUrl)).blob()));
+      const momentsTimeline = orderedChunksForExhibit()
+        .filter(c => c.label.trim())
+        .map(c => ({ timestamp: formatTime(c.start), label: c.label }));
+      const { photos } = await aiApi.analyzePhotos(hlCase.id, blobs, momentsTimeline);
+      // AI's 0-based `index` matches the order blobs were sent in, i.e. the
+      // order of photoMarkers above — map back to marker id so the update
+      // below is correct even if markers changed shape while this was in flight.
+      const markerIdByIndex = photoMarkers.map(m => m.id);
+      const resultByMarkerId = new Map(photos.map(p => [markerIdByIndex[p.index], p]));
+      const updated = markersRef.current.map(m => {
+        const result = resultByMarkerId.get(m.id);
+        if (!result || m.type !== "media_insert" || !m.mediaInsert) return m;
+        return {
+          ...m,
+          mediaInsert: {
+            ...m.mediaInsert,
+            evidenceContribution: result.contribution,
+            redundant: result.redundant,
+            redundantBecause: result.redundantBecause ?? undefined,
+          },
+        };
+      });
+      setMarkers(updated, false);
+      const redundantCount = photos.filter(p => p.redundant).length;
+      showInsertToast(
+        `Analyzed ${photos.length} photo${photos.length !== 1 ? "s" : ""}` +
+        (redundantCount > 0 ? ` — ${redundantCount} flagged as redundant.` : " — all contribute something distinct.")
+      );
+    } catch (err) {
+      setPhotoAnalysisError((err as Error).message || "Couldn't analyze these photos — try again.");
+    } finally {
+      setAnalyzingPhotos(false);
+    }
+  }
+
   // ── Emergency fallback — fills in ONLY the moments that don't already
   // have a screen, with a plain "Exhibit N of Total" placeholder. Never
   // deletes or replaces anything — every existing exhibit_screen (AI-
@@ -5866,6 +5922,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <ImageIcon size={15} /> Insert Exhibit (photos, in order)
             </button>
 
+            {/* Analyze Photos as Evidence — reviews every inserted photo
+                together (not one at a time) so redundancy across the set
+                gets caught, not just a description of each photo alone. */}
+            {markers.some(m => m.type === "media_insert" && m.mediaInsert?.kind === "photo") && (
+              <button
+                onClick={analyzePhotosAsEvidence}
+                disabled={analyzingPhotos || batchGenerating}
+                style={{ width: "100%", marginTop: 8, background: "none", border: `1px solid ${ORANGE}55`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: (analyzingPhotos || batchGenerating) ? "default" : "pointer", fontWeight: 700, fontSize: 13, color: analyzingPhotos ? "#444" : ORANGE }}>
+                {analyzingPhotos
+                  ? <><Loader2 size={15} className="animate-spin" /> Analyzing photos…</>
+                  : <><Eye size={15} /> Analyze Photos as Evidence</>}
+              </button>
+            )}
+            {photoAnalysisError && (
+              <div style={{ marginTop: 8, background: "#1a0000", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 12px", fontSize: 12, color: "#ff8080" }}>
+                {photoAnalysisError}
+              </div>
+            )}
+
             {batchErrors.length > 0 && (
               <div style={{ marginTop: 10, background: "#1a0000", border: "1px solid #4a1515", borderRadius: 10, padding: "10px 12px" }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#ef4444", marginBottom: 6 }}>
@@ -5888,20 +5963,39 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 {orderedChunksForExhibit().map((c, i) => {
                   const screenMarker = exhibitMarkerForChunk(c.id);
                   if (screenMarker?.type === "media_insert" && screenMarker.mediaInsert) {
+                    const mi = screenMarker.mediaInsert;
                     return (
-                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
-                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
-                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
-                        <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
-                          <img src={screenMarker.mediaInsert.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      <div key={c.id}
+                        style={{ background: "#0d0d0d", border: `1px solid ${mi.redundant ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <button onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                            style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, flex: 1, minWidth: 0 }}>
+                            <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
+                              <img src={mi.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#999" }}>
+                                {mi.evidenceContribution ?? "Tap to view · Inserted photo"}
+                              </div>
+                            </div>
+                          </button>
+                          {mi.redundant && (
+                            <button onClick={() => removeChunk(c.id)} title="Delete this moment — its photo was flagged as redundant"
+                              style={{ background: "none", border: "1px solid #f59e0b55", borderRadius: 8, padding: 6, cursor: "pointer", flexShrink: 0, display: "flex" }}>
+                              <Trash2 size={13} color="#f59e0b" />
+                            </button>
+                          )}
                         </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                        {mi.redundant && (
+                          <div style={{ marginTop: 8, display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, color: "#f59e0b", lineHeight: 1.5 }}>
+                            <AlertCircle size={12} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span>Redundant — {mi.redundantBecause ?? "doesn't show anything not already covered elsewhere."}</span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view · Inserted photo</div>
-                        </div>
-                      </button>
+                        )}
+                      </div>
                     );
                   }
                   if (screenMarker?.type === "exhibit_screen" && screenMarker.exhibitScreen) {
@@ -5999,20 +6093,39 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 {orderedChunksForExhibit().map((c, i) => {
                   const screenMarker = exhibitMarkerForChunk(c.id);
                   if (screenMarker?.type === "media_insert" && screenMarker.mediaInsert) {
+                    const mi = screenMarker.mediaInsert;
                     return (
-                      <button key={c.id} onClick={() => setViewingScreenMarkerId(screenMarker.id)}
-                        style={{ background: "#0d0d0d", border: `1px solid ${ORANGE}44`, borderRadius: 12, padding: 10,
-                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}>
-                        <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
-                          <img src={screenMarker.mediaInsert.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      <div key={c.id}
+                        style={{ background: "#0d0d0d", border: `1px solid ${mi.redundant ? "#f59e0b" : ORANGE + "44"}`, borderRadius: 12, padding: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <button onClick={() => setViewingScreenMarkerId(screenMarker.id)}
+                            style={{ display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, flex: 1, minWidth: 0 }}>
+                            <div style={{ width: 1920 * 0.045, height: 1080 * 0.045, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "#000" }}>
+                              <img src={mi.blobUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#999" }}>
+                                {mi.evidenceContribution ?? "Tap to view · Inserted photo"}
+                              </div>
+                            </div>
+                          </button>
+                          {mi.redundant && (
+                            <button onClick={() => removeChunk(c.id)} title="Delete this moment — its photo was flagged as redundant"
+                              style={{ background: "none", border: "1px solid #f59e0b55", borderRadius: 8, padding: 6, cursor: "pointer", flexShrink: 0, display: "flex" }}>
+                              <Trash2 size={13} color="#f59e0b" />
+                            </button>
+                          )}
                         </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 10, color: ORANGE, fontWeight: 800, letterSpacing: 0.5, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            SCREEN {i + 1} · {formatTime(c.start)}–{formatTime(c.end)}
+                        {mi.redundant && (
+                          <div style={{ marginTop: 8, display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, color: "#f59e0b", lineHeight: 1.5 }}>
+                            <AlertCircle size={12} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span>Redundant — {mi.redundantBecause ?? "doesn't show anything not already covered elsewhere."}</span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#999" }}>Tap to view · Inserted photo</div>
-                        </div>
-                      </button>
+                        )}
+                      </div>
                     );
                   }
                   if (screenMarker?.type === "exhibit_screen" && screenMarker.exhibitScreen) {

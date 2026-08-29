@@ -40,7 +40,8 @@ export type AiFeature =
   | "court_script"
   | "tutor_help"
   | "transcript_match_moments"
-  | "transcript_find_moments";
+  | "transcript_find_moments"
+  | "exhibit_analyze_photos";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

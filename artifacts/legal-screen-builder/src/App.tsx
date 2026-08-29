@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser, Mic,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -942,6 +942,100 @@ function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase }: {
               style={{ width: i === selected ? 20 : 6, height: 6, borderRadius: 3, border: "none", padding: 0, cursor: "pointer",
                 background: i === selected ? ORANGE : "#333", transition: "width 0.2s, background 0.2s" }} />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Case Start Choice ───────────────────────────────────────────────────────
+// Shown right after a case gets named, before anything else — the old flow
+// dropped straight into "Who Was Involved" (PartiesView) unconditionally,
+// which meant anyone who didn't want to start there had to click Back out
+// of a step they never chose. Three real starting points instead, matching
+// how differently people actually have their case ready: a full narrative
+// in their own words (parties can be "Jane Doe" placeholders for now — real
+// names/details are something to fill in later, not a blocker to starting),
+// an existing complaint document to extract from, or the original guided
+// step-by-step wizard for anyone who wants that structure.
+function CaseStartChoiceView({ hlCase, onTellStory, onSubmitComplaint, onFullIntake, uploading, uploadPct, uploadError, onClearUploadError }: {
+  hlCase: HLCase;
+  onTellStory: () => void;
+  onSubmitComplaint: (file: File) => void;
+  onFullIntake: () => void;
+  uploading: boolean;
+  uploadPct: number;
+  uploadError: string | null;
+  onClearUploadError: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 60px" }}>
+      <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 6 }}>{hlCase.title}</div>
+      <div style={{ color: "#555", fontSize: 14, lineHeight: 1.6, marginBottom: 28 }}>
+        How do you want to start? Pick whichever actually matches where you're at right now.
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png"
+        style={{ display: "none" }}
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) { onClearUploadError(); onSubmitComplaint(f); }
+          e.target.value = "";
+        }}
+      />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button onClick={onTellStory} disabled={uploading}
+          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 16, padding: 18, textAlign: "left", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.5 : 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <Mic size={17} color={ORANGE} />
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Tell the Whole Story</div>
+          </div>
+          <div style={{ fontSize: 13, color: "#999", lineHeight: 1.55 }}>
+            Write out everything that happened, in your own words — every party involved and what you feel was done wrong. Don't know a name? List them as "Jane Doe" and explain why they matter; you can fill in the real details later.
+          </div>
+        </button>
+
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+          style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 16, padding: 18, textAlign: "left", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.7 : 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <Upload size={17} color="#ccc" />
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Submit a Complaint</div>
+          </div>
+          <div style={{ fontSize: 13, color: "#999", lineHeight: 1.55 }}>
+            Already have a complaint or similar document? Upload it and we'll pull your case details out of it for you.
+          </div>
+          {uploading && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ height: 4, background: "#1e1e1e", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${uploadPct}%`, height: "100%", background: ORANGE, transition: "width 0.2s" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>Uploading…</div>
+            </div>
+          )}
+        </button>
+
+        <button onClick={onFullIntake} disabled={uploading}
+          style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 16, padding: 18, textAlign: "left", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.5 : 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <Users size={17} color="#ccc" />
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Go Through Full Intake</div>
+          </div>
+          <div style={{ fontSize: 13, color: "#999", lineHeight: 1.55 }}>
+            Answer a few guided steps — who was involved, your court, your story, your timeline. The original step-by-step way.
+          </div>
+        </button>
+      </div>
+
+      {uploadError && (
+        <div style={{ marginTop: 16, padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 10, fontSize: 13, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+          {uploadError}
+          <button onClick={onClearUploadError} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 0, marginLeft: "auto" }}><X size={12} /></button>
         </div>
       )}
     </div>
@@ -5310,9 +5404,10 @@ type AppView =
   | { type: "home" }
   | { type: "incident_detail"; incident: Incident }
   | { type: "case_detail"; hlCase: HLCase }
+  | { type: "case_start_choice"; caseId: string }
   | { type: "case_parties"; caseId: string }
   | { type: "case_court"; caseId: string }
-  | { type: "case_story"; caseId: string }
+  | { type: "case_story"; caseId: string; cameFromStartChoice?: boolean }
   | { type: "case_timeline"; caseId: string }
   | { type: "case_review"; caseId: string }
   | { type: "case_assembly"; caseId: string }
@@ -5321,7 +5416,12 @@ type AppView =
   | { type: "studio" }
   | { type: "studio_workspace"; caseId: string }
   | { type: "about_creator" }
-  | { type: "document_intake"; docId: string; caseId: string; fileName: string };
+  // deleteOnCancel: false when this document_intake is attached to an
+  // already-named case (came from case_start_choice's "Submit a Complaint"
+  // option) — canceling must NOT delete a case the user deliberately
+  // named. Defaults to true (delete) for the original Home-screen
+  // upload-creates-a-case flow, which still owns a throwaway placeholder.
+  | { type: "document_intake"; docId: string; caseId: string; fileName: string; deleteOnCancel?: boolean };
 
 export default function App() {
   const w = useWindowWidth();
@@ -5718,8 +5818,10 @@ export default function App() {
       api.cases.savePhoto(newCase.id, newCasePhotoPending).catch(() => {});
     }
     setShowNewCaseNaming(false);
-    // Stay on current tab — workflow views render under any navTab
-    setView({ type: "case_parties", caseId: newCase.id });
+    // Stay on current tab — workflow views render under any navTab.
+    // Goes to the start-choice screen, not straight into "who was
+    // involved" — see case_start_choice for why.
+    setView({ type: "case_start_choice", caseId: newCase.id });
   }
 
   // Same minimal case shell as handleCreateNewCase, but skips the intake
@@ -5862,7 +5964,30 @@ export default function App() {
 
       // Step 3: Route to the intake wizard — NOT directly to case_detail
       setNavTab("home");
-      setView({ type: "document_intake", docId: result.docId, caseId: newCase.id, fileName: file.name });
+      setView({ type: "document_intake", docId: result.docId, caseId: newCase.id, fileName: file.name, deleteOnCancel: true });
+    } catch (err: unknown) {
+      setNewCaseUploadError((err as Error).message || "Upload failed. Please try again.");
+    } finally {
+      setNewCaseUploading(false);
+      setNewCaseUploadPct(0);
+    }
+  }
+
+  // Same document-upload/extraction pipeline as handleUploadForNewCase
+  // above, but for a case that's already been named (case_start_choice's
+  // "Submit a Complaint" option) — no case gets created here, and
+  // canceling out of the resulting document_intake screen must not
+  // delete the user's already-named case (see deleteOnCancel on the
+  // document_intake view type).
+  async function handleUploadForExistingCase(caseId: string, file: File) {
+    setNewCaseUploading(true);
+    setNewCaseUploadPct(0);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const result = await aiApi.uploadWithProgress(form, pct => setNewCaseUploadPct(pct));
+      if (!result.docId) throw new Error("Document could not be stored. Please try again.");
+      setView({ type: "document_intake", docId: result.docId, caseId, fileName: file.name, deleteOnCancel: false });
     } catch (err: unknown) {
       setNewCaseUploadError((err as Error).message || "Upload failed. Please try again.");
     } finally {
@@ -5900,6 +6025,7 @@ export default function App() {
   function currentCaseId(v: AppView): string | null {
     switch (v.type) {
       case "case_detail": return v.hlCase.id;
+      case "case_start_choice":
       case "case_parties":
       case "case_court":
       case "case_story":
@@ -5974,6 +6100,23 @@ export default function App() {
 
   function currentContent() {
     // ── New workflow phase screens ─────────────────────────────────────────────
+    if (view.type === "case_start_choice") {
+      const hlCase = data.cases.find(c => c.id === view.caseId);
+      if (!hlCase) { goHome(); return null; }
+      return (
+        <CaseStartChoiceView
+          hlCase={hlCase}
+          onTellStory={() => setView({ type: "case_story", caseId: hlCase.id, cameFromStartChoice: true })}
+          onSubmitComplaint={file => handleUploadForExistingCase(hlCase.id, file)}
+          onFullIntake={() => setView({ type: "case_parties", caseId: hlCase.id })}
+          uploading={newCaseUploading}
+          uploadPct={newCaseUploadPct}
+          uploadError={newCaseUploadError}
+          onClearUploadError={() => setNewCaseUploadError(null)}
+        />
+      );
+    }
+
     if (view.type === "case_parties") {
       const hlCase = data.cases.find(c => c.id === view.caseId);
       if (!hlCase) { goHome(); return null; }
@@ -6008,7 +6151,9 @@ export default function App() {
           hlCase={hlCase}
           onUpdate={c => setData(updateCase(data, c))}
           onNext={() => setView({ type: "case_timeline", caseId: hlCase.id })}
-          onBack={() => setView({ type: "case_court", caseId: hlCase.id })}
+          onBack={() => view.cameFromStartChoice
+            ? setView({ type: "case_start_choice", caseId: hlCase.id })
+            : setView({ type: "case_court", caseId: hlCase.id })}
         />
       );
     }
@@ -6095,8 +6240,14 @@ export default function App() {
             setView({ type: "case_detail", hlCase: updated });
           }}
           onCancel={() => {
-            // Remove the placeholder case and go home
-            handleDeleteCaseWithSync(view.caseId);
+            if (view.deleteOnCancel === false) {
+              // Came from an already-named case (case_start_choice) —
+              // that case is real and deliberate, never delete it here.
+              setView({ type: "case_start_choice", caseId: view.caseId });
+            } else {
+              // Owns a throwaway placeholder case it created itself — remove it and go home
+              handleDeleteCaseWithSync(view.caseId);
+            }
           }}
         />
       );
@@ -6286,7 +6437,7 @@ export default function App() {
           {navTab === "builder" && (() => {
             const activeCaseId =
               view.type === "case_detail" ? view.hlCase.id :
-              (view.type === "case_parties" || view.type === "case_court" || view.type === "case_story" ||
+              (view.type === "case_start_choice" || view.type === "case_parties" || view.type === "case_court" || view.type === "case_story" ||
                view.type === "case_timeline" || view.type === "case_review" ||
                view.type === "case_assembly" || view.type === "case_learning") ? view.caseId : null;
             return activeCaseId ? (

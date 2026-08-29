@@ -201,13 +201,18 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
                 style={{ background: "#0d0d0d", border: "1px solid #333", borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", width: "100%" }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "88")}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = "#333")}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                  <Zap size={17} color={ORANGE} />
-                  {"APEX Override Project".split("").map((ch, i) => (
-                    <span key={i} style={{ fontWeight: 800, fontSize: 15, color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#ccc") }}>{ch}</span>
-                  ))}
-                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: "#666", letterSpacing: 0.3, textTransform: "uppercase" }}>Apex Litigant</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <Zap size={17} color={ORANGE} style={{ flexShrink: 0 }} />
+                    <div style={{ whiteSpace: "nowrap" }}>
+                      {"APEX Override".split("").map((ch, i) => (
+                        <span key={i} style={{ fontWeight: 800, fontSize: 15, color: ch === " " ? undefined : (i % 2 === 0 ? ORANGE : "#ccc") }}>{ch}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 800, color: "#666", letterSpacing: 0.3, textTransform: "uppercase" }}>Apex Litigant</span>
                 </div>
+                <div style={{ fontSize: 12, color: "#777", fontWeight: 700, marginBottom: 6 }}>Project</div>
                 <div style={{ fontSize: 12.5, color: "#999", lineHeight: 1.55 }}>
                   Apex Litigant exclusive. This is man eater material — load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower.
                 </div>

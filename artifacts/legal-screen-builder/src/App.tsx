@@ -5370,6 +5370,15 @@ export default function App() {
   const [showUpgradeGate, setShowUpgradeGate] = useState(false);
   const [showApexUpgradeGate, setShowApexUpgradeGate] = useState(false);
   const [openPlansSignal, setOpenPlansSignal] = useState(0);
+  // ── New Case naming step — nothing gets created until a name is
+  // actually confirmed here, so clicking "New Case" and backing out
+  // (from Home, the side nav +, or Exhibit Studio's picker — all three
+  // go through handleCreateNewCase) never leaves a stray untitled case
+  // behind. Photo is optional and downscaled the same way an existing
+  // case's photo picker already does (see saveCasePhoto above).
+  const [showNewCaseNaming, setShowNewCaseNaming] = useState(false);
+  const [newCaseNameInput, setNewCaseNameInput] = useState("");
+  const [newCasePhotoPending, setNewCasePhotoPending] = useState<string | undefined>(undefined);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
 
   // ── Server sync refs ────────────────────────────────────────────────────────
@@ -5674,9 +5683,23 @@ export default function App() {
       setShowUpgradeGate(true);
       return;
     }
+    // Nothing is created yet — just opens the naming step. See
+    // confirmNewCase for where the real HLCase actually gets made.
+    setNewCaseNameInput("");
+    setNewCasePhotoPending(undefined);
+    setShowNewCaseNaming(true);
+  }
+
+  // Only place a new case actually gets created from the "New Case"
+  // entry point — requires a non-empty name (the button calling this is
+  // disabled otherwise). Closing/exiting the naming step without this
+  // ever firing leaves no trace: no case, no id, nothing to clean up.
+  function confirmNewCase() {
+    const title = newCaseNameInput.trim();
+    if (!title) return;
     const newCase: HLCase = {
       id: crypto.randomUUID(),
-      title: "New Case",
+      title,
       incidentIds: [],
       notes: "",
       status: "open",
@@ -5687,9 +5710,14 @@ export default function App() {
       timeline: [],
       workflowStage: "parties",
       intakeChecklist: [],
+      photoDataUrl: newCasePhotoPending,
     };
     const d = addCase(data, newCase);
     setData(d);
+    if (newCasePhotoPending) {
+      api.cases.savePhoto(newCase.id, newCasePhotoPending).catch(() => {});
+    }
+    setShowNewCaseNaming(false);
     // Stay on current tab — workflow views render under any navTab
     setView({ type: "case_parties", caseId: newCase.id });
   }
@@ -6402,6 +6430,67 @@ export default function App() {
               style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>
               Not Now
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── New Case naming step — nothing is created until Continue is
+          tapped with a real name. Exit discards everything, no trace
+          left behind. Shared by every "New Case" entry point (Home, the
+          desktop side nav +, Exhibit Studio's New Project picker) since
+          they all route through handleCreateNewCase. ──────────────── */}
+      {showNewCaseNaming && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 500, display: "flex", alignItems: "flex-end" }}
+          onClick={() => setShowNewCaseNaming(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#111", borderRadius: "20px 20px 0 0", width: "100%", padding: "28px 24px calc(28px + env(safe-area-inset-bottom))", borderTop: `2px solid ${ORANGE}33` }}>
+            <div style={{ width: 40, height: 4, background: "#2a2a2a", borderRadius: 2, margin: "0 auto 24px" }} />
+            <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>Name Your Case</div>
+            <div style={{ color: "#555", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
+              Give it a name so you can tell it apart from your other cases. You can add a photo now too, or skip it — both work fine either way.
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+              <input
+                id="new-case-photo-input"
+                type="file" accept="image/*" style={{ display: "none" }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  const inputEl = e.target;
+                  if (file) saveCasePhoto("", file, dataUrl => setNewCasePhotoPending(dataUrl), inputEl);
+                }}
+              />
+              <button
+                onClick={() => document.getElementById("new-case-photo-input")?.click()}
+                style={{
+                  width: 56, height: 56, borderRadius: 14, flexShrink: 0, padding: 0, cursor: "pointer",
+                  background: newCasePhotoPending ? `url(${newCasePhotoPending}) center/cover` : "#1a1a1a",
+                  border: `1px solid ${newCasePhotoPending ? ORANGE + "55" : "#2a2a2a"}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                {!newCasePhotoPending && <Camera size={18} color="#555" />}
+              </button>
+              <input
+                autoFocus
+                type="text"
+                value={newCaseNameInput}
+                onChange={e => setNewCaseNameInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && newCaseNameInput.trim()) confirmNewCase(); }}
+                placeholder="e.g. Smith v. Jones"
+                style={{ flex: 1, background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: 12, padding: "14px 16px", color: "#fff", fontSize: 15, fontWeight: 600 }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowNewCaseNaming(false)}
+                style={{ flex: 1, background: "none", border: "1px solid #2a2a2a", borderRadius: 14, padding: 16, fontSize: 14, fontWeight: 700, color: "#999", cursor: "pointer" }}>
+                Exit
+              </button>
+              <button onClick={confirmNewCase} disabled={!newCaseNameInput.trim()}
+                style={{ flex: 2, background: newCaseNameInput.trim() ? `linear-gradient(90deg, ${ORANGE}, #f45d01)` : "#2a2a2a", border: "none", borderRadius: 14, padding: 16, fontSize: 15, fontWeight: 800, color: newCaseNameInput.trim() ? "#000" : "#666", cursor: newCaseNameInput.trim() ? "pointer" : "default" }}>
+                Continue
+              </button>
+            </div>
           </div>
         </div>
       )}

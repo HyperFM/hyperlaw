@@ -22,7 +22,6 @@ import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
 import { assignNickname } from "./lib/nicknames";
-import { downscaleCasePhoto } from "./lib/casePhoto";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
@@ -41,6 +40,7 @@ import DebugPanel from "./components/DebugPanel";
 import TutorPanel from "./components/TutorPanel";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
+import PhotoCropModal from "./components/PhotoCropModal";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 import { CaseHealthBar } from "./components/CaseHealthBar";
@@ -655,7 +655,7 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
 }
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
-function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError, onUpdateCase }: {
+function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCase, onContinueCase, onUploadForNewCase, uploadError, onClearUploadError, onUpdateCase, onRequestCrop }: {
   data: AppData;
   onOpenIncident: (i: Incident) => void;
   onOpenCase: (c: HLCase) => void;
@@ -666,6 +666,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
   uploadError?: string | null;
   onClearUploadError?: () => void;
   onUpdateCase: (c: HLCase) => void;
+  onRequestCrop: (file: File, onDone: (dataUrl: string) => void) => void;
 }) {
   const uploadNewRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -788,7 +789,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
           {activeCases.length > 5 ? (
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Your Cases</div>
-              <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} onUpdateCase={onUpdateCase} />
+              <CaseSlider cases={activeCases} onOpenCase={onOpenCase} onContinueCase={onContinueCase} onUpdateCase={onUpdateCase} onRequestCrop={onRequestCrop} />
             </div>
           ) : activeCases.length > 0 && (
             <div style={{ marginBottom: 28 }}>
@@ -803,6 +804,7 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
                     onOpen={() => onOpenCase(c)}
                     onContinue={(stage) => onContinueCase(c, stage)}
                     onUpdateCase={onUpdateCase}
+                    onRequestCrop={onRequestCrop}
                   />
                 ))}
               </div>
@@ -886,11 +888,12 @@ function HomeView({ data, onOpenIncident, onOpenCase, onNewIncident, onCreateCas
 }
 
 // ── Circular case slider (home screen) — swipe / loop through active cases ────
-function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase }: {
+function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase, onRequestCrop }: {
   cases: HLCase[];
   onOpenCase: (c: HLCase) => void;
   onContinueCase: (c: HLCase, stage: WorkflowStage) => void;
   onUpdateCase: (c: HLCase) => void;
+  onRequestCrop: (file: File, onDone: (dataUrl: string) => void) => void;
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: cases.length > 1, align: "center" });
   const [selected, setSelected] = useState(0);
@@ -914,6 +917,7 @@ function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase }: {
                 onOpen={() => onOpenCase(c)}
                 onContinue={(stage) => onContinueCase(c, stage)}
                 onUpdateCase={onUpdateCase}
+                onRequestCrop={onRequestCrop}
               />
             </div>
           ))}
@@ -1164,17 +1168,6 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
 // ── Primary case card (home screen) ───────────────────────────────────────────
 
-// ─── Per-case photo — server-persisted (casesTable.casePhotoDataUrl), same
-// reasoning as the studio video: a photo living only in this device's
-// localStorage is gone for good the moment storage gets evicted (WKWebView
-// does this under memory pressure) or the app is reinstalled — matches
-// reports of a case photo vanishing from the barrel screen with no way back.
-// The actual downscale/save helper lives in lib/casePhoto.ts, shared with
-// VideoWorkspaceView's "pick a frame from the video" photo picker.
-function saveCasePhoto(_caseId: string, file: File, onSaved: (dataUrl: string) => void, inputEl?: HTMLInputElement | null) {
-  downscaleCasePhoto(file, onSaved, inputEl);
-}
-
 // ─── Deadline notifications (browser Notification API) ────────────────────────
 function notificationsSupported() { return typeof window !== "undefined" && "Notification" in window; }
 function useDeadlineNotifications(reminders: Reminder[]) {
@@ -1326,11 +1319,12 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
 
 // App-icon style: a square photo (or camera placeholder until one's set) with
 // the case name underneath — no card background/border wrapping it anymore.
-function PrimaryCaseCard({ hlCase, onOpen, onUpdateCase }: {
+function PrimaryCaseCard({ hlCase, onOpen, onUpdateCase, onRequestCrop }: {
   hlCase: HLCase;
   onOpen: () => void;
   onContinue: (stage: WorkflowStage) => void; // kept for call-site compat (unused)
   onUpdateCase: (c: HLCase) => void;
+  onRequestCrop: (file: File, onDone: (dataUrl: string) => void) => void;
 }) {
   const photo = hlCase.photoDataUrl;
   const cardPhotoInputRef = useRef<HTMLInputElement>(null);
@@ -1340,10 +1334,12 @@ function PrimaryCaseCard({ hlCase, onOpen, onUpdateCase }: {
       <input ref={cardPhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
         onChange={e => {
           const f = e.target.files?.[0];
-          if (f) saveCasePhoto(hlCase.id, f, dataUrl => {
+          const inputEl = e.currentTarget;
+          if (f) onRequestCrop(f, dataUrl => {
+            inputEl.value = "";
             onUpdateCase({ ...hlCase, photoDataUrl: dataUrl });
             api.cases.savePhoto(hlCase.id, dataUrl).catch(() => {});
-          }, e.currentTarget);
+          });
         }} />
       {/* No photo yet → the camera icon IS the "add a photo" button. Once set,
           tapping opens the case, same as tapping any app icon. */}
@@ -1636,7 +1632,7 @@ function VerifyPanel({ hlCase, hasFacts }: {
   );
 }
 
-function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, isApex, onGoToPhase }: {
+function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncident, onOpenInTutor, onAddIncident, onAddReminder, onDeleteReminder, onBack, genDocsRefreshKey, creditBalance, onBuyCredits, onDocGenerated, isAdmin, isApex, onGoToPhase, onRequestCrop }: {
   hlCase: HLCase; data: AppData;
   onUpdateCase: (c: HLCase) => void; onDeleteCase: (id: string) => void; genDocsRefreshKey?: number;
   onOpenIncident: (i: Incident) => void; onOpenInTutor: (c: HLCase) => void;
@@ -1648,6 +1644,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   onDocGenerated?: () => void;
   isAdmin?: boolean;
   isApex?: boolean;
+  onRequestCrop: (file: File, onDone: (dataUrl: string) => void) => void;
   onGoToPhase?: (stage: WorkflowStage) => void;
 }) {
   const [editTitle, setEditTitle] = useState(hlCase.title);
@@ -1878,20 +1875,35 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             <input ref={casePhotoInputRef} type="file" accept="image/*" style={{ display: "none" }}
               onChange={e => {
                 const f = e.target.files?.[0];
-                if (f) saveCasePhoto(hlCase.id, f, dataUrl => {
+                const inputEl = e.currentTarget;
+                if (f) onRequestCrop(f, dataUrl => {
+                  inputEl.value = "";
                   onUpdateCase({ ...hlCase, photoDataUrl: dataUrl });
                   api.cases.savePhoto(hlCase.id, dataUrl).catch(() => {});
-                }, e.currentTarget);
+                });
               }} />
-            <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, borderRadius: 16, position: "relative" }}>
-              {casePhoto
-                ? <img key={casePhoto.slice(-24)} src={casePhoto} alt="" style={{ width: 92, height: 92, borderRadius: 16, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
-                : <div style={{ width: 92, height: 92, borderRadius: 16, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={38} color={ORANGE} /></div>}
-              <div style={{ position: "absolute", right: -3, bottom: -3, width: 26, height: 26, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
-                <Camera size={13} color="#000" />
-              </div>
-            </button>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => casePhotoInputRef.current?.click()} title="Set a photo for this case"
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, borderRadius: 16 }}>
+                {casePhoto
+                  ? <img key={casePhoto.slice(-24)} src={casePhoto} alt="" style={{ width: 92, height: 92, borderRadius: 16, objectFit: "cover", border: `1px solid ${ORANGE}66`, display: "block" }} />
+                  : <div style={{ width: 92, height: 92, borderRadius: 16, background: `${ORANGE}18`, border: `1px solid ${ORANGE}33`, display: "flex", alignItems: "center", justifyContent: "center" }}><Folder size={38} color={ORANGE} /></div>}
+                <div style={{ position: "absolute", right: -3, bottom: -3, width: 26, height: 26, borderRadius: "50%", background: ORANGE, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0a0a0a" }}>
+                  <Camera size={13} color="#000" />
+                </div>
+              </button>
+              {casePhoto && (
+                <button
+                  onClick={() => {
+                    onUpdateCase({ ...hlCase, photoDataUrl: undefined });
+                    api.cases.removePhoto(hlCase.id).catch(() => {});
+                  }}
+                  title="Remove this photo"
+                  style={{ position: "absolute", left: -6, top: -6, width: 22, height: 22, borderRadius: "50%", background: "#1a1a1a", border: "2px solid #0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+                  <X size={12} color="#aaa" />
+                </button>
+              )}
+            </div>
             <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
               <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.6, color: ORANGE, textTransform: "uppercase", opacity: 0.75, marginBottom: 3 }}>Assembly</div>
               <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>{hlCase.title}</div>
@@ -5434,6 +5446,14 @@ export default function App() {
   // folded into isAdmin so those two things can't be confused anywhere.
   const bypassPaywalls = isAdmin || isTester;
 
+  // A photo picked for any case icon (home card, case detail header, or the
+  // new-case naming sheet) is routed through here first for a crop step,
+  // rather than every picker having its own crop UI.
+  const [pendingCropFile, setPendingCropFile] = useState<{ file: File; onDone: (dataUrl: string) => void } | null>(null);
+  function requestPhotoCrop(file: File, onDone: (dataUrl: string) => void) {
+    setPendingCropFile({ file, onDone });
+  }
+
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
   const [navTab, setNavTab] = useState<NavTab>("home");
@@ -5474,8 +5494,8 @@ export default function App() {
   // actually confirmed here, so clicking "New Case" and backing out
   // (from Home, the side nav +, or Exhibit Studio's picker — all three
   // go through handleCreateNewCase) never leaves a stray untitled case
-  // behind. Photo is optional and downscaled the same way an existing
-  // case's photo picker already does (see saveCasePhoto above).
+  // behind. Photo is optional and goes through the same crop step as an
+  // existing case's photo picker (see requestPhotoCrop above).
   const [showNewCaseNaming, setShowNewCaseNaming] = useState(false);
   const [newCaseNameInput, setNewCaseNameInput] = useState("");
   const [newCasePhotoPending, setNewCasePhotoPending] = useState<string | undefined>(undefined);
@@ -6297,6 +6317,7 @@ export default function App() {
             else if (stage === "story") setView({ type: "case_story", caseId: hlCase.id });
             else if (stage === "timeline") setView({ type: "case_timeline", caseId: hlCase.id });
           }}
+          onRequestCrop={requestPhotoCrop}
         />
       );
     }
@@ -6391,6 +6412,7 @@ export default function App() {
         uploadError={newCaseUploadError}
         onClearUploadError={() => setNewCaseUploadError(null)}
         onUpdateCase={c => setData(updateCase(data, c))}
+        onRequestCrop={requestPhotoCrop}
       />
     );
   }
@@ -6585,6 +6607,18 @@ export default function App() {
         </div>
       )}
 
+      {pendingCropFile && (
+        <PhotoCropModal
+          file={pendingCropFile.file}
+          onCancel={() => setPendingCropFile(null)}
+          onCropped={dataUrl => {
+            const onDone = pendingCropFile.onDone;
+            setPendingCropFile(null);
+            onDone(dataUrl);
+          }}
+        />
+      )}
+
       {/* ── New Case naming step — nothing is created until Continue is
           tapped with a real name. Exit discards everything, no trace
           left behind. Shared by every "New Case" entry point (Home, the
@@ -6608,19 +6642,32 @@ export default function App() {
                 onChange={e => {
                   const file = e.target.files?.[0];
                   const inputEl = e.target;
-                  if (file) saveCasePhoto("", file, dataUrl => setNewCasePhotoPending(dataUrl), inputEl);
+                  if (file) requestPhotoCrop(file, dataUrl => {
+                    inputEl.value = "";
+                    setNewCasePhotoPending(dataUrl);
+                  });
                 }}
               />
-              <button
-                onClick={() => document.getElementById("new-case-photo-input")?.click()}
-                style={{
-                  width: 56, height: 56, borderRadius: 14, flexShrink: 0, padding: 0, cursor: "pointer",
-                  background: newCasePhotoPending ? `url(${newCasePhotoPending}) center/cover` : "#1a1a1a",
-                  border: `1px solid ${newCasePhotoPending ? ORANGE + "55" : "#2a2a2a"}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                {!newCasePhotoPending && <Camera size={18} color="#555" />}
-              </button>
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <button
+                  onClick={() => document.getElementById("new-case-photo-input")?.click()}
+                  style={{
+                    width: 56, height: 56, borderRadius: 14, padding: 0, cursor: "pointer",
+                    background: newCasePhotoPending ? `url(${newCasePhotoPending}) center/cover` : "#1a1a1a",
+                    border: `1px solid ${newCasePhotoPending ? ORANGE + "55" : "#2a2a2a"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                  {!newCasePhotoPending && <Camera size={18} color="#555" />}
+                </button>
+                {newCasePhotoPending && (
+                  <button
+                    onClick={() => setNewCasePhotoPending(undefined)}
+                    title="Remove this photo"
+                    style={{ position: "absolute", left: -6, top: -6, width: 20, height: 20, borderRadius: "50%", background: "#1a1a1a", border: "2px solid #111", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+                    <X size={11} color="#aaa" />
+                  </button>
+                )}
+              </div>
               <input
                 autoFocus
                 type="text"

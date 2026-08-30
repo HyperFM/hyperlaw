@@ -185,6 +185,19 @@ router.put("/cases/:id/photo", async (req: Request, res: Response): Promise<void
   res.json({ ok: true });
 });
 
+// ── DELETE /cases/:id/photo — remove the barrel-screen case photo ──────────────
+router.delete("/cases/:id/photo", async (req: Request, res: Response): Promise<void> => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  await db
+    .update(casesTable)
+    .set({ casePhotoDataUrl: null, updatedAt: new Date() })
+    .where(and(eq(casesTable.id, String(req.params.id)), eq(casesTable.userId, auth.userId)));
+
+  res.json({ ok: true });
+});
+
 // ── POST /cases/:id/touch — reset the 60-day retention clock without an edit ───
 // Used by the "keep this case" option on the case_expiring notification: the
 // user tapping in only extends the clock if it results in a real save, so

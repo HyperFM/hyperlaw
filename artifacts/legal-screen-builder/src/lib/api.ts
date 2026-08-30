@@ -136,6 +136,9 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ dataUrl }),
       }),
+    /** Remove the barrel-screen case photo */
+    removePhoto: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/cases/${id}/photo`, { method: "DELETE" }),
     /** Reset the 60-day retention clock without an actual edit */
     touch: (id: string) =>
       apiFetch<{ ok: boolean; updatedAt: string }>(`/cases/${id}/touch`, { method: "POST" }),

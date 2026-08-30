@@ -454,6 +454,23 @@ function NewIncidentOverlay({ onSave, onClose, preLinkedCaseName }: {
   );
 }
 
+// Custom icon (Lucide doesn't have one) for Live Encounter Assistant — a
+// body-cam: rounded rectangular body, a round lens with a glossy highlight,
+// and a small red recording dot to read as "this is watching/recording" at
+// a glance, matching the rest of TOOL_BUBBLES' size/color-prop icons.
+function BodyCamIcon({ size = 17, color = "#d9711f" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="2" y="4" width="20" height="16" rx="4" stroke={color} strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="5" stroke={color} strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="2.1" fill={color} />
+      <path d="M9.3 8.7a5 5 0 0 1 3-1.4" stroke={color} strokeWidth="1.3" strokeLinecap="round" opacity="0.55" />
+      <circle cx="18" cy="7" r="2.3" fill="#000" />
+      <circle cx="18" cy="7" r="1.6" fill={color} />
+    </svg>
+  );
+}
+
 // ─── TOOLS VIEW ───────────────────────────────────────────────────────────────
 // Decorative sliding marquee above the "Tools" heading — the tool icons
 // below, duplicated once so the strip can loop seamlessly, drifting left forever.
@@ -485,6 +502,13 @@ const TOOL_BUBBLES = [
     title: "Evidence Organizer",
     tagline: "Photograph your paper evidence — AI builds one organized packet.",
     detail: "Take a neat photo of each piece of paper evidence, one by one — keep the originals, no need to sort or stack them yourself first. AI reads all of it against your case's own complaint — names, parties, what happened — and organizes it into one single document, grouped and separated by category (e.g. diagnosis records, arresting officer, transactions). Print that one document and you have your whole paper evidence packet, organized, separate from your video exhibits.",
+  },
+  {
+    id: "live-encounter-assistant",
+    icon: BodyCamIcon,
+    title: "Live Encounter Assistant",
+    tagline: "Real-time guidance while you record any encounter.",
+    detail: "One tap from your lock screen starts recording — no case, no setup, nothing to pick first. While it records, it listens and watches, surfacing short, sayable guidance in real time: rights information, de-escalation language, questions to ask, and heads-up flags when something feels off. The whole session — video, transcript, every piece of guidance shown — is saved in full, and only afterward do you assign it to a case and identify who was involved. Built for law enforcement encounters first, but for any recorded dispute over time.",
   },
 ] as const;
 

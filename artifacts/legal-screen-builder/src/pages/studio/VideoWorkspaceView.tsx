@@ -14,7 +14,7 @@ import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
 import ExhibitVideoExportModal from "./ExhibitVideoExportModal";
-import { saveStudioSnapshot, loadStudioSnapshot, saveThumbnails, loadThumbnails, type StudioSnapshot } from "./studioIndexedDB";
+import { saveStudioSnapshot, loadStudioSnapshot, clearStudioSnapshot, saveThumbnails, loadThumbnails, type StudioSnapshot } from "./studioIndexedDB";
 import { pushDebug } from "../../lib/debugLog";
 import { downscaleCasePhoto } from "../../lib/casePhoto";
 import PinGateModal from "../../components/PinGateModal";
@@ -3287,6 +3287,15 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // is gone. Persisted immediately, not debounced through triggerAutosave —
   // there's no undo waiting behind this the way there is for every other
   // edit here, so it can't be left to a background retry.
+  //
+  // Must also clear this device's own IndexedDB crash-recovery snapshot
+  // (see the "Emergency local-backup recovery" effect above) — that
+  // snapshot is written on every real edit and is completely separate
+  // from studioProject, so wiping the server/React state alone left a
+  // stale, pre-restart copy sitting in IndexedDB. The very next time this
+  // case's workspace mounted, the recovery effect saw that stale snapshot
+  // had "more" content than the freshly-emptied studioProject and offered
+  // to "recover" it — silently undoing the whole restart if applied.
   function restartProject() {
     const project = getOrCreateProject();
     const reset: StudioProject = {
@@ -3302,6 +3311,10 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     const updatedCase = { ...hlCase, studioProject: reset };
     onUpdateCase(updatedCase);
     api.cases.upsert(updatedCase.id, updatedCase.title, updatedCase.workflowStage, updatedCase as unknown as Record<string, unknown>).catch(() => {});
+    clearStudioSnapshot(hlCase.id).catch(() => {});
+    setRecoverableSnapshot(null);
+    setShowRecoveryPrompt(false);
+    setRecoveryApplied(false);
     setMarkersRaw([]);
     setChunks([]);
     setDeletedChunks([]);

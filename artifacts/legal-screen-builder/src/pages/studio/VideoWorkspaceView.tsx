@@ -4849,15 +4849,17 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
             the plain Undo/Redo it sits next to, but not filled/solid the
             way Emergency Fallback is, since that one needs to grab
             attention under pressure and this one very deliberately
-            shouldn't be reached for casually. */}
-        {videoUrl && (
-          <button
-            onClick={() => setShowRestartConfirm(true)}
-            title="Restart this project — permanently deletes every moment, screen, and cut"
-            style={{ background: "none", border: `1.5px solid ${ORANGE}`, borderRadius: "50%", width: 24, height: 24, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 4 }}>
-            <RotateCcw size={12} color={ORANGE} />
-          </button>
-        )}
+            shouldn't be reached for casually. Not gated on videoUrl — unlike
+            Undo/Redo/APEX-toggle, restartProject() only touches saved
+            markers/chunks/etc., never the loaded video element, so it needs
+            to work from a fresh session on a device that hasn't (re)loaded
+            the video yet, not just once it has. */}
+        <button
+          onClick={() => setShowRestartConfirm(true)}
+          title="Restart this project — permanently deletes every moment, screen, and cut"
+          style={{ background: "none", border: `1.5px solid ${ORANGE}`, borderRadius: "50%", width: 24, height: 24, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 4 }}>
+          <RotateCcw size={12} color={ORANGE} />
+        </button>
         {/* ── APEX Override toggle — Apex Litigant tier only. Relocated here
             from the persistent controls row so it's reachable from any
             step, including on a project someone already built up manually —
@@ -6752,7 +6754,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <div style={{ fontSize: 16, fontWeight: 900, color: "#fff" }}>Restart this project?</div>
             </div>
             <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 14 }}>
-              This deletes every moment, every exhibit screen, and every cut on this project — everything gets wiped back to a blank slate. Your loaded video stays, but none of the work built on top of it does.
+              This deletes every moment, every exhibit screen, and every cut on this project — everything gets wiped back to a blank slate. Your video file itself is untouched, but none of the work built on top of it is.
             </div>
             <div style={{ fontSize: 13, color: "#ccc", lineHeight: 1.65, marginBottom: 22 }}>
               Your PIN is required to continue.

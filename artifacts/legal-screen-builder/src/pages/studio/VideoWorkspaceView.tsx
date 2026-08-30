@@ -8,7 +8,8 @@ import {
   Loader2, Eye, Shield, ZoomIn, ZoomOut, Info, Clapperboard, Download,
   Scissors, Monitor, PlayCircle, StopCircle, RotateCcw, ImageIcon, Wand2, Trash2, Bookmark, Bandage, Camera, Copy, ClipboardPaste, RefreshCw, FileAudio, Zap,
 } from "lucide-react";
-import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk, WitnessExamination, TranscriptSegment, SuggestedMoment, VideoTranscript } from "../../types";
+import type { HLCase, ExhibitMarker, StudioProject, JurisdictionVerification, ScreenInsert, MediaInsert, ExhibitScreenData, VideoChunk, WitnessExamination, TranscriptSegment, SuggestedMoment, VideoTranscript, VideoSourceRef } from "../../types";
+import { toVideoSources, totalDurationSec, resolveGlobalTime, toGlobalTime, matchAndSortSources } from "./videoTimeline";
 import { aiApi } from "../../lib/aiApi";
 import { api } from "../../lib/api";
 import { ExhibitGeneratorPanel, ExhibitRenderer } from "./exhibits";
@@ -1724,20 +1725,33 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     if (!path) return;
     Filesystem.deleteFile({ path }).catch(() => {}); // best-effort — nothing user-facing depends on this succeeding
   }
-  const [videoFileName, setVideoFileName] = useState(hlCase.studioProject?.videoFileName ?? "");
-  const [duration, setDuration] = useState(hlCase.studioProject?.videoDurationSec ?? 0);
+  // Ordered parts of one recording, concatenated into a single virtual
+  // timeline — see videoTimeline.ts. `currentSourceIndex` tracks which part
+  // the single shared <video> element is actually pointed at right now;
+  // everything else in this file (seek, currentTime, duration) stays
+  // expressed in GLOBAL timeline seconds, translated at the edges only.
+  const [videoSources, setVideoSources] = useState<VideoSourceRef[]>(() => toVideoSources(hlCase.studioProject ?? {}));
+  const currentSourceIndexRef = useRef(0);
+  // Loaded URL (blob: or capacitor://) for each entry in videoSources, same
+  // order/index. Not React state — swapping the active source's <video>.src
+  // is done imperatively (see switchToSource), this is just where those URLs
+  // live between loads.
+  const sourceUrlsRef = useRef<string[]>([]);
+  // Legacy single-name display value, kept in sync for UI/cache-key call
+  // sites not yet generalized to the full videoSources list.
+  const videoFileName = videoSources.map(s => s.fileName).join(", ");
+  const [duration, setDuration] = useState(() => totalDurationSec(toVideoSources(hlCase.studioProject ?? {})));
+  useEffect(() => { setDuration(totalDurationSec(videoSources)); }, [videoSources]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [largFileWarning, setLargeFileWarning] = useState(false);
-  // Cross-device continuation (sign in elsewhere, re-pick "the same" video,
+  // Cross-device continuation (sign in elsewhere, re-pick "the same" files,
   // resume where you left off) relies on markers' saved timestamps still
-  // lining up with the newly loaded file. There's no way to verify it's
-  // truly the same file, but a duration check catches the common failure
-  // case — a re-export, a different trim, or genuinely the wrong video —
-  // before the user silently generates exhibits from the wrong timestamps.
+  // lining up with the newly loaded sources — matchAndSortSources' filename
+  // matching (in loadVideoSources) is what actually catches a wrong/missing
+  // file and populates this warning.
   const [videoMismatchWarning, setVideoMismatchWarning] = useState<string | null>(null);
-  const expectedDurationRef = useRef<number | null>(null);
   // Guards the Infinity-duration probe seek (below) to at most once per video
   // load. Some browsers keep re-firing durationchange with Infinity instead
   // of resolving it after a single seek — without this guard, every one of
@@ -2067,11 +2081,21 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         videoReleasedRef.current = true;
       }
     } else if (videoReleasedRef.current) {
-      video.src = videoUrl;
+      // Restore whichever SOURCE was actually active when the decoder was
+      // released, not always the first one — with multiple parts, the user
+      // may have been scrubbed into part 2+ before stepping away to Step 3.
+      const idx = currentSourceIndexRef.current;
+      const { localSec } = resolveGlobalTime(videoSources, currentTimeRef.current);
+      video.src = sourceUrlsRef.current[idx] ?? videoUrl;
       video.load();
+      const onReady = () => {
+        video.removeEventListener("loadedmetadata", onReady);
+        video.currentTime = localSec;
+      };
+      video.addEventListener("loadedmetadata", onReady);
       videoReleasedRef.current = false;
     }
-  }, [currentStep, videoUrl]);
+  }, [currentStep, videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
   // Custom cursor-following ghost for the Band-Aid drag, instead of the
   // browser's native drag-image snapshot — some browsers render rounded
   // corners on that snapshot with an ugly black/square fringe around them.
@@ -2211,14 +2235,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   const idbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentTimeRef = useRef(0);
   // snapshotRef holds latest values so the debounced IDB write always sees fresh data
-  const snapshotRef = useRef<{ markers: ExhibitMarker[]; chunks: VideoChunk[]; deletedChunks: VideoChunk[]; organizedSlots: (string | null)[]; workflowStep: number; videoFileName: string; videoDurationSec: number; exportSettings: ExportSettings }>({
+  const snapshotRef = useRef<{ markers: ExhibitMarker[]; chunks: VideoChunk[]; deletedChunks: VideoChunk[]; organizedSlots: (string | null)[]; workflowStep: number; videoSources: VideoSourceRef[]; exportSettings: ExportSettings }>({
     markers: hlCase.studioProject?.markers ?? [],
     chunks: hlCase.studioProject?.chunks ?? [],
     deletedChunks: hlCase.studioProject?.deletedChunks ?? [],
     organizedSlots: hlCase.studioProject?.organizedSlots ?? Array(10).fill(null),
     workflowStep: hlCase.studioProject?.workflowStep ?? 1,
-    videoFileName: hlCase.studioProject?.videoFileName ?? "",
-    videoDurationSec: hlCase.studioProject?.videoDurationSec ?? 0,
+    videoSources: toVideoSources(hlCase.studioProject ?? {}),
     exportSettings: { resKey: "1080", fps: 30, format: "mp4", includeAudio: true },
   });
   // Keep snapshotRef current on every render (synchronous, safe)
@@ -2227,8 +2250,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   snapshotRef.current.deletedChunks = deletedChunks;
   snapshotRef.current.organizedSlots = organizedSlots;
   snapshotRef.current.workflowStep = currentStep;
-  snapshotRef.current.videoFileName = videoFileName;
-  snapshotRef.current.videoDurationSec = duration;
+  snapshotRef.current.videoSources = videoSources;
   snapshotRef.current.exportSettings = exportSettings;
 
   // Keeps this already-mounted workspace in sync with studio work saved on
@@ -2263,8 +2285,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     setDeletedChunks(sp.deletedChunks ?? []);
     setOrganizedSlots(sp.organizedSlots && sp.organizedSlots.length >= 10 ? sp.organizedSlots : Array(10).fill(null));
     setCurrentStep(sp.workflowStep ?? 1);
-    setVideoFileName(sp.videoFileName ?? "");
-    setDuration(sp.videoDurationSec ?? 0);
+    setVideoSources(toVideoSources(sp));
   }, [hlCase.studioProject]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ────────────────────────────────────────────────────
@@ -2272,8 +2293,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     return hlCase.studioProject ?? {
       id: crypto.randomUUID(),
       caseId: hlCase.id,
-      videoFileName,
-      videoDurationSec: duration,
+      videoSources,
       markers: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -2359,8 +2379,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     // may have just called setState and closures still hold stale values.
     const next: StudioProject = {
       ...project,
-      videoFileName: snapshotRef.current.videoFileName,
-      videoDurationSec: snapshotRef.current.videoDurationSec,
+      videoSources: snapshotRef.current.videoSources,
       markers: updatedMarkers,
       chunks: updatedChunks ?? snapshotRef.current.chunks,
       deletedChunks: updatedDeletedChunks ?? snapshotRef.current.deletedChunks,
@@ -2420,7 +2439,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
         markers: snapshotRef.current.markers,
         chunks: snapshotRef.current.chunks,
         timelinePosition: currentTimeRef.current,
-        videoFileName: snapshotRef.current.videoFileName,
+        videoFileName: snapshotRef.current.videoSources.map(s => s.fileName).join(", "),
         exportSettings: snapshotRef.current.exportSettings,
       });
     }, 3000);
@@ -2465,81 +2484,102 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
   // anything of real size — see pickVideoNative's header comment for why
   // fetching the whole file into a Blob first isn't viable for large video).
   type VideoSource = File | { url: string; fileName: string; size?: number };
-  function loadVideo(source: VideoSource, cachedThumbnails?: string[]) {
-    const isFile = source instanceof File;
-    const fileName = isFile ? source.name : source.fileName;
-    const size = isFile ? source.size : (source.size ?? 0);
 
-    cachedThumbsRef.current = cachedThumbnails?.length ? cachedThumbnails : null;
-    setVideoError(null);
-    setVideoMismatchWarning(null);
-    // Only check when there are existing moments to protect (a resume, not a
-    // first upload) and a prior duration was actually saved to compare against.
-    expectedDurationRef.current =
-      markers.length > 0 && hlCase.studioProject?.videoDurationSec
-        ? hlCase.studioProject.videoDurationSec
-        : null;
-    infinityProbeAttemptedRef.current = false;
-    // Informational only — large files just take longer to decode/thumbnail
-    // locally, nothing stops them from working the way an upload-size cap
-    // would (there's no upload anymore).
-    setLargeFileWarning(size > LARGE_FILE_NOTICE_BYTES);
-    // Show import loading state immediately — before any decoding happens
-    setVideoLoading(true);
-    setLoadingFileName(fileName);
+  // Loads one or more video files as this project's virtual timeline. On a
+  // resume (the project already has saved videoSources), the picked files
+  // are matched back to their saved order by filename — any order the user
+  // picked/dropped them in — via matchAndSortSources, so the user never has
+  // to re-add multi-part footage "in the same order." On a genuinely first
+  // load (no saved order yet), there's no order to match against yet — best
+  // effort is each file's own lastModified timestamp, which is usually a
+  // reasonable proxy for recording order for camera/phone-split footage.
+  function loadVideoSources(inputs: VideoSource[]) {
+    if (inputs.length === 0) return;
+    const existing = toVideoSources(hlCase.studioProject ?? {});
+    const pickedMeta = inputs.map((s, i) => ({
+      i,
+      fileName: s instanceof File ? s.name : s.fileName,
+      size: s instanceof File ? s.size : (s.size ?? 0),
+      lastModified: s instanceof File ? s.lastModified : i,
+    }));
 
-    // Revoke the previous blob URL to free memory. Harmless no-op if it
-    // wasn't actually a blob: URL (e.g. a native capacitor:// file URL).
-    if (videoUrlRef.current) {
-      URL.revokeObjectURL(videoUrlRef.current);
-      videoUrlRef.current = null;
+    let ordered: typeof pickedMeta;
+    if (existing.length > 0) {
+      const { matched, unmatchedPicked, missingExpected } = matchAndSortSources(pickedMeta, existing);
+      ordered = matched.map(m => m.picked);
+      if (missingExpected.length > 0 || unmatchedPicked.length > 0) {
+        const parts: string[] = [];
+        if (missingExpected.length > 0) {
+          parts.push(`Couldn't find ${missingExpected.map(s => s.fileName).join(", ")} — filenames must match exactly what you first added.`);
+        }
+        if (unmatchedPicked.length > 0) {
+          parts.push(`Not part of this project, ignored: ${unmatchedPicked.map(p => p.fileName).join(", ")}.`);
+        }
+        setVideoMismatchWarning(parts.join(" "));
+      } else {
+        setVideoMismatchWarning(null);
+      }
+    } else {
+      // First load — no saved order to match against yet.
+      ordered = [...pickedMeta].sort((a, b) => a.lastModified - b.lastModified);
+      setVideoMismatchWarning(null);
     }
-    const url = isFile ? URL.createObjectURL(source) : source.url;
-    videoUrlRef.current = url;
 
-    // Set state so React renders the <video> element
-    setVideoUrl(url);
-    setVideoFileName(fileName);
+    if (ordered.length === 0) { setVideoLoading(false); return; }
+
+    setVideoError(null);
+    infinityProbeAttemptedRef.current = false;
+    setLargeFileWarning(ordered.some(o => o.size > LARGE_FILE_NOTICE_BYTES));
+    setVideoLoading(true);
+    setLoadingFileName(ordered.map(o => o.fileName).join(", "));
+
+    // Revoke any previous blob URLs to free memory — harmless no-op for
+    // native capacitor:// URLs, which aren't blob: URLs.
+    for (const url of sourceUrlsRef.current) {
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
+    const urls = ordered.map(o => {
+      const input = inputs[o.i];
+      return input instanceof File ? URL.createObjectURL(input) : input.url;
+    });
+    sourceUrlsRef.current = urls;
+
+    const newSources: VideoSourceRef[] = ordered.map(o => {
+      const priorMatch = existing.find(s => s.fileName === o.fileName);
+      return { id: priorMatch?.id ?? crypto.randomUUID(), fileName: o.fileName, durationSec: priorMatch?.durationSec ?? 0 };
+    });
+
+    currentSourceIndexRef.current = 0;
     setCurrentTime(0);
     setIsPlaying(false);
+    setVideoSources(newSources);
+    videoUrlRef.current = urls[0];
+    setVideoUrl(urls[0]);
 
     // Also wire the ref directly — React may batch the state update and the
     // video element might already be mounted from a previous load
     if (videoRef.current) {
       videoRef.current.pause();
-      videoRef.current.src = url;
+      videoRef.current.src = urls[0];
       videoRef.current.load();
     }
 
-    // Persist the filename immediately — snapshotRef will be updated on the
-    // next render so the 800 ms debounce always captures the new value.
-    snapshotRef.current.videoFileName = fileName;
-    // Same reasoning as onDurationChange below — picking/loading a video
-    // file is automatic the moment it's selected, not a real edit, and
-    // this fires on every load, including re-opening the exact same file
-    // that's already on record. Only save when the filename is actually
-    // different from what's stored, so reopening a known video never
-    // re-stamps updatedAt and falsely outraces real edits from elsewhere.
-    const fileNameIsNew = fileName !== hlCase.studioProject?.videoFileName;
-    if (fileNameIsNew && (hlCase.studioProject || markers.length > 0 || chunks.length > 0)) {
+    // Same reasoning as onDurationChange below — picking/loading a video is
+    // automatic the moment it's selected, not a real edit, and fires on
+    // every load, including re-opening files already on record. Only save
+    // when the actual set of files changed, so reopening a known project's
+    // video never re-stamps updatedAt and falsely outraces real edits made
+    // elsewhere.
+    const namesChanged = newSources.map(s => s.fileName).join("|") !== existing.map(s => s.fileName).join("|");
+    if (namesChanged && (hlCase.studioProject || markers.length > 0 || chunks.length > 0)) {
       triggerAutosave(markers);
     }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Cached thumbnails (keyed by caseId, from a previous session) let a
-      // re-picked video skip straight past the frame-extraction pass — but
-      // ONLY when it's genuinely the same file being reloaded. The cache
-      // isn't keyed by which video, so reusing it unconditionally after
-      // switching to a different file was exactly why the filmstrip kept
-      // showing the previous video's frames instead of the new one's.
-      loadThumbnails(hlCase.id).then(cached =>
-        loadVideo(file, cached?.fileName === file.name ? cached.thumbnails : undefined)
-      );
-    }
-    // Reset so same file can be picked again
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) loadVideoSources(files);
+    // Reset so the same file(s) can be picked again
     e.target.value = "";
   }
 
@@ -2763,15 +2803,20 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
     ref.current?.click();
   }
 
+  // Native (iOS) picks one file at a time for now — multi-select on the
+  // native picker plugin is a separate follow-up. This only correctly
+  // covers single-video projects and RELINKING an already-multi-part
+  // project one missing file at a time; building a brand-new multi-part
+  // project natively (several first-time picks in a row) isn't supported
+  // yet — each pick after the first would be treated as "doesn't match the
+  // existing single source" and get dropped rather than added. Multi-part
+  // creation is currently a web-only flow (the file input's `multiple`).
   function pickFromNativeSource(source: "photos" | "files") {
     setShowNativeSourceChoice(false);
     pickVideoNative(source)
-      .then(async picked => {
+      .then(picked => {
         if (!picked) return;
-        // Only reuse the cache if it's actually for this same file — see
-        // handleFileChange's matching comment for why that check matters.
-        const cached = await loadThumbnails(hlCase.id);
-        loadVideo(picked, cached?.fileName === picked.fileName ? cached.thumbnails : undefined);
+        loadVideoSources([picked]);
         // The plugin's own Caches copy of whatever was picked BEFORE this one
         // is now fully replaced — nothing else references it, so it can be
         // deleted instead of sitting there forever (see nativePickedPathRef).
@@ -2803,21 +2848,51 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       // Guided flow only — pressing Play after it's already run to the end
       // of this moment (paused there by onTimeUpdate's own clamp) should
       // replay from the start, not silently do nothing since there's no
-      // more of the clip left from where it's currently sitting.
-      if (guidedChunk && v.currentTime >= guidedChunk.end - 0.05) v.currentTime = guidedChunk.start;
+      // more of the clip left from where it's currently sitting. Routed
+      // through seek() (global seconds) rather than setting v.currentTime
+      // directly, so this still lands correctly if guidedChunk's start
+      // is on a different source than wherever playback currently sits.
+      if (guidedChunk && currentTime >= guidedChunk.end - 0.05) seek(guidedChunk.start);
       v.play().catch(() => {});
     }
   }
 
-  function seek(t: number) {
+  // Retargets the single shared <video> element at a different source when
+  // the global playhead crosses into it — swap the element's src, wait for
+  // its metadata, then seek to the right local offset (and resume playback
+  // if it was already playing). Every other timestamp in the app (seek,
+  // markers, cuts) only ever deals in GLOBAL seconds — this is one of the
+  // few places that needs to know "which file."
+  function switchToSource(sourceIndex: number, localSec: number, resumePlaying: boolean) {
     const v = videoRef.current;
-    if (v) { v.currentTime = t; setCurrentTime(t); }
+    const url = sourceUrlsRef.current[sourceIndex];
+    if (!v || !url) return;
+    currentSourceIndexRef.current = sourceIndex;
+    v.pause();
+    v.src = url;
+    v.load();
+    const onReady = () => {
+      v.removeEventListener("loadedmetadata", onReady);
+      v.currentTime = localSec;
+      if (resumePlaying) v.play().catch(() => {});
+    };
+    v.addEventListener("loadedmetadata", onReady);
+  }
+
+  function seek(globalT: number) {
+    const v = videoRef.current;
+    if (!v || videoSources.length === 0) { setCurrentTime(globalT); return; }
+    const { sourceIndex, localSec } = resolveGlobalTime(videoSources, globalT);
+    if (sourceIndex !== currentSourceIndexRef.current) {
+      switchToSource(sourceIndex, localSec, isPlaying);
+    } else {
+      v.currentTime = localSec;
+    }
+    setCurrentTime(globalT);
   }
 
   function skipMain(deltaSec: number) {
-    const v = videoRef.current;
-    if (!v) return;
-    seek(Math.max(0, Math.min(duration || v.duration || 0, v.currentTime + deltaSec)));
+    seek(Math.max(0, Math.min(duration, currentTime + deltaSec)));
   }
 
   // ── Sequenced preview (Organize step's order → Exhibit → Clip → Exhibit → Clip) ──
@@ -4641,12 +4716,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       preload="auto"
       style={{ width: "100%", borderRadius: 12, background: "#000", display: "block", maxHeight: 260, minHeight: 190, position: "relative", zIndex: 1 }}
       onTimeUpdate={e => {
-        setCurrentTime(e.currentTarget.currentTime);
-        currentTimeRef.current = e.currentTarget.currentTime;
+        const globalT = toGlobalTime(videoSources, currentSourceIndexRef.current, e.currentTarget.currentTime);
+        setCurrentTime(globalT);
+        currentTimeRef.current = globalT;
         // Guided flow only — stop exactly at this moment's own end instead
         // of playing on into whatever comes next in the source video.
-        if (guidedChunk && e.currentTarget.currentTime >= guidedChunk.end) {
-          e.currentTarget.currentTime = guidedChunk.end;
+        if (guidedChunk && globalT >= guidedChunk.end) {
+          e.currentTarget.currentTime = e.currentTarget.currentTime - (globalT - guidedChunk.end);
           e.currentTarget.pause();
         }
       }}
@@ -4670,34 +4746,25 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           return;
         }
         if (v.currentTime > 1e10) v.currentTime = 0; // undo the probe seek above
-        setDuration(d);
-        snapshotRef.current.videoDurationSec = d;
-        // This fires the instant the video's duration is known — pure
+        // This is the duration of whichever SOURCE is currently loaded into
+        // the element, not the whole project — write it into that source's
+        // own slot; `duration` (the project total) stays in sync via the
+        // effect watching videoSources.
+        const idx = currentSourceIndexRef.current;
+        const priorDuration = videoSources[idx]?.durationSec ?? 0;
+        // This fires the instant a source's duration is known — pure
         // metadata, zero user interaction, automatic the moment a file is
         // picked, and it fires on EVERY load, including re-opening a case
         // whose video was already known. Autosaving unconditionally here
         // stamps a fresh updatedAt on the current in-memory markers even
         // when nothing changed — which then wins the timestamp race
-        // against real edits sitting newer on another device, and can even
-        // push this device's stale copy over them. Confirmed live tonight
-        // as the reason a laptop just sitting open (or refreshed) kept
-        // failing to pick up newer phone edits: it kept re-asserting its
-        // own old data as "newest" just by loading the video. Only save
+        // against real edits sitting newer on another device. Only save
         // when the duration actually differs from what's on record — a
-        // genuinely new/different video, not a reload of the same one.
-        const durationIsNew = Math.abs(d - (hlCase.studioProject?.videoDurationSec ?? -1)) > 0.5;
+        // genuinely new/different source, not a reload of the same one.
+        const durationIsNew = Math.abs(d - priorDuration) > 0.5;
+        setVideoSources(prev => prev.map((s, i) => i === idx ? { ...s, durationSec: d } : s));
         if (durationIsNew && (hlCase.studioProject || markers.length > 0 || chunks.length > 0)) {
           triggerAutosave(markers);
-        }
-        if (expectedDurationRef.current != null) {
-          const expected = expectedDurationRef.current;
-          expectedDurationRef.current = null; // only ever check once per load
-          if (Math.abs(d - expected) > 2) {
-            const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-            setVideoMismatchWarning(
-              `This video is ${fmt(d)} long, but your saved moments were made against a ${fmt(expected)} video. If this isn't the exact same file, your timestamps will point at the wrong parts.`
-            );
-          }
         }
       }}
       onLoadedMetadata={() => setVideoLoading(false)}
@@ -4708,7 +4775,18 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
       onWaiting={() => pushDebug(`[PLAYBACK] video onWaiting (stalled/buffering) currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
       onStalled={() => pushDebug(`[PLAYBACK] video onStalled currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
       onSuspend={() => pushDebug(`[PLAYBACK] video onSuspend currentTime=${videoRef.current?.currentTime.toFixed(2)}`)}
-      onEnded={() => { setIsPlaying(false); if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); } }}
+      onEnded={() => {
+        // End of the CURRENT source, not necessarily the end of the whole
+        // virtual timeline — advance and keep playing if there's another
+        // part, only actually stop on the true last source.
+        const idx = currentSourceIndexRef.current;
+        if (idx < videoSources.length - 1) {
+          switchToSource(idx + 1, 0, true);
+          return;
+        }
+        setIsPlaying(false);
+        if (isPreviewMode) { setPreviewSeqIndex(null); setIsPreviewMode(false); }
+      }}
       onError={e => {
         const v = e.currentTarget;
         const code = v.error?.code;
@@ -4873,7 +4951,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <div style={{ background: "#1a0000", border: "1px solid #4a0000", borderRadius: 10, padding: "10px 12px", marginBottom: 14, display: "flex", gap: 9, alignItems: "flex-start" }}>
                 <AlertCircle size={13} color="#e04444" style={{ flexShrink: 0, marginTop: 1 }} />
                 <div style={{ fontSize: 12, color: "#c06060", lineHeight: 1.6, flex: 1 }}>
-                  <strong style={{ color: "#e04444" }}>Video doesn't match your saved moments.</strong> {videoMismatchWarning}
+                  <strong style={{ color: "#e04444" }}>Some files didn't match.</strong> {videoMismatchWarning}
                 </div>
                 <button onClick={() => setVideoMismatchWarning(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, flexShrink: 0 }}>
                   <X size={13} color="#7a2020" />
@@ -5044,8 +5122,8 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 e.preventDefault();
                 dragCounter.current = 0;
                 setIsDragging(false);
-                const file = e.dataTransfer.files?.[0];
-                if (file) loadVideo(file);
+                const files = Array.from(e.dataTransfer.files ?? []);
+                if (files.length > 0) loadVideoSources(files);
               }}
               style={{
                 width: "100%",
@@ -5084,6 +5162,7 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
           ref={fileInputRef}
           type="file"
           accept="video/*"
+          multiple
           style={{ position: "fixed", left: "-9999px", top: "-9999px", width: 1, height: 1, opacity: 0 }}
           onChange={handleFileChange}
         />
@@ -5100,9 +5179,13 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
               <AlertCircle size={14} color="#4a80c0" style={{ flexShrink: 0, marginTop: 1 }} />
               <div style={{ flex: 1, lineHeight: 1.55 }}>
                 <strong style={{ color: "#7ab0e0" }}>Only edits are saved here.</strong>{" "}
-                Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.
+                {videoSources.length > 1
+                  ? <>Reload all {videoSources.length} parts to continue — select or drop them all at once, in any order.</>
+                  : <>Reload <em style={{ color: "#aaa" }}>{videoFileName}</em> from this device to continue.</>}
                 <div style={{ marginTop: 6, color: "#5a7aa0" }}>
-                  Make sure it's the exact same video — same length, no trims or re-exports — or moments will point at the wrong parts. Not sure it still matches? No worries, copy all your edit info below first, just in case.
+                  {videoSources.length > 1
+                    ? "Keep the files' original names unchanged — that's how HyperLaw matches each one back to its place in order. Not sure they still match? No worries, copy all your edit info below first, just in case."
+                    : "Make sure it's the exact same video — same length, no trims or re-exports — or moments will point at the wrong parts. Not sure it still matches? No worries, copy all your edit info below first, just in case."}
                 </div>
               </div>
               <button onClick={() => openFilePicker(fileInputRef)}
@@ -6078,8 +6161,16 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 Verify All / Skip
               </button>
               <button
-                onClick={() => { if (markers.length > 0) setShowExport(true); }}
+                onClick={() => {
+                  if (markers.length === 0) return;
+                  if (videoSources.length > 1) {
+                    showInsertToast("Export for multi-part videos is coming soon — for now it only covers a single video file.");
+                    return;
+                  }
+                  setShowExport(true);
+                }}
                 disabled={markers.length === 0}
+                title={videoSources.length > 1 ? "Export for multi-part videos is coming soon" : undefined}
                 style={{ flex: 1, background: markers.length > 0 ? ORANGE : "#1a1a1a", border: "none", borderRadius: 12,
                   padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   cursor: markers.length > 0 ? "pointer" : "not-allowed", fontWeight: 800, fontSize: 13,
@@ -6087,6 +6178,11 @@ export default function VideoWorkspaceView({ hlCase, onUpdateCase, onBack, userI
                 <Download size={15} /> Export
               </button>
             </div>
+            {videoSources.length > 1 && (
+              <div style={{ marginTop: 10, fontSize: 11.5, color: "#7a6a3a", background: "#1a1400", border: "1px solid #3a2f00", borderRadius: 10, padding: "9px 11px", lineHeight: 1.55 }}>
+                Exporting a combined video from multiple parts is coming soon — you can still chunk, label, and organize across all {videoSources.length} parts today.
+              </div>
+            )}
 
             {chunks.length > 0 && (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>

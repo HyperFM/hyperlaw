@@ -356,11 +356,28 @@ export interface CourtScript {
   skipReason: string | null;
 }
 
+/** One part of a multi-part recording (e.g. a phone/camera splitting one long
+ *  recording into several files) — an ordered list of these forms a single
+ *  virtual timeline. `id` is stable independent of `fileName` so a rename
+ *  can still be reasoned about later; matching for relink is by `fileName`. */
+export interface VideoSourceRef {
+  id: string;
+  fileName: string;
+  durationSec: number;
+}
+
 export interface StudioProject {
   id: string;
   caseId: string;
-  /** Original file name — shown so user can relink after session */
-  videoFileName: string;
+  /** Ordered video parts making up this project's single virtual timeline.
+   *  Every marker/chunk timestamp is still a plain "seconds into the
+   *  concatenated timeline" number — see videoTimeline.ts's resolver. */
+  videoSources?: VideoSourceRef[];
+  /** @deprecated superseded by videoSources — kept only so older projects
+   *  saved before multi-part support still parse; migrated on read via
+   *  toVideoSources() in videoTimeline.ts. Do not write to these anymore. */
+  videoFileName?: string;
+  /** @deprecated see videoFileName */
   videoDurationSec?: number;
   markers: ExhibitMarker[];
   /** Captured moment chunks from the Chunk step */

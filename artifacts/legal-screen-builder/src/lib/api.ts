@@ -106,6 +106,15 @@ export const api = {
     updateRetention: (sessionId: string, status: string, retentionDays: number | null) =>
       apiFetch<ChatSession>(`/admin/sessions/${sessionId}/retention`, { method: "PUT", body: JSON.stringify({ status, retentionDays }) }),
   },
+  user: {
+    /** Save the profile photo (small downscaled JPEG data URL) — server-persisted
+     *  so it syncs across every device the account is signed into, same pattern
+     *  as cases.savePhoto. */
+    savePhoto: (dataUrl: string) =>
+      apiFetch<{ ok: boolean }>("/user/photo", { method: "PUT", body: JSON.stringify({ dataUrl }) }),
+    /** Remove the profile photo */
+    removePhoto: () => apiFetch<{ ok: boolean }>("/user/photo", { method: "DELETE" }),
+  },
   chat: {
     session: () => apiFetch<ChatSession | null>("/chat/session"),
     messages: (sessionId: string) => apiFetch<ChatMessage[]>(`/chat/messages/${sessionId}`),

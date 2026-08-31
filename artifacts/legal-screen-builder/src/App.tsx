@@ -41,6 +41,7 @@ import TutorPanel from "./components/TutorPanel";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import PhotoCropModal from "./components/PhotoCropModal";
+import { downscaleCasePhoto } from "./lib/casePhoto";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
 import { CaseHealthBar } from "./components/CaseHealthBar";
@@ -4497,19 +4498,37 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
     }
   }
 
-  // Profile photo
+  // Profile photo — localStorage is a fast local cache so it paints instantly
+  // on this device, but the server (usersTable.profilePhotoDataUrl) is what
+  // actually syncs it across every device the account is signed into.
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() => localStorage.getItem("hl_profile_photo"));
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Pulls the server's copy down whenever it differs from what's cached
+  // locally — same "server wins when different" reasoning as case photos
+  // (see App.tsx's syncCasesFromServer): whichever device most recently
+  // saved or removed the photo should show up everywhere else. Was
+  // previously pure localStorage, so a photo set on one device never
+  // appeared on another at all.
+  useEffect(() => {
+    const server = user?.profilePhotoDataUrl ?? null;
+    if (user === null) return; // still loading the session
+    if (server !== (localStorage.getItem("hl_profile_photo") ?? null)) {
+      if (server) localStorage.setItem("hl_profile_photo", server);
+      else localStorage.removeItem("hl_profile_photo");
+      setProfilePhoto(server);
+      window.dispatchEvent(new Event("profilePhotoChanged"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.profilePhotoDataUrl]);
+
   function handlePhotoFile(file: File | undefined | null, inputEl?: HTMLInputElement | null) {
     if (!file) return;
     // Reset input value so selecting the same file again reliably retriggers onChange
     if (inputEl) inputEl.value = "";
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
+    downscaleCasePhoto(file, dataUrl => {
       try {
         localStorage.setItem("hl_profile_photo", dataUrl);
       } catch {
@@ -4518,8 +4537,8 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
       }
       setProfilePhoto(dataUrl);
       window.dispatchEvent(new Event("profilePhotoChanged"));
-    };
-    reader.readAsDataURL(file);
+      api.user.savePhoto(dataUrl).catch(() => {});
+    });
     setShowPhotoOptions(false);
   }
 
@@ -4606,7 +4625,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
                 <User size={16} color={ORANGE} /> Choose from Library
               </button>
               {profilePhoto && (
-                <button onClick={() => { localStorage.removeItem("hl_profile_photo"); setProfilePhoto(null); window.dispatchEvent(new Event("profilePhotoChanged")); setShowPhotoOptions(false); }}
+                <button onClick={() => { localStorage.removeItem("hl_profile_photo"); setProfilePhoto(null); window.dispatchEvent(new Event("profilePhotoChanged")); setShowPhotoOptions(false); api.user.removePhoto().catch(() => {}); }}
                   style={{ padding: "12px 16px", background: "transparent", border: "1px solid #2a1a1a", borderRadius: 12, color: "#555", fontSize: 13, cursor: "pointer" }}>
                   Remove Photo
                 </button>
@@ -5674,10 +5693,21 @@ export default function App() {
             if (local.parties.length === 0 && serverCase?.parties?.length) patch.parties = serverCase.parties;
             if (local.timeline.length === 0 && serverCase?.timeline?.length) patch.timeline = serverCase.timeline;
             if (!local.jurisdiction?.trim() && serverCase?.jurisdiction?.trim()) patch.jurisdiction = serverCase.jurisdiction;
-            // Restores a photo that vanished locally (storage eviction, reinstall,
-            // new device) from the server's authoritative copy. Doesn't overwrite
-            // a photo the user just picked locally — local wins whenever present.
-            if (!local.photoDataUrl && sc.casePhotoDataUrl) patch.photoDataUrl = sc.casePhotoDataUrl;
+            // Photo sync: the server is authoritative here, not "local wins
+            // whenever present" — whichever device most recently saved or
+            // removed the photo should show up everywhere else on the next
+            // sync, the same way a photo edit on this device shows up
+            // immediately (savePhoto/removePhoto write straight to the
+            // server). Was previously only pulled in when local had no
+            // photo at all, so once any photo existed on a device it could
+            // never pick up a newer (or removed) one from another device.
+            // The brief theoretical race — this device just picked a new
+            // photo a moment before this poll fires — resolves itself: the
+            // pick already updated local state optimistically, and by the
+            // time the next poll runs the save has long since landed.
+            if ((sc.casePhotoDataUrl ?? undefined) !== local.photoDataUrl) {
+              patch.photoDataUrl = sc.casePhotoDataUrl ?? undefined;
+            }
             // studioProject (Exhibit Studio moments/chunks/labels) used to be
             // left out of this patch entirely — once a case existed locally
             // at all (even with no studio work yet), "local wins" meant this

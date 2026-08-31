@@ -22,6 +22,9 @@ export interface AuthUser {
   stripeCustomerId: string | null;
   creditBalance: number;
   hasSeenWelcome: boolean;
+  /** Small downscaled JPEG data URL, server-synced across every device this
+   *  account is signed into — see api.user.savePhoto/removePhoto. */
+  profilePhotoDataUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

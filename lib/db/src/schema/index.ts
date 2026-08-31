@@ -285,6 +285,10 @@ export const usersTable = pgTable("users", {
   planTier: text("plan_tier").notNull().default("free"),
   /** True once the user has dismissed the one-time Welcome modal (per-user, not per-device). */
   hasSeenWelcome: boolean("has_seen_welcome").notNull().default(false),
+  /** Small downscaled JPEG data URL, same convention as casesTable.casePhotoDataUrl —
+   *  its own column so a full profile fetch doesn't need to touch it, and so it
+   *  syncs across devices the same way a case photo does. */
+  profilePhotoDataUrl: text("profile_photo_data_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -109,6 +109,31 @@ router.post("/user/welcome-seen", requireAuth, async (req: Request, res: Respons
   res.json({ ok: true });
 });
 
+// PUT /user/photo — save the profile photo (small downscaled JPEG data URL),
+// so it syncs to every device the account is signed into instead of sitting
+// only in this one browser's localStorage.
+const PROFILE_PHOTO_MAX_CHARS = 400_000; // same headroom as casesTable's photo column
+router.put("/user/photo", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { dataUrl } = req.body as { dataUrl?: string };
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+    res.status(400).json({ error: "Missing or invalid dataUrl" });
+    return;
+  }
+  if (dataUrl.length > PROFILE_PHOTO_MAX_CHARS) { res.status(413).json({ error: "Photo too large" }); return; }
+  await db.update(usersTable)
+    .set({ profilePhotoDataUrl: dataUrl, updatedAt: new Date() })
+    .where(eq(usersTable.id, uid(req)));
+  res.json({ ok: true });
+});
+
+// DELETE /user/photo — remove the profile photo
+router.delete("/user/photo", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  await db.update(usersTable)
+    .set({ profilePhotoDataUrl: null, updatedAt: new Date() })
+    .where(eq(usersTable.id, uid(req)));
+  res.json({ ok: true });
+});
+
 // POST /user/delete — verify PIN, then purge every user-owned row
 router.post("/user/delete", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = uid(req);

@@ -1,4 +1,4 @@
-import { db, usersTable, stripeProcessedSessionsTable } from '@workspace/db';
+import { db, usersTable, stripeProcessedSessionsTable, appleProcessedTransactionsTable } from '@workspace/db';
 import { eq, sql, gte, and } from 'drizzle-orm';
 
 export class Storage {
@@ -76,6 +76,73 @@ export class Storage {
       })
       .where(and(eq(usersTable.id, userId), gte(usersTable.creditBalance, amount)))
       .returning({ creditBalance: usersTable.creditBalance });
+    return rows.length > 0;
+  }
+
+  // ── iOS pay-as-you-go balance (Apple IAP only, separate from creditBalance) ──
+
+  async getIosPaygBalance(userId: string): Promise<number> {
+    const user = await this.getUser(userId);
+    return user?.iosPaygBalanceMicroUsd ?? 0;
+  }
+
+  /** Atomically add to the iOS PAYG balance (micro-USD) — called only after a
+   *  verified Apple transaction. Creates user row if missing. */
+  async addIosPaygBalance(userId: string, amountMicroUsd: number): Promise<number> {
+    await this.ensureUser(userId);
+    const [row] = await db
+      .update(usersTable)
+      .set({
+        iosPaygBalanceMicroUsd: sql`${usersTable.iosPaygBalanceMicroUsd} + ${amountMicroUsd}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, userId))
+      .returning({ iosPaygBalanceMicroUsd: usersTable.iosPaygBalanceMicroUsd });
+    return row?.iosPaygBalanceMicroUsd ?? 0;
+  }
+
+  /** Unconditional decrement — unlike deductCredits, this isn't gated on
+   *  balance >= amount: the AI cost was already incurred by the time this is
+   *  called (real cost is only known after the call returns), so it's allowed
+   *  to go slightly negative rather than fail after the fact. */
+  async deductIosPaygBalance(userId: string, amountMicroUsd: number): Promise<number> {
+    if (amountMicroUsd <= 0) return this.getIosPaygBalance(userId);
+    await this.ensureUser(userId);
+    const [row] = await db
+      .update(usersTable)
+      .set({
+        iosPaygBalanceMicroUsd: sql`${usersTable.iosPaygBalanceMicroUsd} - ${amountMicroUsd}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, userId))
+      .returning({ iosPaygBalanceMicroUsd: usersTable.iosPaygBalanceMicroUsd });
+    return row?.iosPaygBalanceMicroUsd ?? 0;
+  }
+
+  // ── Apple IAP idempotency ────────────────────────────────────────────────────
+
+  async hasProcessedAppleTransaction(transactionId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ transactionId: appleProcessedTransactionsTable.transactionId })
+      .from(appleProcessedTransactionsTable)
+      .where(eq(appleProcessedTransactionsTable.transactionId, transactionId));
+    return !!row;
+  }
+
+  /** Marks an Apple transaction as processed. Returns true only if THIS call's
+   *  own insert won the race (i.e. the caller should credit the balance) —
+   *  false means it was already recorded, so the caller must not credit again. */
+  async markAppleTransactionProcessed(
+    transactionId: string,
+    userId: string,
+    productId: string,
+    amountMicroUsd: number,
+  ): Promise<boolean> {
+    const rows = await db
+      .insert(appleProcessedTransactionsTable)
+      .values({ transactionId, userId, productId, amountMicroUsd })
+      .onConflictDoNothing()
+      .returning({ transactionId: appleProcessedTransactionsTable.transactionId });
     return rows.length > 0;
   }
 

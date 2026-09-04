@@ -1,9 +1,15 @@
+import { isIosApp } from "./platform";
+
 const BASE = "/api";
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Platform": isIosApp() ? "ios" : "web",
+      ...(opts?.headers ?? {}),
+    },
     ...opts,
   });
   if (!r.ok) {

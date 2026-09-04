@@ -13,7 +13,7 @@ import {
   checkDailyLimit,
   type AiFeature,
 } from "../services/aiCache.js";
-import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable, guidanceSessionsTable, caseHistory, litigationTimeline } from "@workspace/db";
+import { db, uploadedDocumentsTable, generatedDocumentsTable, errorLogsTable, casesTable, guidanceSessionsTable, caseHistory, litigationTimeline, aiLogsTable } from "@workspace/db";
 import { storage } from "../storage.js";
 import {
   chargeOneCredit, refundOneCredit,
@@ -21,6 +21,10 @@ import {
   isBillingWaived,
   creditsForWords, countWords, WORDS_PER_CREDIT,
 } from "../services/credits.js";
+import {
+  isIosClient, checkIosPaygBalance, chargeIosPaygActual,
+  chargeOneUnit, insufficientBalanceBody,
+} from "../services/iosPayg.js";
 import { estimateForDocument, estimateForGuidance } from "../services/estimate.js";
 import { and, eq, sql, desc } from "drizzle-orm";
 import { getUserEmail } from "./feedback.js";
@@ -135,6 +139,9 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
   // with forceRefresh=false and get charged for a free cache hit.
   const isBillableRebuild = type === "case" && !!billableRebuild && !!forceRefresh;
   let creditCharge: Awaited<ReturnType<typeof chargeOneCredit>> | null = null;
+  // iOS pays as it goes against real cost, not a flat credit — see services/iosPayg.ts.
+  // Only pre-flight-checked here (balance > 0); actually deducted post-call on success.
+  const iosClient = isIosClient(req);
 
   try {
     // ── Cache check ──────────────────────────────────────────────────────────
@@ -171,10 +178,18 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
 
     // ── Credit charge — only once we know a real Claude call is about to run ──
     if (isBillableRebuild) {
-      creditCharge = await chargeOneCredit(userId);
-      if (!creditCharge.ok) {
-        res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: creditCharge.balance });
-        return;
+      if (iosClient) {
+        const iosCheck = await checkIosPaygBalance(userId);
+        if (!iosCheck.ok) {
+          res.status(402).json({ error: "Insufficient balance", code: "insufficient_credits", creditBalance: 0, iosPaygBalanceMicroUsd: iosCheck.balanceMicroUsd });
+          return;
+        }
+      } else {
+        creditCharge = await chargeOneCredit(userId);
+        if (!creditCharge.ok) {
+          res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: creditCharge.balance });
+          return;
+        }
       }
     }
 
@@ -203,6 +218,13 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // iOS: only now, on success, do we actually know (and deduct) the real cost.
+    let iosBalanceAfter: number | null = null;
+    if (iosClient && isBillableRebuild) {
+      const result = await chargeIosPaygActual(userId, aiResult.meta.estimatedCostMicroUsd);
+      iosBalanceAfter = result.balanceMicroUsd;
+    }
+
     // ── Log + cache ──────────────────────────────────────────────────────────
     void logAiCall({
       userId,
@@ -222,9 +244,12 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
       ...aiResult.data,
       fromCache: false,
       ...(creditCharge ? { creditsCharged: creditCharge.charged ? 1 : 0, creditBalance: creditCharge.balance } : {}),
+      ...(iosBalanceAfter !== null ? { iosPaygBalanceMicroUsd: iosBalanceAfter } : {}),
     });
   } catch (err) {
-    // Never take a credit for a rebuild that didn't actually happen.
+    // Never take a credit for a rebuild that didn't actually happen. (iOS has
+    // nothing to refund here — it only pre-flight-checks, and only actually
+    // charges on success, so there's no charge to undo on this path.)
     if (creditCharge?.charged) {
       await refundOneCredit(userId).catch(() => { /* best-effort — logged failure below still surfaces */ });
     }
@@ -569,6 +594,7 @@ router.post("/ai/analyze-document", requireAuth, async (req: Request, res: Respo
         logFn: (e) => logFailure("claude-call", e),
         err: claudeErr,
       });
+      return;
     }
 
     // ── Checkpoint 9: Response parsed ─────────────────────────────────────
@@ -730,13 +756,14 @@ router.post("/ai/ifp-find-form", requireAuth, async (req: Request, res: Response
   };
   const userId = getAuth(req)!.userId!;
 
-  const charge = await chargeOneCredit(userId);
-  if (!charge.ok) {
-    res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+  const unit = await chargeOneUnit(req, userId);
+  if (!unit.ok) {
+    res.status(402).json(insufficientBalanceBody(unit));
     return;
   }
   try {
     const r = await aiService.ifpFindForm(jurisdiction ?? "", caseData ?? {});
+    if (unit.iosClient) await chargeIosPaygActual(userId, r.meta.estimatedCostMicroUsd);
     void logAiCall({
       userId, caseId: caseId ?? null, feature: "ifp_find_form" as AiFeature,
       model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
@@ -745,7 +772,7 @@ router.post("/ai/ifp-find-form", requireAuth, async (req: Request, res: Response
     });
     res.json(r.data);
   } catch (err) {
-    if (charge.charged) await refundOneCredit(userId);
+    if (unit.creditCharge?.charged) await refundOneCredit(userId);
     res.status(500).json({ error: (err as Error).message || "IFP form search failed" });
   }
 });
@@ -762,13 +789,14 @@ router.post("/ai/find-courthouse", requireAuth, async (req: Request, res: Respon
   if (!location || !location.trim()) { res.status(400).json({ error: "location is required" }); return; }
   const userId = getAuth(req)!.userId!;
 
-  const charge = await chargeOneCredit(userId);
-  if (!charge.ok) {
-    res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+  const unit = await chargeOneUnit(req, userId);
+  if (!unit.ok) {
+    res.status(402).json(insufficientBalanceBody(unit));
     return;
   }
   try {
     const r = await aiService.findCourthouses(location.trim());
+    if (unit.iosClient) await chargeIosPaygActual(userId, r.meta.estimatedCostMicroUsd);
     void logAiCall({
       userId, caseId: caseId ?? null, feature: "find_courthouse" as AiFeature,
       model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
@@ -777,7 +805,7 @@ router.post("/ai/find-courthouse", requireAuth, async (req: Request, res: Respon
     });
     res.json(r.data);
   } catch (err) {
-    if (charge.charged) await refundOneCredit(userId);
+    if (unit.creditCharge?.charged) await refundOneCredit(userId);
     res.status(500).json({ error: (err as Error).message || "Courthouse search failed" });
   }
 });
@@ -820,13 +848,14 @@ router.post(
       return;
     }
 
-    const charge = await chargeOneCredit(userId);
-    if (!charge.ok) {
-      res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: charge.balance });
+    const unit = await chargeOneUnit(req, userId);
+    if (!unit.ok) {
+      res.status(402).json(insufficientBalanceBody(unit));
       return;
     }
     try {
       const r = await aiService.defenseAnalyze({ sourceText: sourceText.trim() || undefined, images: imgs, caseTitle });
+      if (unit.iosClient) await chargeIosPaygActual(userId, r.meta.estimatedCostMicroUsd);
       void logAiCall({
         userId, caseId, feature: "defense_analyze" as AiFeature,
         model: r.meta.model, inputTokens: r.meta.inputTokens, outputTokens: r.meta.outputTokens,
@@ -835,7 +864,7 @@ router.post(
       });
       res.json(r.data);
     } catch (err) {
-      if (charge.charged) await refundOneCredit(userId);
+      if (unit.creditCharge?.charged) await refundOneCredit(userId);
       void db.insert(errorLogsTable).values({
         userId, context: "defense_analyze",
         message: (err as Error).message || "Defense analysis failed", metadata: null,
@@ -889,20 +918,30 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
   }
 
   const userId = auth.userId;
+  const iosClient = isIosClient(req);
 
   try {
-    // Usage-based billing: the estimate is also the hard spend cap. Verify the
-    // user can cover it before doing any billable work.
+    // Usage-based billing: the estimate is also the hard spend cap (web only —
+    // iOS charges real cost directly, see below, so it only needs to know
+    // there's *some* balance before starting).
     const estimate = estimateForDocument(documentType);
-    const balanceCheck = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
-    if (!balanceCheck.ok) {
-      res.status(402).json({
-        error: "Insufficient credits",
-        code: "insufficient_credits",
-        creditBalance: balanceCheck.balance,
-        estimatedCredits: estimate.estimatedCredits,
-      });
-      return;
+    if (iosClient) {
+      const iosCheck = await checkIosPaygBalance(userId);
+      if (!iosCheck.ok) {
+        res.status(402).json({ error: "Insufficient balance", code: "insufficient_credits", creditBalance: 0, iosPaygBalanceMicroUsd: iosCheck.balanceMicroUsd });
+        return;
+      }
+    } else {
+      const balanceCheck = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+      if (!balanceCheck.ok) {
+        res.status(402).json({
+          error: "Insufficient credits",
+          code: "insufficient_credits",
+          creditBalance: balanceCheck.balance,
+          estimatedCredits: estimate.estimatedCredits,
+        });
+        return;
+      }
     }
 
     // Library context for richer output
@@ -933,11 +972,21 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
 
     const docTitle = title || `${documentType.charAt(0).toUpperCase() + documentType.slice(1)} — ${caseData.title}`;
 
-    // Usage-based charge: credits from ACTUAL output words, capped at the estimate
-    // shown to the user (we never charge above the estimate). Admin/Apex waived.
+    // Usage-based charge: web charges credits from ACTUAL output words, capped
+    // at the estimate shown to the user (we never charge above the estimate).
+    // iOS charges the real micro-USD cost directly instead — no word-based
+    // cap needed, since it's already metered against actual dollars. Admin/Apex
+    // (web only) waived.
     const outputWords = countWords(aiResult.data);
     const usageCredits = Math.min(creditsForWords(outputWords), estimate.estimatedCredits);
-    const charge = await chargeCredits(userId, usageCredits);
+    const charge = iosClient
+      ? { ok: true, waived: false, charged: false, balance: -1, chargedAmount: 0 }
+      : await chargeCredits(userId, usageCredits);
+    let iosBalanceAfter: number | null = null;
+    if (iosClient) {
+      const result = await chargeIosPaygActual(userId, aiResult.meta.estimatedCostMicroUsd);
+      iosBalanceAfter = result.balanceMicroUsd;
+    }
 
     // Persist as fully paid — the usage-based model has no preview/unlock gate.
     const inserted = await db.insert(generatedDocumentsTable).values({
@@ -950,6 +999,7 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
     }).returning().catch(async (saveErr) => {
       // Save failed after charging — refund so we never take credits for nothing.
       if (charge.charged) await refundCredits(userId, charge.chargedAmount ?? 0);
+      if (iosClient) await storage.addIosPaygBalance(userId, aiResult.meta.estimatedCostMicroUsd);
       throw saveErr;
     });
     const savedDoc = inserted[0];
@@ -978,7 +1028,12 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
       });
     }
 
-    res.json({ ...savedDoc, creditsCharged: charge.chargedAmount ?? 0, creditBalance: charge.balance });
+    res.json({
+      ...savedDoc,
+      creditsCharged: charge.chargedAmount ?? 0,
+      creditBalance: charge.balance,
+      ...(iosBalanceAfter !== null ? { iosPaygBalanceMicroUsd: iosBalanceAfter } : {}),
+    });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Document generation failed" });
   }
@@ -1358,6 +1413,11 @@ router.post("/ai/estimate", requireAuth, async (req: Request, res: Response): Pr
   const { kind, documentType } = req.body as { kind?: "document" | "guidance"; documentType?: string };
 
   const estimate = kind === "guidance" ? estimateForGuidance() : estimateForDocument(documentType ?? "motion");
+  if (isIosClient(req)) {
+    const iosCheck = await checkIosPaygBalance(userId);
+    res.json({ ...estimate, waived: false, creditBalance: 0, sufficient: iosCheck.ok, iosPaygBalanceMicroUsd: iosCheck.balanceMicroUsd });
+    return;
+  }
   const check = await checkBalanceForEstimate(userId, estimate.estimatedCredits);
   res.json({ ...estimate, waived: check.waived, creditBalance: check.balance, sufficient: check.ok });
 });
@@ -1410,13 +1470,23 @@ router.post("/ai/guidance/start", requireAuth, async (req: Request, res: Respons
   // session lifetime — /complete will honour it rather than re-querying Stripe,
   // so an Apex lapse (or gain) mid-session never accidentally charges / waives.
   const billingWaived = await isBillingWaived(userId);
+  // Same "capture at start, authoritative for the session" rule for platform —
+  // see iosPaygSession column comment.
+  const iosPaygSession = isIosClient(req);
 
   // Verify the user can cover the guidance estimate (the spend cap) before starting.
-  // Waived users always pass; non-waived users must have enough credits.
+  // Waived users always pass; non-waived users must have enough credits. iOS
+  // PAYG sessions aren't credit/word-capped — they just need some balance.
   const estimate = estimateForGuidance();
-  const balanceCheck = billingWaived
-    ? { ok: true, waived: true, balance: -1 }
-    : await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+  let balanceCheck: { ok: boolean; waived: boolean; balance: number };
+  if (iosPaygSession) {
+    const iosCheck = await checkIosPaygBalance(userId);
+    balanceCheck = { ok: iosCheck.ok, waived: false, balance: -1 };
+  } else {
+    balanceCheck = billingWaived
+      ? { ok: true, waived: true, balance: -1 }
+      : await checkBalanceForEstimate(userId, estimate.estimatedCredits);
+  }
   if (!balanceCheck.ok) {
     res.status(402).json({ error: "Insufficient credits", code: "insufficient_credits", creditBalance: balanceCheck.balance, estimatedCredits: estimate.estimatedCredits });
     return;
@@ -1439,6 +1509,7 @@ router.post("/ai/guidance/start", requireAuth, async (req: Request, res: Respons
       wordCount: countWords(greeting),
       creditCap: estimate.estimatedCredits,
       billingWaived,
+      iosPaygSession,
     }).returning();
 
     void logAiCall({
@@ -1481,7 +1552,7 @@ router.post("/ai/guidance/:id/message", requireAuth, async (req: Request, res: R
     if (session.status !== "active") { res.status(409).json({ error: "This guidance session has already ended.", code: "session_closed" }); return; }
 
     let creditCap = session.creditCap;
-    if (extendCap) {
+    if (extendCap && !session.iosPaygSession) {
       const newCap = creditCap + estimateForGuidance().estimatedCredits;
       // billingWaived is captured at session-start and is authoritative for the
       // lifetime of this session — never re-query Stripe here. Otherwise an
@@ -1497,18 +1568,36 @@ router.post("/ai/guidance/:id/message", requireAuth, async (req: Request, res: R
 
     const history = (session.messages ?? []) as Array<{ role: "user" | "assistant"; content: string }>;
 
-    // Pause at the cap and ask to approve more (unless the user just approved).
-    const projectedWords = session.wordCount + countWords(message);
-    if (!extendCap && projectedWords >= creditCap * WORDS_PER_CREDIT) {
-      res.json({
-        capReached: true,
-        reply: null,
-        done: false,
-        wordCount: session.wordCount,
-        creditCap,
-        estimatedCredits: Math.min(creditsForWords(session.wordCount), creditCap),
-      });
-      return;
+    // iOS PAYG sessions aren't word/credit-capped — they're metered on real
+    // cost at /complete instead. The gate here is just "is there still some
+    // balance," re-checked each turn since a top-up can happen mid-session.
+    if (session.iosPaygSession) {
+      const iosCheck = await checkIosPaygBalance(userId);
+      if (!iosCheck.ok) {
+        res.json({
+          capReached: true,
+          reply: null,
+          done: false,
+          wordCount: session.wordCount,
+          creditCap,
+          iosPaygBalanceMicroUsd: iosCheck.balanceMicroUsd,
+        });
+        return;
+      }
+    } else {
+      // Pause at the cap and ask to approve more (unless the user just approved).
+      const projectedWords = session.wordCount + countWords(message);
+      if (!extendCap && projectedWords >= creditCap * WORDS_PER_CREDIT) {
+        res.json({
+          capReached: true,
+          reply: null,
+          done: false,
+          wordCount: session.wordCount,
+          creditCap,
+          estimatedCredits: Math.min(creditsForWords(session.wordCount), creditCap),
+        });
+        return;
+      }
     }
 
     const { caseTitle, caseContext } = await loadCaseContext(userId, session.caseId ?? undefined);
@@ -1584,7 +1673,9 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
     // Charge by conversation length, capped. Sessions with no user input are free.
     // billingWaived is captured at session-start and is authoritative — we never
     // re-query Stripe so an Apex lapse (or gain) mid-session has no effect.
-    const usageCredits = (hasUserContent && !session.billingWaived)
+    // iOS PAYG sessions are charged real cost below instead — never word-based
+    // credits — so this stays 0 for them regardless of billingWaived.
+    const usageCredits = (hasUserContent && !session.billingWaived && !session.iosPaygSession)
       ? Math.min(creditsForWords(session.wordCount), session.creditCap)
       : 0;
 
@@ -1614,15 +1705,33 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
     }
 
     // We own the completion — safe to charge exactly once, then record the actual amount.
-    // chargeCredits is only called for non-waived sessions; waived sessions (admin / Apex
-    // at start-time) always produce creditsCharged=0 without touching the wallet.
-    const charge = session.billingWaived
+    // chargeCredits is only called for non-waived, non-iOS-PAYG sessions; waived
+    // sessions (admin / Apex at start-time) always produce creditsCharged=0
+    // without touching the wallet.
+    const charge = (session.billingWaived || session.iosPaygSession)
       ? { chargedAmount: 0, balance: -1 }
       : await chargeCredits(userId, usageCredits);
     const creditsCharged = charge.chargedAmount ?? 0;
     if (creditsCharged > 0) {
       await db.update(guidanceSessionsTable).set({ creditsCharged, updatedAt: new Date() })
         .where(eq(guidanceSessionsTable.id, sessionId));
+    }
+
+    // iOS PAYG: charge the REAL total cost of the whole session (every turn's
+    // estimatedCostMicroUsd, already logged per-message via logAiCall, summed
+    // by sessionId) — not word-based credits. hasUserContent guards free/no-op
+    // sessions the same way the credit path does above.
+    let iosBalanceAfter: number | null = null;
+    if (hasUserContent && session.iosPaygSession) {
+      const [totals] = await db
+        .select({ totalCostMicroUsd: sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)` })
+        .from(aiLogsTable)
+        .where(eq(aiLogsTable.sessionId, sessionId));
+      const sessionCostMicroUsd = Number(totals?.totalCostMicroUsd ?? 0);
+      if (sessionCostMicroUsd > 0) {
+        const result = await chargeIosPaygActual(userId, sessionCostMicroUsd);
+        iosBalanceAfter = result.balanceMicroUsd;
+      }
     }
 
     if (extracted && session.caseId) {
@@ -1659,6 +1768,7 @@ router.post("/ai/guidance/:id/complete", requireAuth, async (req: Request, res: 
       creditBalance: charge.balance,
       summary: (extracted as { summary?: string } | null)?.summary ?? "",
       extractedAnswers: extracted,
+      ...(iosBalanceAfter !== null ? { iosPaygBalanceMicroUsd: iosBalanceAfter } : {}),
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || "Could not complete guidance session" });

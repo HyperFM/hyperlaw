@@ -1,5 +1,6 @@
 // ── AI API client ─────────────────────────────────────────────────────────────
 // Mirrors the shapes defined in artifacts/api-server/src/services/ai.ts
+import { isIosApp } from "./platform";
 
 export interface TutorInsight {
   type: "gap" | "key_point" | "question" | "notice";
@@ -284,7 +285,7 @@ async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     credentials: "include",
     ...opts,
-    headers: { ...headers, ...(opts?.headers ?? {}) },
+    headers: { ...headers, "X-Client-Platform": isIosApp() ? "ios" : "web", ...(opts?.headers ?? {}) },
   });
 
   if (!r.ok) {
@@ -692,6 +693,21 @@ export const aiApi = {
   /** Open the Stripe Billing Portal to view payment history */
   stripePortal(): Promise<{ url: string }> {
     return aiFetch("/stripe/portal");
+  },
+
+  /** iOS-only pay-as-you-go balance, in micro-USD (÷1,000,000 for dollars). */
+  iosPaygBalance(): Promise<{ balanceMicroUsd: number }> {
+    return aiFetch("/iap/balance");
+  },
+
+  /** Verify a signed Apple transaction (from HyperLawIAP.purchase()) and
+   *  credit the iOS PAYG balance. Server re-derives the amount from the
+   *  product ID — never trust a client-supplied amount. */
+  verifyApplePurchase(signedTransactionInfo: string): Promise<{ ok: boolean; balanceMicroUsd?: number; code?: string }> {
+    return aiFetch("/iap/verify-purchase", {
+      method: "POST",
+      body: JSON.stringify({ signedTransactionInfo }),
+    });
   },
 
   /**

@@ -28,6 +28,7 @@ export type AiFeature =
   | "builder_extract"
   | "jurisdiction_verify"
   | "organize_case"
+  | "organize_video_chunks"
   | "gap_detect"
   | "procedural_info"
   | "ifp_find_form"

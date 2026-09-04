@@ -154,6 +154,19 @@ export const stripeProcessedSessionsTable = pgTable("stripe_processed_sessions",
   processedAt: timestamp("processed_at").notNull().defaultNow(),
 });
 
+// ── Apple IAP idempotency ───────────────────────────────────────────────────
+// Tracks processed Apple transaction IDs to prevent double-crediting the
+// iOS-only pay-as-you-go balance (see usersTable.iosPaygBalanceMicroUsd) on
+// retried client submissions or duplicate App Store Server Notifications.
+
+export const appleProcessedTransactionsTable = pgTable("apple_processed_transactions", {
+  transactionId: text("transaction_id").primaryKey(),  // Apple transactionId
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  amountMicroUsd: integer("amount_micro_usd").notNull(),
+  processedAt: timestamp("processed_at").notNull().defaultNow(),
+});
+
 // ── Cases (server-side persistence for HLCase + Organization Engine output) ────
 
 export const casesTable = pgTable("cases", {
@@ -214,6 +227,13 @@ export const guidanceSessionsTable = pgTable("guidance_sessions", {
    * from unexpectedly charging the user.
    */
   billingWaived: boolean("billing_waived").notNull().default(false),
+  /** Captured at session-start alongside billingWaived, same authoritative-for-
+   *  the-session-lifetime rule: true when this session started from the iOS
+   *  app, meaning /complete charges real accumulated cost (summed from
+   *  ai_logs for this sessionId) against iosPaygBalanceMicroUsd instead of
+   *  word-based credits. Mutually exclusive in practice with billingWaived
+   *  being meaningful (iOS PAYG users are never admin/Apex-waived). */
+  iosPaygSession: boolean("ios_payg_session").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
@@ -277,6 +297,12 @@ export const usersTable = pgTable("users", {
   adminSecurityAnswerHash: text("admin_security_answer_hash"),
   stripeCustomerId: text("stripe_customer_id"),
   creditBalance: integer("credit_balance").notNull().default(0),
+  /** iOS-only pay-as-you-go balance, in micro-USD (÷1,000,000 for dollars).
+   *  Topped up 500,000 ($0.50) per verified $1 Apple IAP purchase. Distinct
+   *  from creditBalance (web, word-based) — see
+   *  appleProcessedTransactionsTable for the idempotency guard and
+   *  services/iosPayg.ts for charge logic. Never touched by web/Stripe. */
+  iosPaygBalanceMicroUsd: integer("ios_payg_balance_micro_usd").notNull().default(0),
   /** "free" | "prosay" | "apex" — real Stripe billing isn't wired up yet
    *  (see routes/stripe.ts), so this is set directly via
    *  POST /stripe/set-plan-tier, which only isAdmin/isTester accounts can

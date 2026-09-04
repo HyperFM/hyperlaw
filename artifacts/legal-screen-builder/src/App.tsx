@@ -21,6 +21,7 @@ import {
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
+import { isIosApp } from "./lib/platform";
 import { assignNickname } from "./lib/nicknames";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
@@ -30,6 +31,7 @@ import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
+import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
 import WelcomeModal from "./components/WelcomeModal";
@@ -3582,7 +3584,7 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
   onPlanChanged: () => void;
 }) {
   const [visible, setVisible] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(1);
+  const [activeIndex, setActiveIndex] = useState(isIosApp() && !canSwitchFreely ? 0 : 1);
   const startXRef = useRef(0);
   const currentXRef = useRef(0);
   const isDraggingRef = useRef(false);
@@ -3669,7 +3671,13 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
       ],
       ctaLabel: "Buy Down", ctaStyle: "primary" as const,
     },
-  ];
+  ].filter((p) => !isIosApp() || canSwitchFreely || p.id === "firstfiling");
+  // Pro-Say/Apex are removed on iOS (Apple Guideline 3.1.1) for regular
+  // accounts — no subscription purchase, no mention, no link out anywhere in
+  // this build. Admin/tester accounts (canSwitchFreely — the same flag that
+  // lets them free-switch tiers) keep seeing all three, since that's our own
+  // testing access, not a purchase flow subject to the guideline. Those tiers
+  // otherwise exist only on hyperlaw.site for web users.
 
   const goTo = useCallback((idx: number) => {
     setActiveIndex(Math.max(0, Math.min(plans.length - 1, idx)));
@@ -3783,7 +3791,12 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
                         <span style={{ fontWeight: 700, fontSize: 40 }}>{plan.price}</span>
                         {plan.cycle && <span style={{ color: DIM, fontSize: 14 }}>{plan.cycle}</span>}
                       </div>
-                      <div style={{ color: DIM, fontSize: 12, marginBottom: 20 }}>{plan.priceNote}</div>
+                      <div style={{ color: DIM, fontSize: 12, marginBottom: isIosApp() && plan.id === "firstfiling" ? 6 : 20 }}>{plan.priceNote}</div>
+                      {isIosApp() && plan.id === "firstfiling" && (
+                        <div style={{ color: ORANGE_HOT, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 20 }}>
+                          In-App Purchase
+                        </div>
+                      )}
                       <p style={{ fontStyle: "italic", fontSize: 12.5, color: "#DAD3C9", lineHeight: 1.55, padding: "12px 6px 16px", borderTop: `1px solid ${LINE}`, marginTop: 2, marginBottom: 6, width: "100%" }}>{plan.quote}</p>
                       <div style={{ width: "100%", height: 1, background: LINE, margin: "4px 0 20px" }} />
                       <ul style={{ listStyle: "none", width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 11, marginBottom: 26, flex: 1, padding: 0 }}>
@@ -6582,10 +6595,17 @@ export default function App() {
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
 
       {showCreditShop && (
-        <CreditShopModal
-          onClose={() => setShowCreditShop(false)}
-          onPurchaseStarted={() => setShowCreditShop(false)}
-        />
+        isIosApp() ? (
+          <IosPaygTopUpModal
+            onClose={() => setShowCreditShop(false)}
+            onPurchased={() => setShowCreditShop(false)}
+          />
+        ) : (
+          <CreditShopModal
+            onClose={() => setShowCreditShop(false)}
+            onPurchaseStarted={() => setShowCreditShop(false)}
+          />
+        )
       )}
 
       {/* Upgrade gate — shown when the free 1-case limit is hit */}

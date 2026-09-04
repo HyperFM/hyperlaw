@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
+import { isIosApp } from "../lib/platform";
 
 const ORANGE = "#F45D01";
 const ORANGE_HOT = "#FF7A1A";
@@ -17,7 +18,10 @@ const PLAN_ICONS = [
   `${basePath}/plan-icon-2.png`,
 ];
 
-const plans = [
+// Pro-Say and Apex are removed entirely on iOS (Apple Guideline 3.1.1 — no
+// subscription purchase, no mention, no link out inside the iOS build; those
+// tiers exist only on hyperlaw.site for web users). See src/lib/platform.ts.
+const ALL_PLANS = [
   {
     id: "firstfiling",
     name: "First Filing",
@@ -85,7 +89,11 @@ const plans = [
 
 export default function Plans() {
   const [, navigate] = useLocation();
-  const [activeIndex, setActiveIndex] = useState(1);
+  const plans = useMemo(
+    () => (isIosApp() ? ALL_PLANS.filter((p) => p.id === "firstfiling") : ALL_PLANS),
+    [],
+  );
+  const [activeIndex, setActiveIndex] = useState(isIosApp() ? 0 : 1);
   const startXRef = useRef(0);
   const currentXRef = useRef(0);
   const isDraggingRef = useRef(false);
@@ -233,7 +241,7 @@ export default function Plans() {
 }
 
 function PlanCard({ plan, iconSrc, isActive, onCta }: {
-  plan: typeof plans[number];
+  plan: typeof ALL_PLANS[number];
   iconSrc: string;
   isActive: boolean;
   onCta: () => void;
@@ -269,7 +277,12 @@ function PlanCard({ plan, iconSrc, isActive, onCta }: {
           <span style={{ fontWeight: 700, fontSize: 40 }}>{plan.price}</span>
           {plan.cycle && <span style={{ color: DIM, fontSize: 14 }}>{plan.cycle}</span>}
         </div>
-        <div style={{ color: DIM, fontSize: 12, marginBottom: 20 }}>{plan.priceNote}</div>
+        <div style={{ color: DIM, fontSize: 12, marginBottom: isIosApp() && plan.id === "firstfiling" ? 6 : 20 }}>{plan.priceNote}</div>
+        {isIosApp() && plan.id === "firstfiling" && (
+          <div style={{ color: ORANGE_HOT, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 20 }}>
+            In-App Purchase
+          </div>
+        )}
 
         <p style={{ fontStyle: "italic", fontSize: 12.5, color: "#DAD3C9", lineHeight: 1.55, padding: "12px 6px 16px", borderTop: `1px solid ${LINE}`, marginTop: 2, marginBottom: 6, width: "100%" }}>{plan.quote}</p>
         <div style={{ width: "100%", height: 1, background: LINE, margin: "4px 0 20px" }} />

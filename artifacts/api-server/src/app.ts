@@ -118,12 +118,29 @@ const frontendDist = path.resolve(
 );
 const frontendIndexHtml = path.join(frontendDist, "index.html");
 
-app.use(express.static(frontendDist));
+app.use(
+  express.static(frontendDist, {
+    setHeaders: (res, filePath) => {
+      // Vite's /assets/* bundles are content-hashed (a new build gets a new
+      // filename), so they're safe to cache forever. Everything else,
+      // index.html above all, must always revalidate — express.static's
+      // default (max-age=0 with no explicit directive) is weak enough that
+      // a CDN or mobile browser sitting in front can still hand back a
+      // stale copy instead of actually revalidating on every request.
+      if (path.relative(frontendDist, filePath).startsWith(`assets${path.sep}`)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  }),
+);
 app.use((req, res, next) => {
   if (req.method !== "GET" || req.path.startsWith("/api") || !fs.existsSync(frontendIndexHtml)) {
     next();
     return;
   }
+  res.set("Cache-Control", "no-cache");
   res.sendFile(frontendIndexHtml);
 });
 

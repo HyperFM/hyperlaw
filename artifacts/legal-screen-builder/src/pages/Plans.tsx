@@ -199,6 +199,7 @@ export default function Plans() {
                 transition: isDragging ? "none" : "transform 0.38s cubic-bezier(.22,.9,.32,1)",
                 cursor: isDragging ? "grabbing" : "grab",
                 userSelect: "none",
+                touchAction: "pan-y",
               }}
             >
               {plans.map((plan, i) => (

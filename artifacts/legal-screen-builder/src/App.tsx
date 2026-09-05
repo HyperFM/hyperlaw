@@ -3759,6 +3759,7 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
                 transform: `translateX(-${activeIndex * 100}%)`,
                 transition: isDragging ? "none" : "transform 0.38s cubic-bezier(.22,.9,.32,1)",
                 cursor: isDragging ? "grabbing" : "grab", userSelect: "none",
+                touchAction: "pan-y",
               }}
             >
               {plans.map((plan, i) => {

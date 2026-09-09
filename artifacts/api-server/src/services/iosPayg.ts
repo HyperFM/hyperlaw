@@ -29,15 +29,26 @@ export async function checkIosPaygBalance(userId: string): Promise<IosPaygCheck>
   return { ok: balanceMicroUsd > 0, balanceMicroUsd };
 }
 
-/** Deduct the real cost of a completed AI call from the iOS PAYG balance.
- *  Unconditional — the cost was already incurred, so this is allowed to take
- *  the balance slightly negative rather than fail after the fact (mirrors the
- *  "honor the cap in the user's favor" philosophy in chargeCredits). */
+/** iOS balance is sold at face value ($5 paid → $5 credited, see
+ *  routes/appleIap.ts) — the markup instead happens invisibly here, by
+ *  deducting more than the AI call actually cost. Keeping the multiplier in
+ *  this one place means every call site just passes the real cost and never
+ *  has to know a markup exists. */
+const IOS_PAYG_MARKUP_MULTIPLIER = 2;
+
+/** Deduct the marked-up cost of a completed AI call from the iOS PAYG
+ *  balance. Unconditional — the cost was already incurred, so this is
+ *  allowed to take the balance slightly negative rather than fail after the
+ *  fact (mirrors the "honor the cap in the user's favor" philosophy in
+ *  chargeCredits). */
 export async function chargeIosPaygActual(
   userId: string,
-  amountMicroUsd: number,
+  realCostMicroUsd: number,
 ): Promise<{ balanceMicroUsd: number }> {
-  const balanceMicroUsd = await storage.deductIosPaygBalance(userId, amountMicroUsd);
+  const balanceMicroUsd = await storage.deductIosPaygBalance(
+    userId,
+    realCostMicroUsd * IOS_PAYG_MARKUP_MULTIPLIER,
+  );
   return { balanceMicroUsd };
 }
 

@@ -3641,7 +3641,7 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
         { text: "<b>Pay only for what you generate</b> — credits are spent by usage, and never above the estimate we show first", tbd: false },
         { text: "Guided case Index included — plain-English answers to your legal questions", tbd: false },
       ],
-      ctaLabel: "Start Building Your Case", ctaStyle: "secondary" as const,
+      ctaLabel: isIosApp() ? "Buy $5 Credit" : "Start Building Your Case", ctaStyle: "secondary" as const,
     },
     {
       id: "prosay", name: "Pro-Say Selection", tagline: "Say it right, every filing",
@@ -3789,7 +3789,7 @@ function PlansOverlay({ onClose, onBuyCredits, currentPlanTier, canSwitchFreely,
                       <div style={{ fontWeight: 900, fontStyle: "italic", textTransform: "uppercase", fontSize: 24, letterSpacing: "0.01em", color: PAPER }}>{plan.name}</div>
                       <div style={{ color: ORANGE_HOT, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 600, marginTop: 6, minHeight: 16 }}>{plan.tagline}</div>
                       <div style={{ margin: "22px 0 4px", display: "flex", alignItems: "baseline", gap: 6 }}>
-                        <span style={{ fontWeight: 700, fontSize: 40 }}>{plan.price}</span>
+                        <span style={{ fontWeight: 700, fontSize: 40 }}>{isIosApp() && plan.id === "firstfiling" ? "$5" : plan.price}</span>
                         {plan.cycle && <span style={{ color: DIM, fontSize: 14 }}>{plan.cycle}</span>}
                       </div>
                       <div style={{ color: DIM, fontSize: 12, marginBottom: isIosApp() && plan.id === "firstfiling" ? 6 : 20 }}>{plan.priceNote}</div>

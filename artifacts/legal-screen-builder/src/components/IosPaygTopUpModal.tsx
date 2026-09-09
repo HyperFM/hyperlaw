@@ -99,7 +99,7 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
           </p>
         )}
         <p style={{ color: "#666", fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
-          $1 adds $0.50 of AI usage budget — spent only as you actually draft, never above what's shown up front.
+          Adds $5.00 to your balance, spent only as you actually draft.
         </p>
         <p style={{ color: ORANGE, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 24 }}>
           In-App Purchase
@@ -122,7 +122,7 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
             opacity: buying ? 0.6 : 1, marginBottom: 10,
           }}
         >
-          {buying ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : "Buy $1 Top-Up"}
+          {buying ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : "Buy $5 Credit"}
         </button>
 
         <button

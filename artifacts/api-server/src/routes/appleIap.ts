@@ -13,7 +13,10 @@ const router = Router();
 // amount — same principle as stripeService.createCreditCheckout() re-deriving
 // creditAmount from Stripe product metadata rather than the client.
 const PRODUCT_CREDIT_MICRO_USD: Record<string, number> = {
-  "com.hyperlaw.app.payg.topup": 500_000, // $1 purchase → $0.50 of AI-cost budget
+  // Full face value — $5 paid credits $5.00. The real markup happens
+  // invisibly on the spend side (see IOS_PAYG_MARKUP_MULTIPLIER in
+  // services/iosPayg.ts), not by shorting the credit granted here.
+  "com.hyperlaw.app.payg.topup": 5_000_000,
 };
 
 // ── GET /iap/balance ─────────────────────────────────────────────────────────

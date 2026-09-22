@@ -91,7 +91,7 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <Zap size={20} color={ORANGE} fill={ORANGE} />
-          <span style={{ fontWeight: 800, fontSize: 18 }}>Add AI Usage Balance</span>
+          <span style={{ fontWeight: 800, fontSize: 18 }}>Quick Top-Up</span>
         </div>
         {balanceMicroUsd !== null && (
           <p style={{ color: ORANGE, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
@@ -99,7 +99,12 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
           </p>
         )}
         <p style={{ color: "#666", fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
-          Adds $5.00 to your balance, spent only as you actually draft.
+          Adds $5.00 to your balance, spent only as you actually draft — the easy way to keep going right here
+          in the app.
+        </p>
+        <p style={{ color: "#666", fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
+          Want a full plan upgrade instead? That's managed on{" "}
+          <span style={{ color: ORANGE, fontWeight: 700 }}>hyperlaw.site</span>, not here.
         </p>
         <p style={{ color: ORANGE, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 24 }}>
           In-App Purchase

@@ -12,6 +12,7 @@ import {
   useSecurityQuestions, useRecoverAccount, useRecoverAccountLookup, usePasskeyLogin,
 } from "../lib/auth";
 import { browserSupportsWebAuthn } from "../lib/webauthnLogin";
+import { isIosApp, openExternal } from "../lib/platform";
 
 const ORANGE = "#d9711f";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -309,12 +310,33 @@ export function SignInPage() {
           )}
           {passkeyLogin.isError && <div style={{ ...errorStyle, marginTop: 8 }}>{passkeyLogin.error.message}</div>}
         </form>
-        <div style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: "#666360" }}>
-          Don't have an account?{" "}
-          <span style={linkStyle} onClick={() => navigate(`${basePath}/sign-up`)}>Sign up</span>
-        </div>
+        {!isIosApp() && (
+          <div style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: "#666360" }}>
+            Don't have an account?{" "}
+            <span style={linkStyle} onClick={() => navigate(`${basePath}/sign-up`)}>Sign up</span>
+          </div>
+        )}
       </div>
       {TOS_LINKS}
+      {/* Small, easy-to-miss-on-purpose bottom bar — the app is for existing
+          members, so this is a quiet way out for the rare person who isn't
+          one yet, not a second call to action competing with Sign in. */}
+      {isIosApp() && (
+        <div
+          style={{
+            position: "fixed", left: 0, right: 0, bottom: 0,
+            padding: "14px 16px calc(14px + env(safe-area-inset-bottom))",
+            textAlign: "center", background: "#0a0908",
+          }}
+        >
+          <span
+            onClick={() => openExternal("https://hyperlaw.site/sign-up")}
+            style={{ fontSize: 12.5, color: "#666360", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}
+          >
+            To create an account, start on the web
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -388,8 +410,28 @@ export function SignUpPage() {
   const isTesterRequest = watch("isTesterRequest");
 
   const onSubmit = (values: SignUpValues) => {
-    register_.mutate(values, { onSuccess: () => navigate(`${basePath}/`) });
+    register_.mutate(values, {
+      onSuccess: () => {
+        // Picked up once by App.tsx to show the WelcomeTour — brand new
+        // account, web-only (see the isIosApp() gate below, this form never
+        // renders in the native app), so this is genuinely their first time.
+        try { localStorage.setItem("hyperlaw_show_welcome_tour", "1"); } catch { /* private browsing, etc. */ }
+        navigate(`${basePath}/`);
+      },
+    });
   };
+
+  // The app wrapper is for existing members only — new accounts are only
+  // ever created on the website (App Review should never see a form asking
+  // for personal info, Guideline 5.1.1(v), and plan/membership management
+  // has one home). There's no in-app "Sign up" button anymore (SignInPage's
+  // quiet bottom bar is the only way out to the web) — this route only gets
+  // reached by a stale deep link or the back button, so it just bounces
+  // straight to Sign In rather than showing a whole screen for that.
+  useEffect(() => {
+    if (isIosApp()) navigate(`${basePath}/sign-in`, { replace: true });
+  }, [navigate]);
+  if (isIosApp()) return null;
 
   return (
     <div style={pageStyle}>

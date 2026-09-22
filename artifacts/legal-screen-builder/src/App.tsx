@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser, Mic,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser, Mic, Gavel,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -21,12 +21,13 @@ import {
 import { staticTutorService, TutorAnalysis } from "./services/tutor";
 import { aiApi, AiChatMessage, ServerGeneratedDoc, CreditProduct, IndexCloud, CaseMemory, type DocumentType } from "./lib/aiApi";
 import { api } from "./lib/api";
-import { isIosApp } from "./lib/platform";
+import { isIosApp, openExternal } from "./lib/platform";
 import { assignNickname } from "./lib/nicknames";
 import useEmblaCarousel from "embla-carousel-react";
 import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
 import WitnessExaminationView from "./pages/tools/WitnessExaminationView";
+import HearingScriptView from "./pages/tools/HearingScriptView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
@@ -43,6 +44,7 @@ import TutorPanel from "./components/TutorPanel";
 import SupportModal from "./components/SupportModal";
 import DocumentViewerModal from "./components/DocumentViewerModal";
 import PhotoCropModal from "./components/PhotoCropModal";
+import WelcomeTour from "./components/WelcomeTour";
 import { downscaleCasePhoto } from "./lib/casePhoto";
 import UserChatDrawer from "./components/UserChatDrawer";
 import { exportIncidentPDF, exportCasePDF } from "./lib/pdfExport";
@@ -479,13 +481,6 @@ function BodyCamIcon({ size = 17, color = "#d9711f" }: { size?: number; color?: 
 // below, duplicated once so the strip can loop seamlessly, drifting left forever.
 const TOOL_BUBBLES = [
   {
-    id: "battle-prep",
-    icon: Swords,
-    title: "Battle Prep",
-    tagline: "Get scripted for your next court date.",
-    detail: "Walks you through what happened at your last hearing and what's coming next, pulling straight from your case history — so you walk in knowing exactly what to say.",
-  },
-  {
     id: "voir-dire",
     icon: Users,
     title: "Voir Dire",
@@ -521,6 +516,7 @@ const TOOL_BUBBLES = [
 const MARQUEE_ICONS = [
   { id: "illustrative-aid-script", icon: ScrollText },
   { id: "witness-examination", icon: SquareUser },
+  { id: "hearing-script", icon: Gavel },
   ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
 ];
 
@@ -537,16 +533,34 @@ const TOOLS_MARQUEE_REPEATS = 8;
 const TOOLS_MARQUEE_GLOW_STAGGER = 0.35;
 const TOOLS_MARQUEE_GLOW_CYCLE = 10 * TOOLS_MARQUEE_GLOW_STAGGER;
 
-function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c: HLCase) => void }) {
+function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePendingHearingScript }: {
+  cases: HLCase[]; onUpdateCase: (c: HLCase) => void;
+  /** Set when the user tapped "Review script now" on a staleness notification
+   *  — jumps straight into that case+script instead of the tool's own
+   *  case-picker/list screens. */
+  pendingHearingScript?: { caseId: string; scriptId: string } | null;
+  onConsumePendingHearingScript?: () => void;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [witnessExamOpen, setWitnessExamOpen] = useState(false);
+  const [hearingScriptOpen, setHearingScriptOpen] = useState(!!pendingHearingScript);
 
   if (scriptOpen) {
     return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
   }
   if (witnessExamOpen) {
     return <WitnessExaminationView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setWitnessExamOpen(false)} />;
+  }
+  if (hearingScriptOpen) {
+    return (
+      <HearingScriptView
+        cases={cases}
+        onBack={() => setHearingScriptOpen(false)}
+        initialSelection={pendingHearingScript ?? undefined}
+        onInitialSelectionConsumed={onConsumePendingHearingScript}
+      />
+    );
   }
 
   // Inject the marquee/glow keyframes once
@@ -640,6 +654,23 @@ function ToolsView({ cases, onUpdateCase }: { cases: HLCase[]; onUpdateCase: (c:
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Witness Examination</div>
               <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>Capture Q&A live while a witness is on the stand.</div>
+            </div>
+            <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
+          </div>
+        </button>
+        {/* Hearing Script — the third real, working tool. Replaces the old
+            "Battle Prep" vision-only bubble (same pitch), so it now does
+            what that used to only promise: a sectioned, AI-generated script
+            for a specific hearing, built from the case's actual filings. */}
+        <button onClick={() => setHearingScriptOpen(true)}
+          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Gavel size={17} color={ORANGE} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Hearing Script</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>A sectioned script for a specific hearing, built from your filings.</div>
             </div>
             <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
           </div>
@@ -5514,6 +5545,10 @@ export default function App() {
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
   const [navTab, setNavTab] = useState<NavTab>("home");
+  /** Set by a "hearing_script_stale" notification's "Review script now" —
+   *  jumps ToolsView straight into that case+script instead of its own
+   *  case-picker/list screens. */
+  const [pendingHearingScript, setPendingHearingScript] = useState<{ caseId: string; scriptId: string } | null>(null);
   // Training Wheels — on by default (help until you don't need it). Purely
   // client-side; this isn't a security- or billing-relevant preference, just
   // whether the free Tutor panel shows up at all, so localStorage is enough —
@@ -5557,6 +5592,18 @@ export default function App() {
   const [newCaseNameInput, setNewCaseNameInput] = useState("");
   const [newCasePhotoPending, setNewCasePhotoPending] = useState<string | undefined>(undefined);
   const [checkoutToast, setCheckoutToast] = useState<string | null>(null);
+  // Set by AuthPages' SignUpPage right after a successful web registration
+  // (never on iOS — that form doesn't exist there). Read once on mount and
+  // cleared immediately so it can never reappear on a later reload.
+  const [showWelcomeTour, setShowWelcomeTour] = useState(() => {
+    try {
+      if (localStorage.getItem("hyperlaw_show_welcome_tour") === "1") {
+        localStorage.removeItem("hyperlaw_show_welcome_tour");
+        return true;
+      }
+    } catch { /* private browsing, etc. */ }
+    return false;
+  });
 
   // ── Server sync refs ────────────────────────────────────────────────────────
   const serverSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6165,6 +6212,11 @@ export default function App() {
     }
   }
 
+  function handleNotifOpenHearingScript(caseId: string, scriptId: string) {
+    setPendingHearingScript({ caseId, scriptId });
+    setNavTab("tools");
+  }
+
   function handleDeleteCaseWithSync(id: string) {
     setData(deleteCase(data, id));
     api.cases.delete(id).catch(() => {});
@@ -6409,7 +6461,14 @@ export default function App() {
       // Exhibit-only manual projects (created via Exhibit Studio's "+
       // Manual Project" shortcut) skip real intake and don't belong in a
       // tool's case picker here — see HLCase.exhibitOnly.
-      return <ToolsView cases={data.cases.filter(c => !c.exhibitOnly)} onUpdateCase={c => setData(updateCase(data, c))} />;
+      return (
+        <ToolsView
+          cases={data.cases.filter(c => !c.exhibitOnly)}
+          onUpdateCase={c => setData(updateCase(data, c))}
+          pendingHearingScript={pendingHearingScript}
+          onConsumePendingHearingScript={() => setPendingHearingScript(null)}
+        />
+      );
     }
 
     if (navTab === "profile") {
@@ -6508,6 +6567,7 @@ export default function App() {
             onOpenChat={sid => setChatSessionId(sid)}
             onExtendCase={handleNotifExtendCase}
             onGoToProfile={() => { setView({ type: "home" }); setNavTab("profile"); }}
+            onOpenHearingScript={handleNotifOpenHearingScript}
           />
         </div>
       )}
@@ -6595,6 +6655,8 @@ export default function App() {
 
       {showEasterEgg && <EasterEggScreen onClose={() => setShowEasterEgg(false)} />}
 
+      {showWelcomeTour && <WelcomeTour onDone={() => setShowWelcomeTour(false)} />}
+
       {showCreditShop && (
         isIosApp() ? (
           <IosPaygTopUpModal
@@ -6626,15 +6688,20 @@ export default function App() {
               </div>
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
-              The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation.
+              The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation
+              {isIosApp() ? " — that upgrade is managed on hyperlaw.site, not in the app." : "."}
             </p>
             <p style={{ color: "#555", fontSize: 12, lineHeight: 1.5, margin: "0 0 24px" }}>
               💡 <strong style={{ color: "#666" }}>Tip:</strong> You can also delete an existing case to free up a slot.
             </p>
             <button
-              onClick={() => { setShowUpgradeGate(false); setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" }); }}
+              onClick={() => {
+                setShowUpgradeGate(false);
+                if (isIosApp()) { openExternal("https://hyperlaw.site/"); return; }
+                setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" });
+              }}
               style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
-              View Plans &amp; Upgrade
+              {isIosApp() ? "Upgrade at hyperlaw.site" : "View Plans & Upgrade"}
             </button>
             <button
               onClick={() => setShowUpgradeGate(false)}
@@ -6666,12 +6733,17 @@ export default function App() {
               </div>
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
-              This is man eater material. Load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower — but it's Apex Litigant only.
+              This is man eater material. Load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower — but it's Apex Litigant only
+              {isIosApp() ? ", and that upgrade is managed on hyperlaw.site, not in the app." : "."}
             </p>
             <button
-              onClick={() => { setShowApexUpgradeGate(false); setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" }); }}
+              onClick={() => {
+                setShowApexUpgradeGate(false);
+                if (isIosApp()) { openExternal("https://hyperlaw.site/"); return; }
+                setOpenPlansSignal(k => k + 1); setNavTab("profile"); setView({ type: "home" });
+              }}
               style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
-              View Plans &amp; Upgrade
+              {isIosApp() ? "Upgrade at hyperlaw.site" : "View Plans & Upgrade"}
             </button>
             <button
               onClick={() => setShowApexUpgradeGate(false)}

@@ -73,6 +73,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.0",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.5.0",

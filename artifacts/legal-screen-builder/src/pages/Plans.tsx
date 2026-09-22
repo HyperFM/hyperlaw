@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { isIosApp } from "../lib/platform";
 
@@ -89,6 +89,14 @@ const ALL_PLANS = [
 
 export default function Plans() {
   const [, navigate] = useLocation();
+  // Pricing/plan browsing is a website-only page now — the app is for
+  // existing members, and plan changes are always managed on hyperlaw.site
+  // (see App.tsx's ProfileView and the two upgrade gates). Reached directly
+  // only by a stale deep link, so this just bounces to Sign In quietly
+  // rather than showing pricing inside the app.
+  useEffect(() => {
+    if (isIosApp()) navigate("/sign-in", { replace: true });
+  }, [navigate]);
   const plans = useMemo(
     () => (isIosApp() ? ALL_PLANS.filter((p) => p.id === "firstfiling") : ALL_PLANS),
     [],
@@ -125,6 +133,8 @@ export default function Plans() {
       goTo(activeIndex + (diff < 0 ? 1 : -1));
     }
   }
+
+  if (isIosApp()) return null;
 
   return (
     <div

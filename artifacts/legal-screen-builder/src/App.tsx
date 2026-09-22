@@ -7,7 +7,7 @@ import {
   FileText, Calendar, MapPin, Bell, Tag, ExternalLink, CheckCircle2,
   Download, MessageSquare, Shield, Loader2, Send, Upload, Eye, Lock, WifiOff,
   Camera, Sparkles, Swords, BadgeDollarSign, ChevronUp, ChevronDown, Wrench, Fingerprint, Users,
-  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser, Mic, Gavel,
+  HeartPlus, Phone, Baby, RefreshCw, ScrollText, ScanText, SquareUser, Mic, Gavel, Zap,
 } from "lucide-react";
 import {
   Incident, HLCase, AppData, Reminder, IncidentCategory, CaseStatus, WorkflowStage,
@@ -4714,24 +4714,47 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
         </div>
       </div>
 
-      {/* Membership card */}
-      <button
-        onClick={() => setShowPlans(true)}
-        style={{
-          width: "100%", background: "#141414", border: "1px solid #2a2a2a",
-          borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 12, textAlign: "left",
-        }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
-        onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
-      >
-        <Star size={18} color={ORANGE} style={{ flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Membership</div>
-          <div style={{ color: "#555", fontSize: 12 }}>Pay As You Go · Buy credits, spend as you draft</div>
-        </div>
-        <ChevronRight size={15} color="#333" />
-      </button>
+      {/* Membership card — web only. On iOS this is a Quick Top-Up shortcut
+          straight into IosPaygTopUpModal instead: no "Membership" wording, no
+          plan browsing, nothing that reads as subscription management —
+          that all lives on hyperlaw.site now, never in the app. */}
+      {isIosApp() && !canSwitchPlansFreely ? (
+        <button
+          onClick={onBuyCredits}
+          style={{
+            width: "100%", background: "#141414", border: "1px solid #2a2a2a",
+            borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+        >
+          <Zap size={18} color={ORANGE} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Quick Top-Up</div>
+            <div style={{ color: "#555", fontSize: 12 }}>Add $5 of AI credit, spent as you draft</div>
+          </div>
+          <ChevronRight size={15} color="#333" />
+        </button>
+      ) : (
+        <button
+          onClick={() => setShowPlans(true)}
+          style={{
+            width: "100%", background: "#141414", border: "1px solid #2a2a2a",
+            borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
+        >
+          <Star size={18} color={ORANGE} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Membership</div>
+            <div style={{ color: "#555", fontSize: 12 }}>Pay As You Go · Buy credits, spend as you draft</div>
+          </div>
+          <ChevronRight size={15} color="#333" />
+        </button>
+      )}
 
 
       {/* Credit history */}
@@ -6688,8 +6711,9 @@ export default function App() {
               </div>
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
-              The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation
-              {isIosApp() ? " — that upgrade is managed on hyperlaw.site, not in the app." : "."}
+              {isIosApp()
+                ? <>You're on <strong style={{ color: "#ccc" }}>1 case</strong> right now. Unlimited cases and more are available — managed on hyperlaw.site, not in the app.</>
+                : <>The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation.</>}
             </p>
             <p style={{ color: "#555", fontSize: 12, lineHeight: 1.5, margin: "0 0 24px" }}>
               💡 <strong style={{ color: "#666" }}>Tip:</strong> You can also delete an existing case to free up a slot.

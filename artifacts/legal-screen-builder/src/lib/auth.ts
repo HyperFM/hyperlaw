@@ -59,7 +59,7 @@ export interface RegisterInput {
   username: string;
   firstName: string;
   lastName: string;
-  phoneNumber: string;
+  phoneNumber?: string;
   email: string;
   password: string;
   confirmPassword: string;

@@ -333,7 +333,13 @@ const signUpSchema = z.object({
   username: z.string().min(3, "At least 3 characters"),
   firstName: z.string().min(1, "Required"),
   lastName: z.string().min(1, "Required"),
-  phoneNumber: z.string().min(7, "Enter a valid phone number"),
+  // Optional — Apple Guideline 5.1.1(v): apps shouldn't require info that
+  // isn't necessary for core functionality. Still validated for shape if
+  // the visitor chooses to give one (used only for account recovery).
+  phoneNumber: z.string().optional().refine(
+    (v) => !v || v.trim().length >= 7,
+    "Enter a valid phone number",
+  ),
   email: z.string().email("Enter a valid email"),
   password: z.string().min(8, "At least 8 characters"),
   confirmPassword: z.string(),
@@ -409,7 +415,7 @@ export function SignUpPage() {
           <Field label="Username" error={errors.username?.message}>
             <input style={inputStyle} {...register("username")} autoComplete="username" />
           </Field>
-          <Field label="Phone number" error={errors.phoneNumber?.message}>
+          <Field label="Phone number (optional)" error={errors.phoneNumber?.message}>
             <input style={inputStyle} type="tel" {...register("phoneNumber")} autoComplete="tel" />
           </Field>
           <Field label="Email address" error={errors.email?.message}>

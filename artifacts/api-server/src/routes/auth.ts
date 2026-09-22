@@ -71,8 +71,11 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
   if (typeof lastName !== "string" || !lastName.trim()) {
     res.status(400).json({ error: "Last name is required" }); return;
   }
-  if (typeof phoneNumber !== "string" || !phoneNumber.trim()) {
-    res.status(400).json({ error: "Phone number is required" }); return;
+  // Optional — Apple Guideline 5.1.1(v): don't require info that isn't
+  // necessary for core functionality. If given, it's still validated below
+  // and used for account recovery; if omitted, stored as null.
+  if (phoneNumber !== undefined && typeof phoneNumber !== "string") {
+    res.status(400).json({ error: "Invalid phone number" }); return;
   }
   if (typeof email !== "string" || !EMAIL_RE.test(email)) {
     res.status(400).json({ error: "A valid email is required" }); return;
@@ -143,7 +146,9 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
 
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedUsername = username.trim().toLowerCase();
-  const normalizedPhone = phoneNumber.trim();
+  // Phone is optional now — empty/omitted stores as null rather than "",
+  // so it never collides with another blank phone number in the unique check.
+  const normalizedPhone = typeof phoneNumber === "string" && phoneNumber.trim() ? phoneNumber.trim() : null;
 
   const [existing] = await db
     .select({ email: usersTable.email, username: usersTable.username, phoneNumber: usersTable.phoneNumber })
@@ -151,7 +156,7 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
     .where(or(
       eq(usersTable.email, normalizedEmail),
       eq(usersTable.username, normalizedUsername),
-      eq(usersTable.phoneNumber, normalizedPhone),
+      ...(normalizedPhone ? [eq(usersTable.phoneNumber, normalizedPhone)] : []),
     ));
 
   if (existing) {
@@ -162,7 +167,7 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
     if (existing.username === normalizedUsername) {
       res.status(400).json({ error: "That username is taken." }); return;
     }
-    if (existing.phoneNumber === normalizedPhone) {
+    if (normalizedPhone && existing.phoneNumber === normalizedPhone) {
       res.status(400).json({ error: "An account with this phone number already exists. Log in or reset your password instead." });
       return;
     }

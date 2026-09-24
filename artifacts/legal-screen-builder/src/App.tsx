@@ -33,6 +33,8 @@ import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
 import { CaseIndexHeader } from "./components/CaseIndexHeader";
+import { CaseEmptyState } from "./components/CaseEmptyState";
+import { CaseSummaryCompact } from "./components/CaseSummaryCompact";
 import { caseSourceKey } from "./lib/caseSourceKey";
 import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
@@ -1734,7 +1736,13 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   // not the one-time upload toast below, which used to be the only place
   // parties/timeline/claims were ever visible and vanished the moment you
   // navigated away and came back.
-  const [caseDetailsOpen, setCaseDetailsOpen] = useState(true);
+  const [caseDetailsOpen, setCaseDetailsOpen] = useState(true); // eslint-disable-line @typescript-eslint/no-unused-vars
+  // A brand-new case with nothing in it yet shows only the three starting choices.
+  const isEmptyCase =
+    uploadState === "idle" &&
+    hlCase.parties.length === 0 && hlCase.timeline.length === 0 &&
+    !hlCase.story?.trim() && !hlCase.notes?.trim() &&
+    !hlCase.structuredCase && !hlCase.assembly && (hlCase.evidence?.length ?? 0) === 0;
 
   async function searchByLocation() {
     if (!jurisdiction.trim()) return;
@@ -1989,69 +1997,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         )}
 
-        {/* Case Details — persistent, driven by hlCase's own saved data so it's
-            always here when you come back to this case, not just right after
-            an upload analysis finishes. */}
-        {(hlCase.parties.length > 0 || hlCase.timeline.length > 0 || (hlCase.structuredCase?.claims?.length ?? 0) > 0 || hlCase.notes?.trim()) && (
-          <div style={{ marginBottom: 20 }}>
-            <button onClick={() => setCaseDetailsOpen(o => !o)}
-              style={{ width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: caseDetailsOpen ? 10 : 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: "#444", textTransform: "uppercase" }}>Case Details</div>
-              {caseDetailsOpen ? <ChevronUp size={15} color="#444" /> : <ChevronDown size={15} color="#444" />}
-            </button>
-            {caseDetailsOpen && (
-              <div style={{ background: "#0f0f0f", border: "1px solid #1e1e1e", borderRadius: 12, padding: 14 }}>
-                {hlCase.notes?.trim() && (
-                  <div style={{ fontSize: 13, color: "#bbb", lineHeight: 1.6, fontFamily: "Georgia, serif", marginBottom: 12, padding: "10px 12px", background: "#111", borderRadius: 8, borderLeft: `3px solid ${ORANGE}`, whiteSpace: "pre-wrap" }}>
-                    {hlCase.notes}
-                  </div>
-                )}
-                {(hlCase.structuredCase?.claims?.length ?? 0) > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                      Claims ({hlCase.structuredCase!.claims.length})
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
-                      {hlCase.structuredCase!.claims.map((c, i) => (
-                        <div key={i} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>{c}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {hlCase.parties.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                      Parties ({hlCase.parties.length})
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
-                      {hlCase.parties.map(p => (
-                        <div key={p.id} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
-                          <span style={{ fontWeight: 700 }}>{[p.firstName, p.lastName].filter(Boolean).join(" ")}</span>
-                          {p.type === "official" && (p.title || p.agency) ? ` — ${[p.title, p.agency].filter(Boolean).join(", ")}` : ""}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {hlCase.timeline.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: "#666", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                      Timeline ({hlCase.timeline.length})
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
-                      {[...hlCase.timeline].sort((a, b) => a.order - b.order).map(ev => (
-                        <div key={ev.id} style={{ fontSize: 12, color: "#ccc", background: "#111", borderRadius: 6, padding: "6px 9px", lineHeight: 1.4 }}>
-                          <span style={{ fontWeight: 700 }}>{ev.title}</span>{ev.description ? ` — ${ev.description}` : ""}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Compact summary — the full case details still live on the case (they feed the AI); this only shows the essentials. */}
+        <CaseSummaryCompact hlCase={hlCase} statusLabel={STATUS_LABELS[hlCase.status]} />
 
+        {isEmptyCase ? (
+          <>
+            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.rtf,.jpg,.jpeg,.png,.heic,image/*" style={{ display: "none" }} onChange={handleFileSelect} />
+            <CaseEmptyState onUpload={() => fileInputRef.current?.click()} onGuidedIntake={() => onGoToPhase?.("parties")} />
+          </>
+        ) : (
+          <>
         {/* Recent activity strip */}
         {recentHistory.length > 0 && (
           <div style={{ marginBottom: 20 }}>
@@ -2773,6 +2728,8 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           </div>
         )}
         </>
+          </>
+        )}
       </div>
 
       {/* AI decision layer — ready / guidance-recommended / guidance-required (Sections 3, 10) */}

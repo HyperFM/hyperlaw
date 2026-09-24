@@ -80,8 +80,11 @@ router.get("/cases", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  await sweepInactiveCases(auth.userId);
-  await warnDormantCases(auth.userId);
+  // DISABLED (Phase 0): the 60-day sweep permanently deleted cases automatically,
+  // which contradicts the "never auto-delete" rule. Kept (not removed) until the
+  // archive lifecycle replaces it; permanent deletion is manual-only meanwhile.
+  // await sweepInactiveCases(auth.userId);
+  // await warnDormantCases(auth.userId);
 
   const cases = await db
     .select()

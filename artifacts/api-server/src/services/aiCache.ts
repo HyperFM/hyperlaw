@@ -142,14 +142,20 @@ export async function logAiCall(params: LogCallParams): Promise<void> {
 }
 
 // ── Free-tier daily limit guard ───────────────────────────────────────────────
-// Threshold from env var AI_FREE_TIER_DAILY_LIMIT (default: unlimited = 0)
+// Threshold from env var AI_FREE_TIER_DAILY_LIMIT. Unset, 0 or invalid falls
+// back to DEFAULT_DAILY_LIMIT — it never means unlimited, so a missing env var
+// can't leave the owner's AI bill uncapped.
+export const DEFAULT_DAILY_LIMIT = 30;
+export function dailyLimit(): number {
+  const n = parseInt(process.env.AI_FREE_TIER_DAILY_LIMIT ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_DAILY_LIMIT;
+}
 
 import { sql } from "drizzle-orm";
 import { gte } from "drizzle-orm";
 
 export async function checkDailyLimit(userId: string): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const limit = parseInt(process.env.AI_FREE_TIER_DAILY_LIMIT ?? "0", 10);
-  if (!limit) return { allowed: true, count: 0, limit: 0 }; // 0 = unlimited
+  const limit = dailyLimit();
 
   try {
     const startOfDay = new Date();

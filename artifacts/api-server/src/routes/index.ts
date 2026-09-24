@@ -21,7 +21,12 @@ import tutorRouter from "./tutor";
 import transcriptRouter from "./transcript";
 import hearingScriptsRouter from "./hearing-scripts";
 
+import { aiDailyCap } from "../services/aiCap.js";
+
 const router: IRouter = Router();
+
+// Daily cap on every model-calling route (see services/aiCap.ts).
+router.use(aiDailyCap);
 
 router.use(authRouter);
 router.use(webauthnLoginRouter);

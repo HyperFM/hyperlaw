@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, jsonb, timestamp, uniqueIndex, index, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { randomUUID } from "node:crypto";
@@ -82,7 +82,28 @@ export const aiLogsTable = pgTable("ai_logs", {
   promptTemplate: text("prompt_template"),
   /** Credits actually charged for this call (0 = free / cached / waived). */
   creditsCharged: integer("credits_charged").notNull().default(0),
+  /** The provider rate (USD per million tokens) this call was costed at — so a later rate change never rewrites history. */
+  rateInputUsdPerMtok: doublePrecision("rate_input_usd_per_mtok"),
+  rateOutputUsdPerMtok: doublePrecision("rate_output_usd_per_mtok"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** Provider price per model. Editable without a redeploy; built-in defaults in services/aiRates.ts cover a missing row. */
+export const aiRatesTable = pgTable("ai_rates", {
+  model: text("model").primaryKey(),
+  inputUsdPerMtok: doublePrecision("input_usd_per_mtok").notNull().default(0),
+  outputUsdPerMtok: doublePrecision("output_usd_per_mtok").notNull().default(0),
+  /** Audio models (whisper) bill by the minute instead of by token. */
+  perMinuteUsd: doublePrecision("per_minute_usd"),
+  note: text("note"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Tiny key/value store — currently holds the global AI kill switch (`ai_paused`). */
+export const appSettingsTable = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // ── AI Analysis Cache ─────────────────────────────────────────────────────────

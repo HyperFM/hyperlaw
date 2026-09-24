@@ -8,6 +8,8 @@ import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
 import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
+import { staleRates } from "../services/aiRates.js";
+import { isAiPaused, setAiPaused, globalSpendTodayMicroUsd, globalDailyCapMicroUsd, userDailyCapMicroUsd } from "../services/aiSpend.js";
 
 const router = Router();
 
@@ -145,6 +147,56 @@ router.get("/admin/error-logs", async (req: Request, res: Response): Promise<voi
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// ── GET /admin/ai/spend ────────────────────────────────────────────────────────
+// Phase 0.5 dashboard data: real provider spend today / this week, by route and by user,
+// the two ceilings, whether AI is paused, and which rates haven't been confirmed lately.
+router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+  const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+  const weekStart = new Date(dayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+  const cost = sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)`;
+  const [today, week, byRoute, byUser, todaySpend, stale, paused] = await Promise.all([
+    db.select({ cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, dayStart)),
+    db.select({ cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, weekStart)),
+    db.select({ feature: aiLogsTable.feature, cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable)
+      .where(gte(aiLogsTable.createdAt, weekStart)).groupBy(aiLogsTable.feature).orderBy(desc(sql`sum(estimated_cost_micro_usd)`)),
+    db.select({ userId: aiLogsTable.userId, cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable)
+      .where(gte(aiLogsTable.createdAt, weekStart)).groupBy(aiLogsTable.userId).orderBy(desc(sql`sum(estimated_cost_micro_usd)`)).limit(25),
+    globalSpendTodayMicroUsd(),
+    staleRates(),
+    isAiPaused(),
+  ]);
+  res.json({
+    todayMicroUsd: Number(today[0]?.cost ?? 0), todayCalls: today[0]?.calls ?? 0,
+    weekMicroUsd: Number(week[0]?.cost ?? 0), weekCalls: week[0]?.calls ?? 0,
+    byRoute: byRoute.map(r => ({ ...r, cost: Number(r.cost) })),
+    byUser: byUser.map(r => ({ ...r, cost: Number(r.cost) })),
+    globalSpendTodayMicroUsd: todaySpend,
+    globalCeilingMicroUsd: globalDailyCapMicroUsd(),
+    perUserCeilingMicroUsd: userDailyCapMicroUsd(),
+    paused,
+    staleRates: stale,
+  });
+});
+
+// ── POST /admin/ai/resume ─────────────────────────────────────────────────────
+// Manual re-enable after the global spend ceiling paused AI. The owner decides when.
+router.post("/admin/ai/resume", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+  await setAiPaused(false);
+  res.json({ paused: false });
+});
+
+// ── POST /admin/ai/pause ──────────────────────────────────────────────────────
+router.post("/admin/ai/pause", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+  await setAiPaused(true);
+  res.json({ paused: true });
 });
 
 export default router;

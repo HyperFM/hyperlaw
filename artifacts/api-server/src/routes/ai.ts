@@ -172,7 +172,7 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
     const limitCheck = await checkDailyLimit(userId);
     if (!limitCheck.allowed) {
       res.status(429).json({
-        error: `Daily AI limit reached (${limitCheck.count}/${limitCheck.limit} calls). Upgrade your plan for more.`,
+        error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow.",
         code: "rate_limited",
       });
       return;
@@ -283,7 +283,7 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
   // Rate limit
   const limitCheck = await checkDailyLimit(userId);
   if (!limitCheck.allowed) {
-    res.status(429).json({ error: `Daily AI limit reached (${limitCheck.count}/${limitCheck.limit}).`, code: "rate_limited" });
+    res.status(429).json({ error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow.", code: "rate_limited" });
     return;
   }
 
@@ -326,7 +326,7 @@ router.post("/ai/timeline", async (req: Request, res: Response): Promise<void> =
   const userId = auth.userId;
   const limitCheck = await checkDailyLimit(userId);
   if (!limitCheck.allowed) {
-    res.status(429).json({ error: `Daily AI limit reached (${limitCheck.count}/${limitCheck.limit}).`, code: "rate_limited" });
+    res.status(429).json({ error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow.", code: "rate_limited" });
     return;
   }
 
@@ -1059,7 +1059,7 @@ router.post("/ai/assembly", requireAuth, async (req: Request, res: Response): Pr
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   const cacheKey = computeCacheKey("assembly", { parties, court, story: story.slice(0, 2000), timeline });
   const cached = await getFromCache(userId, cacheKey);
@@ -1099,7 +1099,7 @@ router.post("/ai/learning", requireAuth, async (req: Request, res: Response): Pr
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   const cacheKey = computeCacheKey("learning", { organizedFacts: organizedFacts.slice(0, 1000), potentialClaims, court });
   const cached = await getFromCache(userId, cacheKey);
@@ -1137,7 +1137,7 @@ router.post("/ai/builder-extract", requireAuth, async (req: Request, res: Respon
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   try {
     const result = await aiService.builderExtract({ timestamp, dictation, whyItMatters: whyItMatters ?? "", exhibitNumber, caseTitle, parties: parties ?? [], court: court ?? null });
@@ -1158,7 +1158,7 @@ router.post("/ai/jurisdiction-verify", requireAuth, async (req: Request, res: Re
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   // Cache check — jurisdiction rules don't change; cache for 7 days
   const cacheKey = computeCacheKey("jurisdiction_verify", { state, county: county ?? "", courtName });
@@ -1202,7 +1202,7 @@ router.post("/ai/organize", requireAuth, async (req: Request, res: Response): Pr
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   // Fetch extracted docs from DB if caseId provided and none passed
   let docs = extractedDocs ?? [];
@@ -1260,7 +1260,7 @@ router.post("/ai/organize-video-chunks", requireAuth, async (req: Request, res: 
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   try {
     const result = await aiService.organizeVideoChunks({ chunks, caseTitle, parties, story, claims });
@@ -1293,7 +1293,7 @@ router.post("/ai/gap-detect", requireAuth, async (req: Request, res: Response): 
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
   const limitResult = await checkDailyLimit(userId);
-  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: `Daily AI limit reached (${limitResult.count}/${limitResult.limit} calls)` }); return; }
+  if (!limitResult.allowed) { res.status(429).json({ code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." }); return; }
 
   try {
     const result = await aiService.detectGaps(hlCase);

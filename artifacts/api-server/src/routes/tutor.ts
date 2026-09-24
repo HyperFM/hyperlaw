@@ -63,7 +63,7 @@ router.post("/tutor/help", async (req: Request, res: Response) => {
   }
 
   {
-    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage, TUTOR_MODEL);
     void logAiCall({
       userId,
       feature: "tutor_help",

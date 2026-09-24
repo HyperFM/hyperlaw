@@ -4,6 +4,7 @@ import multer from "multer";
 import { getAuth } from "../services/auth.js";
 import { aiService, MODEL } from "../services/ai.js";
 import { logAiCall } from "../services/aiCache.js";
+import { audioCostMicroUsd } from "../services/aiRates.js";
 import { db, casesTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { buildPartiesAndCourtBlocks, buildStructuredCaseBlock } from "./exhibit.js";
@@ -91,7 +92,24 @@ router.post(
         return;
       }
 
-      const data = (await openAiRes.json()) as { text?: string; segments?: OpenAiSegment[] };
+      const data = (await openAiRes.json()) as { text?: string; duration?: number; segments?: OpenAiSegment[] };
+      {
+        // Whisper bills by audio minute — this was the one provider call never logged before Phase 0.5.
+        const seconds = data.duration ?? (data.segments?.length ? data.segments[data.segments.length - 1].end : 0);
+        const { costMicroUsd, rate } = audioCostMicroUsd("whisper-1", seconds);
+        void logAiCall({
+          userId,
+          feature: "transcript_audio",
+          model: "whisper-1",
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostMicroUsd: costMicroUsd,
+          responseTimeMs: 0,
+          cacheHit: false,
+          rateInputUsdPerMtok: rate.perMinuteUsd ?? 0,
+          rateOutputUsdPerMtok: 0,
+        });
+      }
       const segments = (data.segments ?? []).map(s => ({
         start: s.start + startOffsetSec,
         end: s.end + startOffsetSec,

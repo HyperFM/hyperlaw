@@ -10,6 +10,7 @@
 import { createHash } from "crypto";
 import { db, aiLogsTable, aiAnalysisCacheTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
+import { rateFor } from "./aiRates.js";
 
 export type AiFeature =
   | "analyze_incident"
@@ -43,7 +44,8 @@ export type AiFeature =
   | "tutor_help"
   | "transcript_match_moments"
   | "transcript_find_moments"
-  | "exhibit_analyze_photos";
+  | "exhibit_analyze_photos"
+  | "transcript_audio";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 
@@ -118,63 +120,52 @@ export interface LogCallParams {
   cacheHit: boolean;
   promptTemplate?: string;
   creditsCharged?: number;
+  /** Rate (USD/MTok) the cost was computed at; stored so rate changes never rewrite history. */
+  rateInputUsdPerMtok?: number;
+  rateOutputUsdPerMtok?: number;
 }
 
 export async function logAiCall(params: LogCallParams): Promise<void> {
+  const rate = params.cacheHit ? null : rateFor(params.model);
+  const base = {
+    userId: params.userId,
+    caseId: params.caseId ?? null,
+    sessionId: params.sessionId ?? null,
+    feature: params.feature,
+    model: params.model,
+    inputTokens: params.inputTokens,
+    outputTokens: params.outputTokens,
+    estimatedCostMicroUsd: params.estimatedCostMicroUsd,
+    responseTimeMs: params.responseTimeMs,
+    cacheHit: params.cacheHit,
+    promptTemplate: params.promptTemplate ?? null,
+    creditsCharged: params.creditsCharged ?? 0,
+  };
   try {
     await db.insert(aiLogsTable).values({
-      userId: params.userId,
-      caseId: params.caseId ?? null,
-      sessionId: params.sessionId ?? null,
-      feature: params.feature,
-      model: params.model,
-      inputTokens: params.inputTokens,
-      outputTokens: params.outputTokens,
-      estimatedCostMicroUsd: params.estimatedCostMicroUsd,
-      responseTimeMs: params.responseTimeMs,
-      cacheHit: params.cacheHit,
-      promptTemplate: params.promptTemplate ?? null,
-      creditsCharged: params.creditsCharged ?? 0,
+      ...base,
+      rateInputUsdPerMtok: params.rateInputUsdPerMtok ?? rate?.inputUsdPerMtok ?? null,
+      rateOutputUsdPerMtok: params.rateOutputUsdPerMtok ?? rate?.outputUsdPerMtok ?? null,
     });
   } catch {
-    // Logging is never allowed to break the main flow
+    // The rate columns only exist after phase05_metering.sql has been run. Never lose the cost row over that.
+    try { await db.insert(aiLogsTable).values(base); } catch { /* logging must never break the main flow */ }
   }
 }
 
-// ── Free-tier daily limit guard ───────────────────────────────────────────────
-// Threshold from env var AI_FREE_TIER_DAILY_LIMIT. Unset, 0 or invalid falls
-// back to DEFAULT_DAILY_LIMIT — it never means unlimited, so a missing env var
-// can't leave the owner's AI bill uncapped.
-export const DEFAULT_DAILY_LIMIT = 30;
-export function dailyLimit(): number {
-  const n = parseInt(process.env.AI_FREE_TIER_DAILY_LIMIT ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_DAILY_LIMIT;
-}
+// ── Per-user daily spend backstop ─────────────────────────────────────────────
+// Real provider dollars, not action count (Phase 0.5). AI_USER_DAILY_USD, default $3.
+// A bug catcher, not a normal limit — see services/aiSpend.ts for the global kill switch.
 
-import { sql } from "drizzle-orm";
-import { gte } from "drizzle-orm";
+import { userSpendTodayMicroUsd, userDailyCapMicroUsd } from "./aiSpend.js";
 
+/** `count` and `limit` are now micro-USD (real cost so far today vs the cap). */
 export async function checkDailyLimit(userId: string): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const limit = dailyLimit();
-
+  const limit = userDailyCapMicroUsd();
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const rows = await db
-      .select({ count: sql<number>`cast(count(*) as int)` })
-      .from(aiLogsTable)
-      .where(
-        and(
-          eq(aiLogsTable.userId, userId),
-          eq(aiLogsTable.cacheHit, false), // only count real Claude calls
-          gte(aiLogsTable.createdAt, startOfDay),
-        ),
-      );
-
-    const count = rows[0]?.count ?? 0;
+    const count = await userSpendTodayMicroUsd(userId);
     return { allowed: count < limit, count, limit };
   } catch {
-    return { allowed: true, count: 0, limit }; // fail open
+    return { allowed: true, count: 0, limit }; // fail open — the global switch is the other layer
   }
 }

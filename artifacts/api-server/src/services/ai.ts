@@ -222,9 +222,8 @@ Incorporate the applicant's upfront answers about whether discovery is complete 
 // ── Usage / cost metadata returned with every AI call ─────────────────────────
 
 export const MODEL = "claude-sonnet-5";
-// Pricing: $3/MTok input, $15/MTok output → expressed as micro-USD per token
-const INPUT_MICRO_USD_PER_TOKEN = 3;
-const OUTPUT_MICRO_USD_PER_TOKEN = 15;
+// Pricing now comes from the ai_rates table via services/aiRates.ts (Phase 0.5).
+import { costMicroUsd } from "./aiRates.js";
 
 export interface AiCallMeta {
   inputTokens: number;
@@ -343,16 +342,11 @@ export class AiService {
     output_tokens: number;
     cache_creation_input_tokens?: number | null;
     cache_read_input_tokens?: number | null;
-  }): { estimatedCostMicroUsd: number; cacheHit: boolean } {
-    const cacheCreation = usage.cache_creation_input_tokens ?? 0;
-    const cacheRead = usage.cache_read_input_tokens ?? 0;
-    const estimatedCostMicroUsd = Math.round(
-      usage.input_tokens * INPUT_MICRO_USD_PER_TOKEN +
-      cacheCreation * INPUT_MICRO_USD_PER_TOKEN * 1.25 +
-      cacheRead * INPUT_MICRO_USD_PER_TOKEN * 0.1 +
-      usage.output_tokens * OUTPUT_MICRO_USD_PER_TOKEN
-    );
-    return { estimatedCostMicroUsd, cacheHit: cacheRead > 0 };
+  }, model: string = MODEL): { estimatedCostMicroUsd: number; cacheHit: boolean } {
+    return {
+      estimatedCostMicroUsd: costMicroUsd(model, usage).costMicroUsd,
+      cacheHit: (usage.cache_read_input_tokens ?? 0) > 0,
+    };
   }
 
   private buildMeta(usage: { input_tokens: number; output_tokens: number }, responseTimeMs: number): AiCallMeta {
@@ -361,9 +355,7 @@ export class AiService {
       outputTokens: usage.output_tokens,
       model: MODEL,
       responseTimeMs,
-      estimatedCostMicroUsd:
-        usage.input_tokens * INPUT_MICRO_USD_PER_TOKEN +
-        usage.output_tokens * OUTPUT_MICRO_USD_PER_TOKEN,
+      estimatedCostMicroUsd: costMicroUsd(MODEL, usage).costMicroUsd,
     };
   }
 

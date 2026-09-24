@@ -59,3 +59,8 @@ export async function sendFeedbackReplyEmail(to: string, original: string, reply
     `<p style="white-space:pre-wrap">${esc(reply)}</p><hr><p style="color:#777;font-size:13px">Your message: ${esc(original.slice(0, 500))}</p>`,
   );
 }
+
+/** Plain alert to the owner (spend backstops, kill switch). */
+export async function sendOwnerAlert(subject: string, body: string): Promise<void> {
+  await sendEmail(FEEDBACK_NOTIFY_EMAIL, subject, `<p style="white-space:pre-wrap">${esc(body)}</p>`);
+}

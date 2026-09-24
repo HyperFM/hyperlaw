@@ -9,6 +9,7 @@ import { getAuth } from "../services/auth.js";
 import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
 import { staleRates } from "../services/aiRates.js";
+import { isBillingEnabled, setBillingEnabled } from "../services/billing.js";
 import { isAiPaused, setAiPaused, globalSpendTodayMicroUsd, globalAlertMicroUsd, globalPauseMicroUsd, userDailyLimitMicroUsd } from "../services/aiSpend.js";
 
 const router = Router();
@@ -179,6 +180,7 @@ router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void>
     globalPauseMicroUsd: globalPauseMicroUsd(),
     perUserLimitMicroUsd: { free: userDailyLimitMicroUsd("free"), prosay: userDailyLimitMicroUsd("prosay"), apex: userDailyLimitMicroUsd("apex") },
     paused,
+    billingEnabled: await isBillingEnabled(),
     staleRates: stale,
   });
 });
@@ -190,6 +192,18 @@ router.post("/admin/ai/resume", async (req: Request, res: Response): Promise<voi
   if (!adminId) return;
   await setAiPaused(false);
   res.json({ paused: false });
+});
+
+// ── POST /admin/billing/enable | disable ─────────────────────────────────────────
+// The billing switch. OFF = nothing is charged. ON = every real AI call is charged in credits
+// (cost x 1.5 / $0.05). Turn on only after Phase 2 (checkout) works and has been tested with real money.
+router.post("/admin/billing/:state", async (req: Request, res: Response): Promise<void> => {
+  const adminId = await requireAdmin(req, res);
+  if (!adminId) return;
+  const on = req.params.state === "enable";
+  if (!on && req.params.state !== "disable") { res.status(400).json({ error: "Use enable or disable" }); return; }
+  await setBillingEnabled(on);
+  res.json({ billingEnabled: on });
 });
 
 // ── POST /admin/ai/pause ──────────────────────────────────────────────────────

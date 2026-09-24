@@ -4,6 +4,7 @@
 // analyze-document route so new AI features stay consistent.
 
 import { storage } from "../storage.js";
+import { isBillingEnabled, isUserWaived } from "./billing.js";
 import { db, usersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 
@@ -15,9 +16,9 @@ export async function isAdminUser(userId: string): Promise<boolean> {
   return user?.isAdmin ?? false;
 }
 
-/** True when the user should not be charged credits. Billing is currently disabled — always waived. */
-export async function isBillingWaived(_userId: string): Promise<boolean> {
-  return true;
+/** True when the user should not be charged credits: billing off, admin, or Apex (see services/billing.ts). */
+export async function isBillingWaived(userId: string): Promise<boolean> {
+  return isUserWaived(userId);
 }
 
 export interface ChargeResult {
@@ -39,6 +40,9 @@ export async function chargeOneCredit(userId: string): Promise<ChargeResult> {
 
   const balance = await storage.getCreditBalance(userId);
   if (balance < 1) return { ok: false, waived: false, charged: false, balance };
+
+  // Cost mode: the real charge happens per call in logAiCall (services/billing.ts). This is only the balance check.
+  if (await isBillingEnabled()) return { ok: true, waived: false, charged: false, balance };
 
   const deducted = await storage.deductCredit(userId);
   if (!deducted) return { ok: false, waived: false, charged: false, balance: 0 };
@@ -95,6 +99,11 @@ export async function chargeCredits(userId: string, amount: number): Promise<Cha
   const waived = await isBillingWaived(userId);
   if (waived) return { ok: true, waived: true, charged: false, balance: -1, chargedAmount: 0 };
   if (amount <= 0) {
+    const bal = await storage.getCreditBalance(userId);
+    return { ok: true, waived: false, charged: false, balance: bal, chargedAmount: 0 };
+  }
+  // Cost mode: real per-call charging replaces word-based charging (services/billing.ts).
+  if (await isBillingEnabled()) {
     const bal = await storage.getCreditBalance(userId);
     return { ok: true, waived: false, charged: false, balance: bal, chargedAmount: 0 };
   }

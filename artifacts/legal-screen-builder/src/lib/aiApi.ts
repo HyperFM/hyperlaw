@@ -279,6 +279,16 @@ interface AiError extends Error {
   status?: number;
 }
 
+export interface AdminSpend {
+  todayMicroUsd: number; todayCalls: number; weekMicroUsd: number; weekCalls: number;
+  byRoute: Array<{ feature: string; cost: number; calls: number }>;
+  byUser: Array<{ userId: string; cost: number; calls: number }>;
+  globalSpendTodayMicroUsd: number; globalAlertMicroUsd: number; globalPauseMicroUsd: number;
+  perUserLimitMicroUsd: { free: number; prosay: number; apex: number };
+  paused: boolean; billingEnabled: boolean;
+  staleRates: Array<{ model: string; daysOld: number | null }>;
+}
+
 async function aiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const isFormData = opts?.body instanceof FormData;
   const headers: HeadersInit = isFormData ? {} : { "Content-Type": "application/json" };
@@ -1010,6 +1020,20 @@ export const aiApi = {
     /** Aggregated usage stats */
     stats(): Promise<AiStats> {
       return aiFetch("/admin/ai/stats");
+    },
+
+    /** Real provider spend today / this week, by route and user, limits, pause + billing state, stale prices */
+    spend(): Promise<AdminSpend> {
+      return aiFetch("/admin/ai/spend");
+    },
+    resumeAi(): Promise<{ paused: boolean }> {
+      return aiFetch("/admin/ai/resume", { method: "POST", body: "{}" });
+    },
+    pauseAi(): Promise<{ paused: boolean }> {
+      return aiFetch("/admin/ai/pause", { method: "POST", body: "{}" });
+    },
+    setBilling(on: boolean): Promise<{ billingEnabled: boolean }> {
+      return aiFetch(`/admin/billing/${on ? "enable" : "disable"}`, { method: "POST", body: "{}" });
     },
 
     /** Paginated server-side error logs (upload failures, processing errors) */

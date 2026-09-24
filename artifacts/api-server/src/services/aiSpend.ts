@@ -7,6 +7,7 @@
 import { db, aiLogsTable, appSettingsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { sendOwnerAlert } from "./email.js";
+import { staleRates } from "./aiRates.js";
 import { storage } from "../storage.js";
 import { logger } from "../lib/logger.js";
 
@@ -104,6 +105,11 @@ export async function checkSpend(userId: string, isAdmin: boolean): Promise<Spen
     if (globalSpend >= globalAlertMicroUsd()) {
       alertOnce("global-alert", "HyperLaw: total AI spend passed the daily alert",
         `Total provider spend today is $${(globalSpend / 1e6).toFixed(2)} (alert at $${(globalAlertMicroUsd() / 1e6).toFixed(2)}). Nothing is paused. It pauses at $${(globalPauseMicroUsd() / 1e6).toFixed(2)}.`);
+    }
+    const stale = await staleRates();
+    if (stale.length) {
+      alertOnce("stale-rates", "HyperLaw: AI prices need a check",
+        `These model prices haven't been confirmed in the last 30 days: ${stale.map(r => r.model + (r.daysOld === null ? " (never confirmed)" : ` (${r.daysOld} days)`)).join(", ")}. Compare them with the providers' pricing pages and update the ai_rates table (touch updated_at even if unchanged) so costs stay accurate.`);
     }
     if (!isAdmin) {
       const [spend, user] = await Promise.all([userSpendTodayMicroUsd(userId), storage.getUser(userId)]);

@@ -1,3 +1,4 @@
+import { SpendPanel } from "./SpendPanel";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users, MessageSquare, X, Send, Clock, Infinity, ChevronLeft,
@@ -659,6 +660,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       {/* ── AI Inspector view ── */}
       {view === "ai" && (
         <div>
+          <SpendPanel />
           {/* Stats strip */}
           {aiStats && (
             <div style={{

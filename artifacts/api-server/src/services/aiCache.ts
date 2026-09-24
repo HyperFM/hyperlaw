@@ -11,6 +11,7 @@ import { createHash } from "crypto";
 import { db, aiLogsTable, aiAnalysisCacheTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { rateFor } from "./aiRates.js";
+import { chargeForCall } from "./billing.js";
 
 export type AiFeature =
   | "analyze_incident"
@@ -128,6 +129,8 @@ export interface LogCallParams {
 
 export async function logAiCall(params: LogCallParams): Promise<void> {
   const rate = params.cacheHit ? null : rateFor(params.model);
+  // Cost-based charging: a real call is charged here, once, when billing is on (services/billing.ts).
+  const charged = params.cacheHit ? 0 : await chargeForCall(params.userId, params.estimatedCostMicroUsd);
   const base = {
     userId: params.userId,
     caseId: params.caseId ?? null,
@@ -140,7 +143,7 @@ export async function logAiCall(params: LogCallParams): Promise<void> {
     responseTimeMs: params.responseTimeMs,
     cacheHit: params.cacheHit,
     promptTemplate: params.promptTemplate ?? null,
-    creditsCharged: params.creditsCharged ?? 0,
+    creditsCharged: charged || (params.creditsCharged ?? 0),
   };
   try {
     await db.insert(aiLogsTable).values({

@@ -3,6 +3,7 @@
 import { Router, type Request, type Response } from 'express';
 import { getAuth } from "../services/auth.js";
 import { storage } from '../storage.js';
+import { isBillingEnabled, TYPICAL_CREDITS } from '../services/billing.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/stripe/credits', async (req: Request, res: Response): Promise<void>
   try {
     if (!userId) { res.json({ creditBalance: 0, planTier: 'free' }); return; }
     const [creditBalance, user] = await Promise.all([storage.getCreditBalance(userId), storage.getUser(userId)]);
-    res.json({ creditBalance, planTier: user?.planTier ?? 'free' });
+    res.json({ creditBalance, planTier: user?.planTier ?? 'free', billingEnabled: await isBillingEnabled(), typicalCredits: TYPICAL_CREDITS });
   } catch {
     res.json({ creditBalance: 0, planTier: 'free' });
   }

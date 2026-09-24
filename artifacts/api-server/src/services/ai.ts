@@ -1269,6 +1269,8 @@ Be concise. Do not give legal advice. Return only the JSON object.`;
     claims: string[];
     importantQuotes: Array<{ quote: string; context: string }>;
     gapQuestions: string[];
+    whereThingsStand?: string;
+    nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string }>;
   }>> {
     const partiesBlock = input.parties.length
       ? input.parties.map(p => {
@@ -1346,8 +1348,18 @@ Return a single JSON object (no markdown, no code fences):
   "keyFacts": ["Key established fact from the case"],
   "claims": ["Potential legal claim or cause of action based only on the facts provided"],
   "importantQuotes": [{ "quote": "Exact text quoted from documents or narrative", "context": "Source and why it matters" }],
-  "gapQuestions": ["Specific question whose answer could strengthen the legal case"]
+  "gapQuestions": ["Specific question whose answer could strengthen the legal case"],
+  "whereThingsStand": "One or two plain sentences: the most recent thing that happened in this case and where it stands right now",
+  "nextUp": [
+    { "kind": "todo" | "waiting", "text": "One short line the person can act on (todo) or is waiting on (waiting)", "dueDate": "YYYY-MM-DD or null", "note": "Optional: the rule, document or date this comes from" }
+  ]
 }
+
+"nextUp" rules (this is the first thing the person sees when they open their Index):
+- Order by what is most recent and most urgent first. At most 6 items.
+- "todo" = something the person needs to do. "waiting" = something they are waiting to receive or hear back on (a ruling, a response, a hearing date, a served copy).
+- Use ONLY deadlines, hearing dates, waiting periods and next steps that appear in the provided documents, case memory, timeline or narrative. Never invent a deadline or a date. If a source gives a waiting period (e.g. "14 days after service"), put it in "note" and set "dueDate" only when the start date is known so you can compute it; otherwise dueDate is null.
+- If nothing is pending, return an empty array. Do not pad.
 
 Coverage rules for clouds (generate 8–20 total):
 - Every named party → one "party" cloud

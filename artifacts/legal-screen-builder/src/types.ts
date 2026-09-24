@@ -541,6 +541,12 @@ export interface StructuredCase {
   claims: string[];
   importantQuotes: Array<{ quote: string; context: string }>;
   gapQuestions?: string[];
+  /** One or two plain sentences: what most recently happened and where the case stands. */
+  whereThingsStand?: string;
+  /** "Where you left off": things to do and things being waited on, most urgent first. */
+  nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string }>;
+  /** Fingerprint of the case inputs this Index was built from — drives the automatic refresh. */
+  sourceKey?: string;
   organizedAt: number;
 }
 

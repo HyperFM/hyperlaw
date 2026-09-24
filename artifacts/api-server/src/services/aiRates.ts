@@ -44,8 +44,11 @@ export async function refreshRates(): Promise<void> {
 void refreshRates();
 setInterval(() => void refreshRates(), 5 * 60_000).unref();
 
+// Older call sites log the generic label "claude" (or "cache" for a hit) instead of a real model id.
+const MODEL_ALIASES: Record<string, string> = { claude: "claude-sonnet-5", cache: "claude-sonnet-5" };
+
 export function rateFor(model: string): Rate {
-  const r = cache[model];
+  const r = cache[MODEL_ALIASES[model] ?? model];
   if (r) return r;
   logger.warn({ model }, "no AI rate for model — costing at the fallback (Sonnet) rate");
   return FALLBACK_RATE;

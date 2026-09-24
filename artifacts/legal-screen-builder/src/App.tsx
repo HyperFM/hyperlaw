@@ -32,6 +32,8 @@ import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
 import CreditShopModal from "./components/CreditShopModal";
+import { CaseIndexHeader } from "./components/CaseIndexHeader";
+import { caseSourceKey } from "./lib/caseSourceKey";
 import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
@@ -3315,6 +3317,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         {/* Clouds */}
         {target && !isAnalyzing && analysis && (
           <>
+            {target.kind === "case" && <CaseIndexHeader structured={(target.item as HLCase).structuredCase} />}
             {hasClouds ? (
               <>
                 {/* Category filter chips — only if multiple categories */}
@@ -5740,7 +5743,7 @@ export default function App() {
         organizingCasesRef.current.add(c.id);
         aiApi.organizeCase({ hlCase: c as Parameters<typeof aiApi.organizeCase>[0]["hlCase"], caseId: c.id })
           .then(structured => {
-            const fullStructured = { ...structured, organizedAt: Date.now() };
+            const fullStructured = { ...structured, organizedAt: Date.now(), sourceKey: caseSourceKey(c) };
             setDataRaw(prev => {
               const target = prev.cases.find(x => x.id === c.id);
               if (!target) return prev;
@@ -5756,6 +5759,41 @@ export default function App() {
       }
     });
   }, [data.cases, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Keep the open case's Index current ────────────────────────────────────────
+  // The first Index is built once when assembly completes. After that, whenever the
+  // case the person has open changes (or has no fingerprint yet — an older Index), wait
+  // for 45s of quiet and re-organize it so "Where you left off" is never stale. Only the
+  // open case, only when its inputs really changed, and the result never re-triggers
+  // itself (the fingerprint excludes the Index). No button, no charge — the cost is
+  // logged with every other AI call and counted by the spend guards.
+  const openCaseForIndex = (() => { const id = currentCaseId(view); return id ? data.cases.find(x => x.id === id) ?? null : null; })();
+  const openCaseKey = openCaseForIndex ? caseSourceKey(openCaseForIndex) : null;
+  useEffect(() => {
+    const c = openCaseForIndex;
+    if (!c || !isOnline || !c.structuredCase || c.exhibitOnly) return;
+    if (c.structuredCase.sourceKey === openCaseKey) return;
+    if (organizingCasesRef.current.has(c.id)) return;
+    const timer = window.setTimeout(() => {
+      organizingCasesRef.current.add(c.id);
+      const key = caseSourceKey(c);
+      aiApi.organizeCase({ hlCase: c as Parameters<typeof aiApi.organizeCase>[0]["hlCase"], caseId: c.id })
+        .then(structured => {
+          const fullStructured = { ...structured, organizedAt: Date.now(), sourceKey: key };
+          setDataRaw(prev => {
+            const target = prev.cases.find(x => x.id === c.id);
+            if (!target) return prev;
+            const next = updateCase(prev, { ...target, structuredCase: fullStructured, structuredCaseGeneratedAt: Date.now() });
+            saveData(next);
+            return next;
+          });
+          api.cases.saveStructured(c.id, fullStructured as unknown as Record<string, unknown>).catch(() => {});
+        })
+        .catch(() => { /* try again on the next change */ })
+        .finally(() => { organizingCasesRef.current.delete(c.id); });
+    }, 45_000);
+    return () => window.clearTimeout(timer);
+  }, [openCaseKey, openCaseForIndex?.id, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user?.id) return; // don't call before the session is ready

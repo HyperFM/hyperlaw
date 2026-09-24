@@ -91,8 +91,8 @@ export const api = {
     markAllRead: () => apiFetch<{ ok: boolean }>("/notifications/read-all", { method: "PUT" }),
   },
   feedback: {
-    submit: (message: string, type = "general") =>
-      apiFetch<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify({ message, type }) }),
+    submit: (message: string, type = "general", contactEmail?: string) =>
+      apiFetch<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify({ message, type, contactEmail }) }),
     /** Admin-only — every submission, across all categories. */
     listAll: () => apiFetch<FeedbackItem[]>("/feedback"),
     /** Admin-only — unread count per category, e.g. { improvement: 2, support: 1 }. */

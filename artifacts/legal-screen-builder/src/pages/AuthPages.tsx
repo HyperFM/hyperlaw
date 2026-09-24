@@ -13,6 +13,7 @@ import {
 } from "../lib/auth";
 import { browserSupportsWebAuthn } from "../lib/webauthnLogin";
 import { isIosApp, openExternal } from "../lib/platform";
+import { api } from "../lib/api";
 
 const ORANGE = "#d9711f";
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -238,6 +239,37 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   apple: "Apple sign-in didn't work. Please try again.",
 };
 
+/** Signed-out "Having trouble?" form — lets someone who can't log in still reach the admin. */
+function ContactUs() {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [msg, setMsg] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const send = async () => {
+    setState("sending");
+    try { await api.feedback.submit(msg.trim(), "support", email.trim()); setState("sent"); }
+    catch { setState("error"); }
+  };
+  return (
+    <div style={{ textAlign: "center", marginTop: 14, fontSize: 13, color: "#666360", paddingBottom: isIosApp() ? 60 : 0 }}>
+      {!open ? (
+        <span style={linkStyle} onClick={() => setOpen(true)}>Having trouble? Contact us</span>
+      ) : state === "sent" ? (
+        <div>Thanks — we got your message and will reply by email.</div>
+      ) : (
+        <div style={{ maxWidth: 360, margin: "0 auto", display: "flex", flexDirection: "column", gap: 8, padding: "0 16px" }}>
+          <input style={inputStyle} type="email" placeholder="Your email (so we can reply)" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <textarea style={{ ...inputStyle, minHeight: 90, resize: "none" }} placeholder="What's going wrong?" value={msg} onChange={(e) => setMsg(e.target.value)} />
+          {state === "error" && <div style={errorStyle}>Couldn't send — please try again.</div>}
+          <button type="button" style={buttonStyle} disabled={!msg.trim() || !email.includes("@") || state === "sending"} onClick={send}>
+            {state === "sending" ? "Sending…" : "Send message"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SignInPage() {
   const [, navigate] = useLocation();
   const search = useSearch();
@@ -317,6 +349,7 @@ export function SignInPage() {
           </div>
         )}
       </div>
+      <ContactUs />
       {TOS_LINKS}
       {/* Small, easy-to-miss-on-purpose bottom bar — the app is for existing
           members, so this is a quiet way out for the rare person who isn't

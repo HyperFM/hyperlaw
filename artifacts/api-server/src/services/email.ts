@@ -14,13 +14,13 @@ function getClient(): Resend | null {
   return new Resend(apiKey);
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+async function sendEmail(to: string, subject: string, html: string, replyTo?: string): Promise<void> {
   const client = getClient();
   if (!client) {
     logger.info({ to, subject, html }, "RESEND_API_KEY not set — logging email instead of sending");
     return;
   }
-  await client.emails.send({ from: FROM_ADDRESS, to, subject, html });
+  await client.emails.send({ from: FROM_ADDRESS, to, subject, html, ...(replyTo ? { replyTo } : {}) });
 }
 
 export async function sendVerificationEmail(to: string, token: string): Promise<void> {
@@ -31,5 +31,31 @@ export async function sendVerificationEmail(to: string, token: string): Promise<
     `<p>Welcome to HyperLaw. Confirm your email address to finish setting up your account:</p>
      <p><a href="${link}">${link}</a></p>
      <p>This link expires in 24 hours.</p>`,
+  );
+}
+
+function esc(v: string): string {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const FEEDBACK_NOTIFY_EMAIL = process.env.FEEDBACK_NOTIFY_EMAIL ?? "hypermodula@gmail.com";
+
+/** Tells the admin a new support/feedback message arrived. Reply-To is the sender when we know their email. */
+export async function sendFeedbackAdminEmail(opts: { type: string; message: string; name: string; email: string }): Promise<void> {
+  const who = [opts.name, opts.email].filter(Boolean).join(" · ") || "Anonymous";
+  await sendEmail(
+    FEEDBACK_NOTIFY_EMAIL,
+    `HyperLaw ${opts.type}: ${opts.message.slice(0, 60)}`,
+    `<p><b>${esc(opts.type)}</b> from ${esc(who)}</p><p style="white-space:pre-wrap">${esc(opts.message)}</p>`,
+    opts.email || undefined,
+  );
+}
+
+/** Emails the admin's reply to whoever sent the feedback. */
+export async function sendFeedbackReplyEmail(to: string, original: string, reply: string): Promise<void> {
+  await sendEmail(
+    to,
+    "A reply from HyperLaw",
+    `<p style="white-space:pre-wrap">${esc(reply)}</p><hr><p style="color:#777;font-size:13px">Your message: ${esc(original.slice(0, 500))}</p>`,
   );
 }

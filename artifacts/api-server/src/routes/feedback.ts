@@ -2,8 +2,11 @@ import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
 import { db, feedbackTable, notificationsTable, usersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { sendFeedbackAdminEmail, sendFeedbackReplyEmail } from "../services/email.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
+const anonHits = new Map<string, number[]>();
 
 function requireAdmin(req: Request, res: Response): boolean {
   const auth = getAuth(req);
@@ -24,8 +27,18 @@ export async function getUserEmail(userId: string): Promise<{ email: string; nam
 
 router.post("/feedback", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
-  const { message, type = "general" } = req.body as { message: string; type?: string };
+  const { message, type = "general", contactEmail } = req.body as { message: string; type?: string; contactEmail?: string };
   if (!message?.trim()) { res.status(400).json({ error: "Message required" }); return; }
+  if (message.length > 5000) { res.status(400).json({ error: "Message too long" }); return; }
+
+  // Signed-out submissions (sign-in page "Contact us") — cap per IP so the form can't be used to spam the inbox.
+  if (!auth?.userId) {
+    const ip = req.ip ?? "unknown";
+    const now = Date.now();
+    const recent = (anonHits.get(ip) ?? []).filter((t) => now - t < 3600_000);
+    if (recent.length >= 5) { res.status(429).json({ error: "Too many messages — try again later" }); return; }
+    anonHits.set(ip, [...recent, now]);
+  }
 
   let userEmail = "";
   let userName = "";
@@ -37,11 +50,18 @@ router.post("/feedback", async (req: Request, res: Response): Promise<void> => {
 
   await db.insert(feedbackTable).values({
     userId: auth?.userId ?? null,
-    userEmail,
+    userEmail: userEmail || (typeof contactEmail === "string" ? contactEmail.trim().slice(0, 200) : ""),
     userName,
     message: message.trim(),
     type,
   });
+
+  void sendFeedbackAdminEmail({
+    type,
+    message: message.trim(),
+    name: userName,
+    email: userEmail || (typeof contactEmail === "string" ? contactEmail.trim().slice(0, 200) : ""),
+  }).catch((err) => logger.warn({ err }, "feedback admin email failed"));
 
   if (auth?.userId) {
     await db.insert(notificationsTable).values({
@@ -119,6 +139,11 @@ router.post("/feedback/:id/reply", async (req: Request, res: Response): Promise<
       type: "feedback_reply",
       metadata: { feedbackId: id },
     });
+  }
+
+  if (existing.userEmail) {
+    void sendFeedbackReplyEmail(existing.userEmail, existing.message, reply.trim())
+      .catch((err) => logger.warn({ err }, "feedback reply email failed"));
   }
 
   res.json(updated);

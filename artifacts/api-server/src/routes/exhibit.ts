@@ -286,7 +286,7 @@ export function buildStructuredCaseBlock(cd: Record<string, unknown>): string | 
  *  unlike a one-shot endpoint. Settled on a middle ground: real gain over
  *  the original 12000 for source verification, without the multiplied
  *  slowdown 60000 caused on a real batch tonight. */
-function buildDocumentBlocks(docs: Array<{ text: string | null; fileName: string | null }>): string[] {
+export function buildDocumentBlocks(docs: Array<{ text: string | null; fileName: string | null }>): string[] {
   return docs.map((d, i) =>
     `UPLOADED DOCUMENT ${i + 1} (${d.fileName ?? "file"}): ${(d.text ?? "").slice(0, 20000)}`
   );

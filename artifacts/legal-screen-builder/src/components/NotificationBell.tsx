@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Bell, X, Check, MessageSquare, Star, AlertCircle, Clock } from "lucide-react";
+import { Bell, X, Check, MessageSquare, Star, AlertCircle, Clock, Gavel } from "lucide-react";
 import { api, AppNotification } from "../lib/api";
 
 const ORANGE = "#d9711f";
@@ -7,6 +7,7 @@ const ORANGE = "#d9711f";
 function typeIcon(type: string) {
   if (type === "admin_message") return <MessageSquare size={14} color={ORANGE} />;
   if (type === "case_expiring") return <Clock size={14} color="#ef4444" />;
+  if (type === "hearing_script_stale") return <Gavel size={14} color={ORANGE} />;
   if (type === "system") return <Star size={14} color="#3b82f6" />;
   return <AlertCircle size={14} color="#555" />;
 }
@@ -17,13 +18,16 @@ interface NotificationBellProps {
   onExtendCase?: (caseId: string) => void;
   /** Navigate to the Profile tab so the user can delete the case themselves */
   onGoToProfile?: () => void;
+  /** Navigate into the Hearing Script tool, scoped to this case/script */
+  onOpenHearingScript?: (caseId: string, scriptId: string) => void;
 }
 
-export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfile }: NotificationBellProps) {
+export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfile, onOpenHearingScript }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [expiringPrompt, setExpiringPrompt] = useState<AppNotification | null>(null);
+  const [staleScriptPrompt, setStaleScriptPrompt] = useState<AppNotification | null>(null);
   const [muting, setMuting] = useState(false);
   const unread = notifications.filter(n => !n.read).length;
 
@@ -60,6 +64,10 @@ export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfi
       setExpiringPrompt(n);
       return;
     }
+    if (n.type === "hearing_script_stale" && n.metadata?.caseId && n.metadata?.scriptId) {
+      setStaleScriptPrompt(n);
+      return;
+    }
     if (n.type === "admin_message" && n.metadata?.sessionId && onOpenChat) {
       onOpenChat(n.metadata.sessionId as string);
       setOpen(false);
@@ -94,6 +102,14 @@ export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfi
     setExpiringPrompt(null);
     setOpen(false);
     onGoToProfile?.();
+  }
+
+  function handleReviewStaleScript() {
+    const caseId = staleScriptPrompt?.metadata?.caseId as string | undefined;
+    const scriptId = staleScriptPrompt?.metadata?.scriptId as string | undefined;
+    setStaleScriptPrompt(null);
+    setOpen(false);
+    if (caseId && scriptId) onOpenHearingScript?.(caseId, scriptId);
   }
 
   return (
@@ -231,6 +247,34 @@ export default function NotificationBell({ onOpenChat, onExtendCase, onGoToProfi
               disabled={muting}
               style={{ width: "100%", background: "none", color: "#666", border: "none", borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 600, cursor: muting ? "default" : "pointer" }}>
               {muting ? "Stopping…" : "I'm done with this case — stop notifying me"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {staleScriptPrompt && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={() => setStaleScriptPrompt(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }} />
+          <div style={{
+            position: "relative", zIndex: 1, background: "#111", border: "1px solid #222",
+            borderRadius: 16, width: "min(360px, 100%)", padding: 20,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.8)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Gavel size={16} color={ORANGE} />
+              <span style={{ fontWeight: 800, fontSize: 14 }}>{staleScriptPrompt.title}</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#999", lineHeight: 1.5, marginBottom: 18 }}>{staleScriptPrompt.body}</div>
+
+            <button
+              onClick={handleReviewStaleScript}
+              style={{ width: "100%", background: ORANGE, color: "#000", border: "none", borderRadius: 10, padding: "12px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>
+              Review script now
+            </button>
+            <button
+              onClick={() => setStaleScriptPrompt(null)}
+              style={{ width: "100%", background: "none", color: "#666", border: "none", borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              Not now
             </button>
           </div>
         </div>

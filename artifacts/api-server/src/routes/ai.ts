@@ -30,6 +30,8 @@ import { and, eq, sql, desc } from "drizzle-orm";
 import { getUserEmail } from "./feedback.js";
 import { buildCaseContext } from "../services/caseContext.js";
 import { recordCaseEvent } from "../services/memorySummarizer.js";
+import { checkHearingScriptStaleness } from "../services/hearingScript.js";
+import { logger } from "../lib/logger.js";
 
 const ADMIN_EMAILS = new Set(["hyperlawcompliance@gmail.com", "hypermodula@gmail.com"]);
 
@@ -386,6 +388,7 @@ router.post(
           caseExtraction: null,
         }).returning({ id: uploadedDocumentsTable.id });
         docId = rows[0]?.id ?? null;
+        if (caseId) void checkHearingScriptStaleness(caseId, new Date()).catch((err) => logger.warn({ err }, "hearing script staleness check failed"));
       } catch {
         // DB storage failure is non-fatal
       }
@@ -1026,6 +1029,7 @@ router.post("/ai/generate-document", async (req: Request, res: Response): Promis
         contentRef: savedDoc.id,
         shortSummary: `Generated ${documentType} (${countWords(aiResult.data)} words)`,
       });
+      void checkHearingScriptStaleness(caseId, savedDoc.createdAt).catch((err) => logger.warn({ err }, "hearing script staleness check failed"));
     }
 
     res.json({

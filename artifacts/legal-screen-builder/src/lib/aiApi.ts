@@ -1,6 +1,7 @@
 // ── AI API client ─────────────────────────────────────────────────────────────
 // Mirrors the shapes defined in artifacts/api-server/src/services/ai.ts
 import { isIosApp } from "./platform";
+import type { HearingScript } from "../types";
 
 export interface TutorInsight {
   type: "gap" | "key_point" | "question" | "notice";
@@ -842,6 +843,57 @@ export const aiApi = {
      */
     verify(id: string): Promise<ServerGeneratedDoc> {
       return aiFetch(`/ai/generated-documents/${id}/verify`, { method: "POST" });
+    },
+  },
+
+  // ── Hearing Scripts ─────────────────────────────────────────────────────────
+
+  hearingScripts: {
+    list(caseId: string): Promise<HearingScript[]> {
+      return aiFetch(`/hearing-scripts?caseId=${encodeURIComponent(caseId)}`);
+    },
+
+    get(id: string): Promise<HearingScript> {
+      return aiFetch(`/hearing-scripts/${id}`);
+    },
+
+    create(payload: {
+      caseId: string;
+      title: string;
+      hearingDate?: string | null;
+      court?: string | null;
+      division?: string | null;
+      judge?: string | null;
+    }): Promise<HearingScript> {
+      return aiFetch("/hearing-scripts", { method: "POST", body: JSON.stringify(payload) });
+    },
+
+    /** Runs (or re-runs) AI generation. Result always comes back status "draft" —
+     *  even when regenerating a previously-"ready" script — so the user has to
+     *  review and manually re-mark it ready. */
+    generate(id: string, sourceDocs?: { sourceGeneratedDocIds?: string[]; sourceUploadedDocIds?: string[] }): Promise<HearingScript> {
+      return aiFetch(`/hearing-scripts/${id}/generate`, { method: "POST", body: JSON.stringify(sourceDocs ?? {}) });
+    },
+
+    update(id: string, changes: {
+      title?: string; hearingDate?: string | null; court?: string | null;
+      division?: string | null; judge?: string | null; status?: string;
+    }): Promise<HearingScript> {
+      return aiFetch(`/hearing-scripts/${id}`, { method: "PATCH", body: JSON.stringify(changes) });
+    },
+
+    updateSection(scriptId: string, sectionId: string, changes: {
+      heading?: string; body?: string; delivered?: boolean; sortOrder?: number;
+    }): Promise<HearingScript["sections"][number]> {
+      return aiFetch(`/hearing-scripts/${scriptId}/sections/${sectionId}`, { method: "PATCH", body: JSON.stringify(changes) });
+    },
+
+    postHearing(id: string, notes: { me?: string; judge?: string; opposingCounsel?: string }): Promise<HearingScript> {
+      return aiFetch(`/hearing-scripts/${id}/post-hearing`, { method: "PATCH", body: JSON.stringify(notes) });
+    },
+
+    remove(id: string): Promise<void> {
+      return aiFetch(`/hearing-scripts/${id}`, { method: "DELETE" });
     },
   },
 

@@ -417,6 +417,46 @@ export interface WitnessQAEntry {
   answeredAt?: number;
 }
 
+/** Real server-side rows (own table, not a caseData blob field like
+ *  WitnessExamination below) — see lib/db/src/schema/index.ts's
+ *  hearingScripts/hearingScriptSections for why. Dates are ISO strings as
+ *  returned by the API, not unix-ms numbers. */
+export interface HearingScriptSection {
+  id: string;
+  scriptId: string;
+  sortOrder: number;
+  heading: string;
+  body: string;
+  triggerType: "opening" | "responsive" | "closing" | "conditional";
+  conditionNote: string | null;
+  delivered: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HearingScript {
+  id: string;
+  userId: string;
+  caseId: string;
+  title: string;
+  hearingDate: string | null;
+  court: string | null;
+  division: string | null;
+  judge: string | null;
+  status: "draft" | "ready" | "delivered" | "archived";
+  version: number;
+  lastGeneratedAt: string | null;
+  sourceGeneratedDocIds: string[];
+  sourceUploadedDocIds: string[];
+  postHearingSummaryMe: string | null;
+  postHearingSummaryJudge: string | null;
+  postHearingSummaryOpposingCounsel: string | null;
+  postHearingCapturedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  sections: HearingScriptSection[];
+}
+
 export interface WitnessExamination {
   id: string;
   caseId: string;

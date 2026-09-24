@@ -39,6 +39,7 @@ export type AiFeature =
   | "estimate"
   | "exhibit_screen"
   | "court_script"
+  | "hearing_script"
   | "tutor_help"
   | "transcript_match_moments"
   | "transcript_find_moments"

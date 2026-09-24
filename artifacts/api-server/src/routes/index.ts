@@ -19,6 +19,7 @@ import ifpRouter from "./ifp";
 import exhibitRouter from "./exhibit";
 import tutorRouter from "./tutor";
 import transcriptRouter from "./transcript";
+import hearingScriptsRouter from "./hearing-scripts";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(ifpRouter);
 router.use(exhibitRouter);
 router.use(tutorRouter);
 router.use(transcriptRouter);
+router.use(hearingScriptsRouter);
 
 export default router;

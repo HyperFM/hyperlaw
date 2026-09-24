@@ -124,6 +124,61 @@ export const generatedDocumentsTable = pgTable("generated_documents", {
   genDocsCaseIdx: uniqueIndex("gen_docs_case_idx").on(table.userId, table.caseId),
 }));
 
+// ── Hearing Script Tool ────────────────────────────────────────────────────────
+// A hearing-scoped, AI-generated, section-by-section script — deliberately its
+// own real per-row tables (not a jsonb blob on casesTable.caseData like most
+// other "structured" features) so sections can be individually edited/marked
+// delivered and so staleness can be detected cheaply by comparing timestamps,
+// without rewriting the whole case blob on every touch.
+
+export const hearingScripts = pgTable("hearing_scripts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id").notNull(),
+  title: text("title").notNull(),
+  hearingDate: timestamp("hearing_date"),
+  court: text("court"),
+  division: text("division"),
+  judge: text("judge"),
+  /** "draft" | "ready" | "delivered" | "archived" */
+  status: text("status").notNull().default("draft"),
+  version: integer("version").notNull().default(1),
+  lastGeneratedAt: timestamp("last_generated_at"),
+  /** Ids into generatedDocumentsTable/uploadedDocumentsTable used as source
+   *  material for the current generation. Plain id arrays, not a join table —
+   *  staleness detection queries those tables directly by caseId+createdAt,
+   *  never by looking up an id inside these arrays. A deleted source doc just
+   *  leaves a dangling id here (render "no longer available" on lookup miss). */
+  sourceGeneratedDocIds: jsonb("source_generated_doc_ids").notNull().$type<string[]>().default([]),
+  sourceUploadedDocIds: jsonb("source_uploaded_doc_ids").notNull().$type<string[]>().default([]),
+  /** Lightweight post-hearing capture — plain text, not a transcript. Exists
+   *  specifically to counter a court order mischaracterizing what was said. */
+  postHearingSummaryMe: text("post_hearing_summary_me"),
+  postHearingSummaryJudge: text("post_hearing_summary_judge"),
+  postHearingSummaryOpposingCounsel: text("post_hearing_summary_opposing_counsel"),
+  postHearingCapturedAt: timestamp("post_hearing_captured_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  hearingScriptsUserCaseIdx: index("hearing_scripts_user_case_idx").on(table.userId, table.caseId),
+}));
+
+export const hearingScriptSections = pgTable("hearing_script_sections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scriptId: uuid("script_id").notNull().references(() => hearingScripts.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull(), // "order" is a reserved SQL word
+  heading: text("heading").notNull(),
+  body: text("body").notNull(),
+  /** "opening" | "responsive" | "closing" | "conditional" */
+  triggerType: text("trigger_type").notNull().default("opening"),
+  conditionNote: text("condition_note"),
+  delivered: boolean("delivered").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  hearingScriptSectionsScriptIdx: index("hearing_script_sections_script_idx").on(table.scriptId),
+}));
+
 // ── Knowledge Library ─────────────────────────────────────────────────────────
 
 export const knowledgeLibraryTable = pgTable("knowledge_library", {
@@ -495,6 +550,8 @@ export type Message = typeof messagesTable.$inferSelect;
 export type Feedback = typeof feedbackTable.$inferSelect;
 export type UploadedDocument = typeof uploadedDocumentsTable.$inferSelect;
 export type GeneratedDocument = typeof generatedDocumentsTable.$inferSelect;
+export type HearingScript = typeof hearingScripts.$inferSelect;
+export type HearingScriptSection = typeof hearingScriptSections.$inferSelect;
 export type UserSecurity = typeof userSecurityTable.$inferSelect;
 export type IfpTemplate = typeof ifpTemplatesTable.$inferSelect;
 export type GuidanceSession = typeof guidanceSessionsTable.$inferSelect;

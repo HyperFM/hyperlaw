@@ -20,6 +20,7 @@ import exhibitRouter from "./exhibit";
 import tutorRouter from "./tutor";
 import transcriptRouter from "./transcript";
 import hearingScriptsRouter from "./hearing-scripts";
+import intakeRouter from "./intake";
 
 import { aiDailyCap } from "../services/aiCap.js";
 
@@ -49,5 +50,6 @@ router.use(exhibitRouter);
 router.use(tutorRouter);
 router.use(transcriptRouter);
 router.use(hearingScriptsRouter);
+router.use(intakeRouter);
 
 export default router;

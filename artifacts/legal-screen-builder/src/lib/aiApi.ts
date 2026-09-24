@@ -449,6 +449,25 @@ export const aiApi = {
     });
   },
 
+  /** Free intake chat — one turn. The server keeps no transcript; the app holds it. */
+  intakeChat(messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<{
+    reply: string;
+    new: {
+      parties: Array<{ name: string; role?: string; isOfficial?: boolean; agency?: string | null }>;
+      events: Array<{ when?: string | null; what: string }>;
+      court: string | null;
+    };
+    readyToWrapUp: boolean;
+    messagesLeft: number | null;
+  }> {
+    return aiFetch("/intake/chat", { method: "POST", body: JSON.stringify({ messages }) });
+  },
+
+  /** Marks the free intake as used once the person has confirmed and finished. */
+  intakeFinish(): Promise<{ ok: boolean }> {
+    return aiFetch("/intake/finish", { method: "POST", body: "{}" });
+  },
+
   /** Video Organization Assistant — suggest a presentation order for labeled video chunks */
   organizeVideoChunks(input: {
     chunks: Array<{ id: string; start: number; end: number; label: string; tag?: string }>;

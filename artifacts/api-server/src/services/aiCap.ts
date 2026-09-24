@@ -14,6 +14,7 @@ const AI_ROUTES: RegExp[] = [
   /^\/hearing-scripts\/[^/]+\/generate$/,
   /^\/exhibit\/(court-script|generate|analyze-photos)$/,
   /^\/transcript\//,
+  /^\/intake\/chat$/,
 ];
 
 export async function aiDailyCap(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -3,7 +3,7 @@ import { Upload, MessageSquare, ListChecks } from "lucide-react";
 const ORANGE = "#d9711f";
 
 /** What a brand-new (empty) case shows instead of the full case page: three clear ways to begin. */
-export function CaseEmptyState({ onUpload, onGuidedIntake }: { onUpload: () => void; onGuidedIntake: () => void }) {
+export function CaseEmptyState({ onUpload, onChat, onGuidedIntake }: { onUpload: () => void; onChat: () => void; onGuidedIntake: () => void }) {
   const card = (opts: { icon: React.ReactNode; title: string; sub: string; onClick?: () => void; soon?: boolean }) => (
     <button
       onClick={opts.onClick}
@@ -33,7 +33,7 @@ export function CaseEmptyState({ onUpload, onGuidedIntake }: { onUpload: () => v
       <div style={{ fontSize: 13, color: "#777", marginBottom: 16, lineHeight: 1.5 }}>Pick one. You can do the others any time.</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {card({ icon: <Upload size={22} color={ORANGE} />, title: "Upload a document", sub: "A complaint, order, report or anything you were given", onClick: onUpload })}
-        {card({ icon: <MessageSquare size={22} color={ORANGE} />, title: "Start a chat", sub: "Talk it through and we'll keep track for you", soon: true })}
+        {card({ icon: <MessageSquare size={22} color={ORANGE} />, title: "Tell us what happened", sub: "Just talk it through. Free — and the chat isn't kept, only what you confirm", onClick: onChat })}
         {card({ icon: <ListChecks size={22} color={ORANGE} />, title: "Guided intake", sub: "Answer a few questions, step by step", onClick: onGuidedIntake })}
       </div>
     </div>

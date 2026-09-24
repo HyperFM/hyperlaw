@@ -545,6 +545,10 @@ export interface StructuredCase {
   whereThingsStand?: string;
   /** "Where you left off": things to do and things being waited on, most urgent first. */
   nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string }>;
+  /** Rights that MAY apply to these facts, in plain language — never a conclusion. */
+  rightsThatMayApply?: Array<{ right: string; why: string }>;
+  /** Types of relief a person in this kind of case can generally ask for. Never dollar amounts. */
+  whatYouMayAskFor?: Array<{ type: string; plain: string }>;
   /** Fingerprint of the case inputs this Index was built from — drives the automatic refresh. */
   sourceKey?: string;
   organizedAt: number;

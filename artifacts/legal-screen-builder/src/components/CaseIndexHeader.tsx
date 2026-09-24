@@ -68,6 +68,31 @@ export function CaseIndexHeader({ structured }: { structured: StructuredCase | u
         )}
       </div>
 
+      {(structured?.rightsThatMayApply?.length ?? 0) > 0 && (
+        <div style={{ marginTop: 14, background: "#0f0f0f", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: ORANGE, textTransform: "uppercase", marginBottom: 4 }}>Rights that may apply</div>
+          {structured!.rightsThatMayApply!.map((r, k) => (
+            <div key={k} style={{ padding: "9px 0", borderTop: k ? "1px solid #1a1a1a" : "none" }}>
+              <div style={{ fontSize: 14, color: "#ddd", fontWeight: 700, lineHeight: 1.4 }}>{r.right}</div>
+              <div style={{ fontSize: 12.5, color: "#888", marginTop: 3, lineHeight: 1.45 }}>{r.why}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(structured?.whatYouMayAskFor?.length ?? 0) > 0 && (
+        <div style={{ marginTop: 14, background: "#0f0f0f", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: ORANGE, textTransform: "uppercase", marginBottom: 4 }}>What you may be able to ask for</div>
+          {structured!.whatYouMayAskFor!.map((r, k) => (
+            <div key={k} style={{ padding: "9px 0", borderTop: k ? "1px solid #1a1a1a" : "none" }}>
+              <div style={{ fontSize: 14, color: "#ddd", fontWeight: 700, lineHeight: 1.4 }}>{r.type}</div>
+              <div style={{ fontSize: 12.5, color: "#888", marginTop: 3, lineHeight: 1.45 }}>{r.plain}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, color: "#666", marginTop: 8, lineHeight: 1.5 }}>These are the kinds of relief courts can award — not a promise or an estimate. What a court actually awards depends on the evidence and the judge.</div>
+        </div>
+      )}
+
       <div style={{ marginTop: 10, fontSize: 11.5, color: "#666", lineHeight: 1.55, padding: "0 4px" }}>
         HyperLaw can't see your court's records or send you updates from the court. You're responsible for keeping track of your own case — check with your court clerk's office yourself so nothing catches you by surprise. This page only reflects what you've entered or uploaded.
       </div>

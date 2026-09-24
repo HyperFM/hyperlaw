@@ -1271,6 +1271,8 @@ Be concise. Do not give legal advice. Return only the JSON object.`;
     gapQuestions: string[];
     whereThingsStand?: string;
     nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string }>;
+    rightsThatMayApply?: Array<{ right: string; why: string }>;
+    whatYouMayAskFor?: Array<{ type: string; plain: string }>;
   }>> {
     const partiesBlock = input.parties.length
       ? input.parties.map(p => {
@@ -1352,8 +1354,18 @@ Return a single JSON object (no markdown, no code fences):
   "whereThingsStand": "One or two plain sentences: the most recent thing that happened in this case and where it stands right now",
   "nextUp": [
     { "kind": "todo" | "waiting", "text": "One short line the person can act on (todo) or is waiting on (waiting)", "dueDate": "YYYY-MM-DD or null", "note": "Optional: the rule, document or date this comes from" }
+  ],
+  "rightsThatMayApply": [
+    { "right": "Plain-language name, e.g. \"Freedom from unreasonable searches (Fourth Amendment)\"", "why": "One sentence tying it to a specific fact from THIS case" }
+  ],
+  "whatYouMayAskFor": [
+    { "type": "e.g. \"Compensatory damages\"", "plain": "One plain sentence on what this kind of relief covers and why it may fit these facts" }
   ]
 }
+
+"rightsThatMayApply" / "whatYouMayAskFor" rules:
+- Frame everything as what MAY apply, never what does apply or what the person will get. Base each item on facts actually in the case; if the facts are thin, return fewer items or an empty array.
+- For "whatYouMayAskFor" list only the TYPES of relief a person in this kind of case, in this court's jurisdiction, can generally ask a court for (for example compensatory, punitive, nominal, injunctive or declaratory relief, and attorney's fees where a statute allows them). NEVER state a dollar amount, range, or estimate, and never say the person is "entitled" to anything.
 
 "nextUp" rules (this is the first thing the person sees when they open their Index):
 - Order by what is most recent and most urgent first. At most 6 items.

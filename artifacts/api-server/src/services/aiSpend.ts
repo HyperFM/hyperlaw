@@ -1,5 +1,8 @@
-// Real-dollar spend guards (Phase 0.5): a per-user daily backstop and a global
-// kill switch. Spend is summed from ai_logs (real provider cost, cache hits are $0).
+// Real-dollar spend guards (Phase 0.5), summed from ai_logs (real provider cost, cache hits are $0).
+// Normal days are fully passive. Only two things ever email the owner, and only one ever stops anything:
+//   - one user's real cost passes $10/day      -> email only, never blocks that user (their credit balance is their ceiling)
+//   - total spend across everyone passes $15   -> email only, nothing pauses
+//   - total spend passes $40                   -> AI pauses app-wide + email, until the owner resumes it
 
 import { db, aiLogsTable, appSettingsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
@@ -10,10 +13,12 @@ function usdEnv(name: string, fallback: number): number {
   const n = parseFloat(process.env[name] ?? "");
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-/** Per-user real provider cost allowed per day. Default $3. */
-export const userDailyCapMicroUsd = () => Math.round(usdEnv("AI_USER_DAILY_USD", 3) * 1_000_000);
-/** Total provider spend across ALL users (owner included) before AI pauses app-wide. Default $12. */
-export const globalDailyCapMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_DAILY_USD", 12) * 1_000_000);
+/** One user's real provider cost per day that triggers an owner email. Default $10. Never blocks. */
+export const userAlertMicroUsd = () => Math.round(usdEnv("AI_USER_ALERT_USD", 10) * 1_000_000);
+/** Total provider spend across ALL users (owner included) that triggers an owner email. Default $15. Never blocks. */
+export const globalAlertMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_ALERT_USD", 15) * 1_000_000);
+/** Total provider spend across ALL users that auto-pauses AI app-wide. Default $40. The one true kill switch. */
+export const globalPauseMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_PAUSE_USD", 40) * 1_000_000);
 
 function startOfToday(): Date {
   const d = new Date();
@@ -77,26 +82,26 @@ function alertOnce(key: string, subject: string, body: string): void {
 
 export type SpendVerdict = { ok: true } | { ok: false; status: number; code: string; error: string };
 
-/** Run before every model-calling request. Admins skip the per-user backstop but not the global switch. */
-export async function checkSpend(userId: string, isAdmin: boolean): Promise<SpendVerdict> {
-  if (await isAiPaused()) {
-    return { ok: false, status: 503, code: "ai_paused", error: "AI features are paused for a moment. Your work is saved — please try again later." };
-  }
+/** Run before every model-calling request. Only the paused state ever rejects; everything else is an email. */
+export async function checkSpend(userId: string, _isAdmin: boolean): Promise<SpendVerdict> {
+  const paused: SpendVerdict = { ok: false, status: 503, code: "ai_paused", error: "AI features are paused for a moment. Your work is saved — please try again later." };
+  if (await isAiPaused()) return paused;
   try {
     const globalSpend = await globalSpendTodayMicroUsd();
-    if (globalSpend >= globalDailyCapMicroUsd()) {
+    if (globalSpend >= globalPauseMicroUsd()) {
       await setAiPaused(true);
-      alertOnce("global", "HyperLaw AI paused: daily spend ceiling reached",
-        `Total provider spend today reached $${(globalSpend / 1e6).toFixed(2)} (ceiling $${(globalDailyCapMicroUsd() / 1e6).toFixed(2)}). AI is paused app-wide until you resume it (POST /api/admin/ai/resume).`);
-      return { ok: false, status: 503, code: "ai_paused", error: "AI features are paused for a moment. Your work is saved — please try again later." };
+      alertOnce("global-pause", "HyperLaw AI PAUSED: emergency spend ceiling reached",
+        `Total provider spend today reached $${(globalSpend / 1e6).toFixed(2)} (emergency ceiling $${(globalPauseMicroUsd() / 1e6).toFixed(2)}). AI is paused app-wide. Check the spend dashboard for a loop or runaway bug, then resume with POST /api/admin/ai/resume.`);
+      return paused;
     }
-    if (!isAdmin) {
-      const spend = await userSpendTodayMicroUsd(userId);
-      if (spend >= userDailyCapMicroUsd()) {
-        alertOnce(`user:${userId}`, "HyperLaw: a user hit the daily AI backstop",
-          `User ${userId} has cost $${(spend / 1e6).toFixed(2)} in provider spend today (cap $${(userDailyCapMicroUsd() / 1e6).toFixed(2)}). Check for a looping bug or abuse.`);
-        return { ok: false, status: 429, code: "rate_limited", error: "You've reached today's AI limit. Everything you've done is saved — it resets tomorrow." };
-      }
+    if (globalSpend >= globalAlertMicroUsd()) {
+      alertOnce("global-alert", "HyperLaw: total AI spend passed the daily alert",
+        `Total provider spend today is $${(globalSpend / 1e6).toFixed(2)} (alert at $${(globalAlertMicroUsd() / 1e6).toFixed(2)}). Nothing is paused. It pauses at $${(globalPauseMicroUsd() / 1e6).toFixed(2)}.`);
+    }
+    const spend = await userSpendTodayMicroUsd(userId);
+    if (spend >= userAlertMicroUsd()) {
+      alertOnce(`user:${userId}`, "HyperLaw: one account's AI cost looks unusual",
+        `User ${userId} has cost $${(spend / 1e6).toFixed(2)} in provider spend today (alert at $${(userAlertMicroUsd() / 1e6).toFixed(2)}). Their work is not blocked.`);
     }
   } catch {
     // fail open on a DB hiccup; the next request re-checks

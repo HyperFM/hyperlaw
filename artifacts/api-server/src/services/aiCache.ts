@@ -153,19 +153,10 @@ export async function logAiCall(params: LogCallParams): Promise<void> {
   }
 }
 
-// ── Per-user daily spend backstop ─────────────────────────────────────────────
-// Real provider dollars, not action count (Phase 0.5). AI_USER_DAILY_USD, default $3.
-// A bug catcher, not a normal limit — see services/aiSpend.ts for the global kill switch.
-
-import { userSpendTodayMicroUsd, userDailyCapMicroUsd } from "./aiSpend.js";
-
-/** `count` and `limit` are now micro-USD (real cost so far today vs the cap). */
-export async function checkDailyLimit(userId: string): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const limit = userDailyCapMicroUsd();
-  try {
-    const count = await userSpendTodayMicroUsd(userId);
-    return { allowed: count < limit, count, limit };
-  } catch {
-    return { allowed: true, count: 0, limit }; // fail open — the global switch is the other layer
-  }
+// ── Legacy per-handler daily check ────────────────────────────────────────────
+// Phase 0.5: a user's own credit balance is their spending ceiling, so this never blocks any more.
+// Owner alerts and the emergency pause live in services/aiSpend.ts (run for every AI route by aiCap.ts).
+// Kept as a stub so the existing call sites in routes/ai.ts keep compiling.
+export async function checkDailyLimit(_userId: string): Promise<{ allowed: boolean; count: number; limit: number }> {
+  return { allowed: true, count: 0, limit: 0 };
 }

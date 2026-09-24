@@ -9,7 +9,7 @@ import { getAuth } from "../services/auth.js";
 import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
 import { staleRates } from "../services/aiRates.js";
-import { isAiPaused, setAiPaused, globalSpendTodayMicroUsd, globalAlertMicroUsd, globalPauseMicroUsd, userAlertMicroUsd } from "../services/aiSpend.js";
+import { isAiPaused, setAiPaused, globalSpendTodayMicroUsd, globalAlertMicroUsd, globalPauseMicroUsd, userDailyLimitMicroUsd } from "../services/aiSpend.js";
 
 const router = Router();
 
@@ -177,7 +177,7 @@ router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void>
     globalSpendTodayMicroUsd: todaySpend,
     globalAlertMicroUsd: globalAlertMicroUsd(),
     globalPauseMicroUsd: globalPauseMicroUsd(),
-    perUserAlertMicroUsd: userAlertMicroUsd(),
+    perUserLimitMicroUsd: { free: userDailyLimitMicroUsd("free"), prosay: userDailyLimitMicroUsd("prosay"), apex: userDailyLimitMicroUsd("apex") },
     paused,
     staleRates: stale,
   });

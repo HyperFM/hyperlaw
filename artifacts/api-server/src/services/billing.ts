@@ -41,7 +41,8 @@ export async function isUserWaived(userId: string): Promise<boolean> {
   return !!(user?.isAdmin || user?.planTier === "apex");
 }
 
-const MICRO_PER_CREDIT = (USD_PER_CREDIT * 1_000_000) / CREDIT_MARKUP; // provider micro-USD that equals one credit
+// Work in integer 'billed micro-USD' (real cost x markup) so $0.50 is exactly 15 credits with no float drift.
+const BILLED_MICRO_PER_CREDIT = Math.round(USD_PER_CREDIT * 1_000_000); // 50,000
 
 /**
  * Charge one AI call. Fractions of a credit are carried per user so a one-cent chat message
@@ -54,9 +55,9 @@ export async function chargeForCall(userId: string, costMicroUsd: number): Promi
     if (await isUserWaived(userId)) return 0;
     const carryKey = `carry:${userId}`;
     const carry = (await kvGet<number>(carryKey)) ?? 0;
-    const total = carry + costMicroUsd;
-    const whole = Math.floor(total / MICRO_PER_CREDIT);
-    await kvSet(carryKey, total - whole * MICRO_PER_CREDIT);
+    const total = carry + Math.round(costMicroUsd * CREDIT_MARKUP);
+    const whole = Math.floor(total / BILLED_MICRO_PER_CREDIT);
+    await kvSet(carryKey, total - whole * BILLED_MICRO_PER_CREDIT);
     if (whole <= 0) return 0;
     const balance = await storage.getCreditBalance(userId);
     const take = Math.min(whole, Math.max(0, balance)); // never below zero; the pre-check is what stops overspending

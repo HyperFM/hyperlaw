@@ -139,7 +139,9 @@ router.post("/ai/analyze", async (req: Request, res: Response): Promise<void> =>
   // stays free. `billableRebuild` alone is not enough: it must also actually
   // bypass the cache (forceRefresh) or a client could set billableRebuild=true
   // with forceRefresh=false and get charged for a free cache hit.
-  const isBillableRebuild = type === "case" && !!billableRebuild && !!forceRefresh;
+  // Phase 1: the paid, hold-to-rebuild Index action was removed — the Index updates itself and is never charged.
+  const isBillableRebuild = false;
+  void billableRebuild;
   let creditCharge: Awaited<ReturnType<typeof chargeOneCredit>> | null = null;
   // iOS pays as it goes against real cost, not a flat credit — see services/iosPayg.ts.
   // Only pre-flight-checked here (balance > 0); actually deducted post-call on success.

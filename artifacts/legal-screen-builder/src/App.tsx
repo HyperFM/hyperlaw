@@ -2976,100 +2976,6 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
   );
 }
 
-// Thumb-sized floating button, bottom-right of the Index screen. Hold 3s to
-// spend 1 credit and rebuild the case's clouds from the latest case details.
-function HoldToRebuildIndexButton({ onComplete, disabled }: { onComplete: () => void; disabled?: boolean }) {
-  const HOLD_MS = 3000;
-  const [progress, setProgress] = useState(0);
-  const [holding, setHolding] = useState(false);
-  const rafRef = useRef<number | null>(null);
-  const startRef = useRef(0);
-  const originRef = useRef<{ x: number; y: number } | null>(null);
-  const doneRef = useRef(false);
-
-  const stop = () => { if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
-  const reset = () => {
-    stop();
-    originRef.current = null;
-    setHolding(false);
-    if (!doneRef.current) setProgress(0);
-  };
-  const tick = (now: number) => {
-    const p = Math.min(1, (now - startRef.current) / HOLD_MS);
-    setProgress(p);
-    if (p >= 1) {
-      doneRef.current = true;
-      stop();
-      onComplete();
-      window.setTimeout(() => { doneRef.current = false; setProgress(0); setHolding(false); }, 220);
-      return;
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  };
-  const begin = (e: React.PointerEvent) => {
-    if (disabled) return;
-    doneRef.current = false;
-    originRef.current = { x: e.clientX, y: e.clientY };
-    startRef.current = performance.now();
-    setHolding(true);
-    stop();
-    rafRef.current = requestAnimationFrame(tick);
-  };
-  const onMove = (e: React.PointerEvent) => {
-    const o = originRef.current;
-    if (!o) return;
-    if (Math.abs(e.clientX - o.x) > 10 || Math.abs(e.clientY - o.y) > 10) reset();
-  };
-  useEffect(() => () => stop(), []);
-
-  const p = progress;
-  const R = 24; // radius of the progress ring, sized to a 56px thumb-tip button
-  const CIRC = 2 * Math.PI * R;
-
-  return (
-    <button
-      onPointerDown={begin}
-      onPointerUp={reset}
-      onPointerLeave={reset}
-      onPointerCancel={reset}
-      onPointerMove={onMove}
-      onContextMenu={e => e.preventDefault()}
-      title="Hold 3s to rebuild the Index (1 credit)"
-      disabled={disabled}
-      style={{
-        // 176px clears the floating case bubble bar + fixed bottom nav, both of
-        // which sit fixed at the very bottom of the screen on the Tutor tab.
-        position: "absolute", right: 16, bottom: 176, zIndex: 95,
-        width: 56, height: 56, borderRadius: "50%",
-        background: "#0e0b06",
-        border: `1.5px solid ${holding ? ORANGE : ORANGE + "55"}`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.4 : 1,
-        WebkitTapHighlightColor: "transparent",
-        userSelect: "none",
-        boxShadow: holding
-          ? `0 0 ${14 + p * 30}px ${p * 8}px rgba(217,113,31,${0.3 + p * 0.5}), 0 0 0 1px ${ORANGE}33`
-          : `0 0 14px 2px rgba(217,113,31,0.28)`,
-        animation: holding ? "none" : "hlBrainPulse 2.6s ease-in-out infinite",
-        transform: holding ? `scale(${1 + p * 0.08})` : "scale(1)",
-        transition: "border-color 0.12s, transform 0.08s",
-      }}
-    >
-      <svg width={56} height={56} style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
-        <circle cx={28} cy={28} r={R} fill="none" stroke="rgba(217,113,31,0.15)" strokeWidth={2.5} />
-        {holding && (
-          <circle
-            cx={28} cy={28} r={R} fill="none" stroke={ORANGE} strokeWidth={2.5}
-            strokeDasharray={CIRC} strokeDashoffset={CIRC * (1 - p)} strokeLinecap="round"
-          />
-        )}
-      </svg>
-      <GuidanceMascot size={38} state={holding ? "thinking" : "idle"} />
-    </button>
-  );
-}
-
 function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   data: AppData;
   initialIncident?: Incident | null;
@@ -3112,6 +3018,14 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     if (initialCase) { setTarget({ kind: "case", item: initialCase }); return; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialIncident?.id, initialCase?.id]);
+  // Auto-update: when the case's organized data changes underneath an already-open
+  // Index (an upload, intake, or chat finished and re-organized the case), adopt the
+  // fresh case so the clouds refresh on their own — no rebuild button, no credits.
+  useEffect(() => {
+    if (initialIncident || !initialCase) return;
+    setTarget(prev => (prev && prev.kind === "case" && prev.item.id === initialCase.id ? { kind: "case", item: initialCase } : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCase?.structuredCaseGeneratedAt, initialCase?.structuredCase?.clouds?.length]);
   const [analysis, setAnalysis] = useState<TutorAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const forceRefreshRef = useRef(false);
@@ -3122,25 +3036,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
   const [selectedCloud, setSelectedCloud] = useState<IndexCloud | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [overviewExpanded, setOverviewExpanded] = useState(true);
-  const [isRebuilding, setIsRebuilding] = useState(false);
-  const [rebuildError, setRebuildError] = useState<string | null>(null);
-
-  async function handleRebuildIndex() {
-    if (!target || target.kind !== "case" || isRebuilding) return;
-    setRebuildError(null);
-    setIsRebuilding(true);
-    try {
-      const hlCase = target.item as HLCase;
-      const incs = data.incidents.filter(i => hlCase.incidentIds.includes(i.id));
-      const result = await aiApi.analyzeCase(hlCase, incs, { forceRefresh: true, billableRebuild: true, caseId: hlCase.id });
-      setAnalysis(result);
-    } catch (err) {
-      const e = err as { code?: string; message?: string };
-      setRebuildError(e.code === "insufficient_credits" ? "Not enough credits to rebuild the Index." : (e.message || "Rebuild failed. Please try again."));
-    } finally {
-      setIsRebuilding(false);
-    }
-  }
 
   const currentTargetKey = target ? `${target.kind}:${target.item.id}` : null;
 
@@ -3149,7 +3044,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
     setSavedTargetKey(null);
     setSelectedCloud(null);
     setActiveCategory("all");
-    setRebuildError(null);
   }, [currentTargetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const relevantIncidentKey = (() => {
@@ -3277,16 +3171,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
           </span>
           {isAnalyzing && <Loader2 size={13} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />}
         </div>
-        {/* Refresh icon — only when results are loaded */}
-        {target && !isAnalyzing && analysis && (
-          <button
-            onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
-            title="Regenerate Index"
-            style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "#444", display: "flex", alignItems: "center", flexShrink: 0 }}
-          >
-            <span style={{ fontSize: 15, lineHeight: 1 }}>↻</span>
-          </button>
-        )}
       </div>
 
       {/* ── Crisis-support heart button — small, bottom-right of the Index ─── */}
@@ -3486,11 +3370,7 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
             ) : (
               /* No clouds — clean prompt to regenerate */
               <div style={{ textAlign: "center", paddingTop: 60 }}>
-                <div style={{ fontSize: 14, color: "#333", marginBottom: 16 }}>No concepts mapped yet.</div>
-                <button
-                  onClick={() => { forceRefreshRef.current = true; setRefreshTrigger(n => n + 1); }}
-                  style={{ background: "none", border: `1px solid ${ORANGE}44`, borderRadius: 10, padding: "10px 20px", cursor: "pointer", color: ORANGE, fontSize: 13, fontWeight: 700 }}
-                >↻ Build Index</button>
+                <div style={{ fontSize: 14, color: "#555", lineHeight: 1.6, maxWidth: 280, margin: "0 auto" }}>Your Index fills in on its own as you add to this case.</div>
               </div>
             )}
           </>
@@ -3577,23 +3457,6 @@ function TutorView({ data, initialIncident, initialCase, onDocSaved }: {
         </div>
       )}
 
-      {/* ── Hold-to-rebuild Index button — bottom-right, thumb-sized, 1 credit ──
-          Positioned above the floating case bubble bar + bottom nav (both fixed,
-          ~150px tall together) so it never renders hidden behind them. ── */}
-      {target?.kind === "case" && !isAnalyzing && (
-        <>
-          {rebuildError && (
-            <div style={{
-              position: "absolute", right: 16, bottom: 242, left: 16, zIndex: 95,
-              background: "#1a0d0d", border: "1px solid #4a1a1a", borderRadius: 10,
-              padding: "9px 12px", fontSize: 12, color: "#f0a0a0", textAlign: "right",
-            }}>
-              {rebuildError}
-            </div>
-          )}
-          <HoldToRebuildIndexButton onComplete={handleRebuildIndex} disabled={isRebuilding} />
-        </>
-      )}
     </div>
   );
 }

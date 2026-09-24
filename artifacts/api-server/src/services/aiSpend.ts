@@ -1,7 +1,7 @@
 // Real-dollar spend guards (Phase 0.5), summed from ai_logs (real provider cost, cache hits are $0).
 // Normal days are fully passive. Only two things ever email the owner, and only one ever stops anything:
 //   - one user hits their tier's daily limit   -> that user is stopped until tomorrow + owner email (free $15, Pro $30, Apex $75)
-//   - total spend across everyone passes $15   -> email only, nothing pauses
+//   - total spend across everyone passes $60   -> email only, nothing pauses
 //   - total spend passes $40                   -> AI pauses app-wide + email, until the owner resumes it
 
 import { db, aiLogsTable, appSettingsTable } from "@workspace/db";
@@ -22,10 +22,10 @@ export function userDailyLimitMicroUsd(planTier: string | null | undefined): num
     : usdEnv("AI_USER_LIMIT_FREE_USD", 15); // free + pay-as-you-go
   return Math.round(usd * 1_000_000);
 }
-/** Total provider spend across ALL users (owner included) that triggers an owner email. Default $15. Never blocks. */
-export const globalAlertMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_ALERT_USD", 15) * 1_000_000);
-/** Total provider spend across ALL users that auto-pauses AI app-wide. Default $40. The one true kill switch. */
-export const globalPauseMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_PAUSE_USD", 40) * 1_000_000);
+/** Total provider spend across ALL users (owner included) that triggers an owner email. Default $60. Never blocks. */
+export const globalAlertMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_ALERT_USD", 60) * 1_000_000);
+/** Total provider spend across ALL users that auto-pauses AI app-wide. Default $150. The one true kill switch. */
+export const globalPauseMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_PAUSE_USD", 150) * 1_000_000);
 
 function startOfToday(): Date {
   const d = new Date();

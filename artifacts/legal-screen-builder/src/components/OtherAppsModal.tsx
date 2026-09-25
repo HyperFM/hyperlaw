@@ -14,7 +14,8 @@ export function OtherAppsModal({ onClose }: { onClose: () => void }) {
         <div style={{ fontSize: 13, color: "#777", marginBottom: 16, lineHeight: 1.5 }}>More from the maker of HyperLaw.</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {OTHER_APPS.map(a => (
-            <button key={a.name} onClick={() => void openExternal(a.url)} style={{ textAlign: "left", background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+            <button key={a.name} onClick={() => void openExternal(a.url)} style={{ textAlign: "left", background: "#111", border: `1px solid ${ORANGE}33`, borderRadius: 18, padding: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 14 }}>
+              <img src={a.icon} alt="" style={{ width: 88, height: 88, borderRadius: 20, objectFit: "cover", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 15, color: "#eee" }}>{a.name}</div>
                 <div style={{ fontSize: 12.5, color: "#888", marginTop: 3, lineHeight: 1.4 }}>{a.tagline}</div>

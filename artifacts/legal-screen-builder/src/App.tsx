@@ -36,6 +36,7 @@ import { CaseIndexHeader } from "./components/CaseIndexHeader";
 import { CaseEmptyState } from "./components/CaseEmptyState";
 import { IntakeChat, type IntakeResult } from "./components/IntakeChat";
 import { CaseChat } from "./components/CaseChat";
+import { OtherAppsModal } from "./components/OtherAppsModal";
 import { CaseSummaryCompact } from "./components/CaseSummaryCompact";
 import { caseSourceKey } from "./lib/caseSourceKey";
 import { mergeFactsIntoCase, keepChatItems } from "./lib/caseMerge";
@@ -4321,6 +4322,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const [showPlans, setShowPlans] = useState(false);
   useEffect(() => { if (openPlansSignal) setShowPlans(true); }, [openPlansSignal]);
   const [showSupport, setShowSupport] = useState(false);
+  const [showOtherApps, setShowOtherApps] = useState(false);
   const [showCreditHistory, setShowCreditHistory] = useState(false);
 
   // Security — PIN status + passkey (Face ID / Touch ID) enrollment
@@ -4838,6 +4840,24 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           <AdminPanel onClose={() => {}} />
         </div>
       )}
+
+      {/* Other apps — sits directly above Support / Feedback */}
+      <div style={{ marginTop: 12 }}>
+        <button
+          onClick={() => setShowOtherApps(true)}
+          style={{ width: "100%", padding: "14px 16px", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "55")}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
+        >
+          <Star size={16} color={ORANGE} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Other apps</div>
+            <div style={{ fontSize: 12, color: "#555" }}>More from the maker of HyperLaw</div>
+          </div>
+          <ChevronRight size={14} color="#333" />
+        </button>
+      </div>
+      {showOtherApps && <OtherAppsModal onClose={() => setShowOtherApps(false)} />}
 
       {/* Support / Feedback */}
       <div style={{ marginTop: 12 }}>

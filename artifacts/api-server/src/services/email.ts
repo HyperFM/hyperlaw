@@ -75,3 +75,15 @@ export async function sendReminderEmail(to: string, title: string, dueDate: stri
      <p style="color:#666;font-size:13px">HyperLaw can't see your court's records. Please confirm this date with your court clerk. Open HyperLaw to see your case.</p>`,
   );
 }
+
+/** Invite to a co-parenting thread. The code is the only way in; it works once. */
+export async function sendFamilyInviteEmail(to: string, fromName: string, code: string): Promise<void> {
+  await sendEmail(
+    to,
+    `${fromName || "Someone"} invited you to a co-parenting chat on HyperLaw`,
+    `<p>${esc(fromName || "Someone")} invited you to a private co-parenting chat on HyperLaw.</p>
+     <p>Open HyperLaw, go to <b>Tools → Family Court → Join with a code</b>, and enter:</p>
+     <p style="font-size:22px;letter-spacing:2px"><b>${esc(code)}</b></p>
+     <p style="color:#666;font-size:13px">Only the two of you can see this chat. Messages are kept as a record. If you didn't expect this, ignore this email.</p>`,
+  );
+}

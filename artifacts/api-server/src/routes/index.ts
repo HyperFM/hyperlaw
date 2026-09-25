@@ -24,6 +24,7 @@ import intakeRouter from "./intake";
 import caseChatRouter from "./case-chat";
 import remindersRouter from "./reminders";
 import voirDireRouter from "./voir-dire";
+import familyRouter from "./family";
 
 import { aiDailyCap } from "../services/aiCap.js";
 
@@ -57,5 +58,6 @@ router.use(intakeRouter);
 router.use(caseChatRouter);
 router.use(remindersRouter);
 router.use(voirDireRouter);
+router.use(familyRouter);
 
 export default router;

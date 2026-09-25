@@ -29,6 +29,7 @@ import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
 import WitnessExaminationView from "./pages/tools/WitnessExaminationView";
 import HearingScriptView from "./pages/tools/HearingScriptView";
 import VoirDireView from "./pages/tools/VoirDireView";
+import FamilyCourtView from "./pages/tools/FamilyCourtView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
@@ -490,13 +491,6 @@ function BodyCamIcon({ size = 17, color = "#d9711f" }: { size?: number; color?: 
 // below, duplicated once so the strip can loop seamlessly, drifting left forever.
 const TOOL_BUBBLES = [
   {
-    id: "family-court",
-    icon: Baby,
-    title: "Family Court",
-    tagline: "Divorce, custody, and support — organized.",
-    detail: "Divorce & dissolution (asset division, spousal support, settlement agreements) · Child custody & visitation (parenting plans, custody schedules, best-interest-of-child documentation) · Child support calculations · Protective orders.",
-  },
-  {
     id: "evidence-organizer",
     icon: ScanText,
     title: "Evidence Organizer",
@@ -520,6 +514,7 @@ const MARQUEE_ICONS = [
   { id: "witness-examination", icon: SquareUser },
   { id: "hearing-script", icon: Gavel },
   { id: "voir-dire", icon: Users },
+  { id: "family-court", icon: Baby },
   ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
 ];
 
@@ -548,10 +543,14 @@ function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePending
   const [scriptOpen, setScriptOpen] = useState(false);
   const [witnessExamOpen, setWitnessExamOpen] = useState(false);
   const [voirDireOpen, setVoirDireOpen] = useState(false);
+  const [familyOpen, setFamilyOpen] = useState(false);
   const [hearingScriptOpen, setHearingScriptOpen] = useState(!!pendingHearingScript);
 
   if (scriptOpen) {
     return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
+  }
+  if (familyOpen) {
+    return <FamilyCourtView onBack={() => setFamilyOpen(false)} />;
   }
   if (voirDireOpen) {
     return <VoirDireView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setVoirDireOpen(false)} />;
@@ -678,6 +677,20 @@ function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePending
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Hearing Script</div>
               <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>A sectioned script for a specific hearing, built from your filings.</div>
+            </div>
+            <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
+          </div>
+        </button>
+        {/* Family Court — private co-parent chat with a permanent record, shared date reminders, offers, cost split. */}
+        <button onClick={() => setFamilyOpen(true)}
+          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Baby size={17} color={ORANGE} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Family Court</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>Co-parent chat, shared date reminders, offers, and cost splits.</div>
             </div>
             <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
           </div>

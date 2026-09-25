@@ -125,6 +125,38 @@ export const remindersTable = pgTable("reminders", {
   remindersUserIdx: index("reminders_user_idx").on(t.userId),
 }));
 
+// ── Family Court chat ────────────────────────────────────────────────────────
+/** A conversation between two co-parents. Only its two participants can ever read it. */
+export const familyThreadsTable = pgTable("family_threads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: text("owner_id").notNull(),
+  otherUserId: text("other_user_id"),
+  inviteEmail: text("invite_email"),
+  /** One-time code the other parent enters to join. Cleared once they have. */
+  inviteCode: text("invite_code").unique(),
+  title: text("title").notNull().default("Co-parenting"),
+  /** "pending" (waiting for the other parent) | "active" | "closed" */
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  familyThreadsOwnerIdx: index("family_threads_owner_idx").on(t.ownerId),
+  familyThreadsOtherIdx: index("family_threads_other_idx").on(t.otherUserId),
+}));
+
+/** The permanent log. Messages are never edited or deleted, so the record is trustworthy if it is ever exported for court. */
+export const familyMessagesTable = pgTable("family_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  threadId: uuid("thread_id").notNull(),
+  senderId: text("sender_id").notNull(),
+  /** "text" | "event" (custody/court date) | "offer" | "note" (system line, e.g. an offer was accepted) */
+  kind: text("kind").notNull().default("text"),
+  body: text("body").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  familyMessagesThreadIdx: index("family_messages_thread_idx").on(t.threadId, t.createdAt),
+}));
+
 // ── AI Analysis Cache ─────────────────────────────────────────────────────────
 
 export const aiAnalysisCacheTable = pgTable("ai_analysis_cache", {

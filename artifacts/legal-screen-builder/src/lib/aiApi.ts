@@ -19,6 +19,11 @@ export interface IndexCloud {
 }
 
 /** Output of the Organization Engine — drives the Index tab and stored server-side */
+export interface FamilyMessage {
+  id: string; mine: boolean; kind: "text" | "event" | "offer" | "note"; body: string;
+  payload: Record<string, unknown> | null; createdAt: string;
+}
+
 export interface StructuredCase {
   executiveSummary: string;
   clouds: IndexCloud[];
@@ -496,6 +501,26 @@ export const aiApi = {
   /** What still blocks the case chat for this case (no AI call): "jurisdiction" | "photo" | "topup". */
   caseChatGate(caseId: string): Promise<{ missing: string[] }> {
     return aiFetch(`/case-chat/gate?caseId=${encodeURIComponent(caseId)}`);
+  },
+
+  // ── Family Court chat ──
+  familyThreads(): Promise<Array<{ id: string; title: string; status: string; isOwner: boolean; inviteCode: string | null; otherName: string; createdAt: string }>> {
+    return aiFetch("/family/threads");
+  },
+  familyCreateThread(input: { title?: string; inviteEmail?: string }): Promise<{ id: string; inviteCode: string }> {
+    return aiFetch("/family/threads", { method: "POST", body: JSON.stringify(input) });
+  },
+  familyJoin(code: string): Promise<{ id: string }> {
+    return aiFetch("/family/join", { method: "POST", body: JSON.stringify({ code }) });
+  },
+  familyMessages(threadId: string, after?: string): Promise<{ status: string; messages: FamilyMessage[] }> {
+    return aiFetch(`/family/threads/${threadId}/messages${after ? `?after=${encodeURIComponent(after)}` : ""}`);
+  },
+  familySend(threadId: string, input: { kind?: "text" | "event" | "offer"; body: string; payload?: Record<string, unknown> }): Promise<{ id: string }> {
+    return aiFetch(`/family/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify(input) });
+  },
+  familyRespond(threadId: string, messageId: string, decision: "accepted" | "declined"): Promise<{ ok: boolean }> {
+    return aiFetch(`/family/threads/${threadId}/offers/${messageId}/respond`, { method: "POST", body: JSON.stringify({ decision }) });
   },
 
   /** Voir dire: tailored juror questions, each with what a bad / good answer sounds like. */

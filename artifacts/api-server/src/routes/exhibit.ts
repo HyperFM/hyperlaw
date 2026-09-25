@@ -458,10 +458,14 @@ router.post("/exhibit/generate", requireAuth, async (req: Request, res: Response
     forceType,
     userFeedback,
     existingContent,
+    candidates: candidatesRequested,
   } = req.body as {
     caseId: string;
     timestamp: string;
     dictation: string;
+    /** How many alternative designs to draft. Omitted = 1 (the strongest framing): the 2-3 candidate default roughly
+     *  doubled the output cost of every screen. Ask for 2-3 explicitly when a person wants to choose between designs. */
+    candidates?: number;
     existingExhibits?: string[];
     /** Every moment in this same video, in order — NOT just already-generated
      *  exhibits. Lets the model check this moment's own status claims (charged/
@@ -607,7 +611,9 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
   // winning, producing a re-drafted screen instead of a corrected one.
   const systemPrompt = existingContent
     ? `${EXHIBIT_SYSTEM_PROMPT}\n\nCORRECTION MODE — OVERRIDES THE ABOVE: ignore the "generate 2-3 distinct candidates" instruction. The user is not asking for a new screen; they are correcting one specific detail on an existing, already-approved one. Return exactly ONE candidate whose content is the existing JSON given in the user message, unchanged except for the minimal edit the stated correction requires.`
-    : EXHIBIT_SYSTEM_PROMPT;
+    : ((candidatesRequested ?? 1) <= 1 || forceType)
+      ? `${EXHIBIT_SYSTEM_PROMPT}\n\nSINGLE-DESIGN MODE — OVERRIDES THE ABOVE: ignore the "generate 2–3 DISTINCT candidate exhibits" instruction. Return exactly ONE candidate: the single strongest framing for this moment. Set recommendedIndex to 0 and keep recommendationReason to one short sentence.`
+      : EXHIBIT_SYSTEM_PROMPT;
 
   // Claude call. Was cache_control-marked (system + the static case-context
   // block) to save cost across a rapid automatic batch of 15+ sequential
@@ -636,7 +642,12 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
       system: systemPrompt,
       messages: [{
         role: "user",
-        content: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}\n\n${dynamicBlock}`,
+        content: [
+          // The case-wide context is identical for every screen in a batch, so it is cached for an hour: the first screen
+          // pays a one-time 2x write, every later screen in that hour reads it at 0.1x (~90% off that half of the cost).
+          { type: "text", text: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}`, cache_control: { type: "ephemeral", ttl: "1h" } },
+          { type: "text", text: dynamicBlock },
+        ],
       }],
       // Raised alongside max_tokens — a bigger allowed response can
       // legitimately take longer than the shared 90s default to finish.
@@ -659,7 +670,7 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
   // why screen generation never showed up next to "case memory" and
   // everything else in the admin panel.
   {
-    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage);
+    const { estimatedCostMicroUsd, cacheHit } = aiService.estimateCallCost(response.usage, MODEL, { cacheWriteMult: 2 }); // 1-hour cache writes bill at 2x
     void logAiCall({
       userId,
       caseId,

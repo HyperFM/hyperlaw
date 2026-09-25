@@ -62,11 +62,11 @@ export interface Usage {
 }
 
 /** USD/MTok is numerically micro-USD per token, so no unit conversion is needed. Cache writes bill ~1.25x, reads ~0.1x. */
-export function costMicroUsd(model: string, usage: Usage): { costMicroUsd: number; rate: Rate } {
+export function costMicroUsd(model: string, usage: Usage, opts?: { cacheWriteMult?: number }): { costMicroUsd: number; rate: Rate } {
   const rate = rateFor(model);
   const cost =
     usage.input_tokens * rate.inputUsdPerMtok +
-    (usage.cache_creation_input_tokens ?? 0) * rate.inputUsdPerMtok * 1.25 +
+    (usage.cache_creation_input_tokens ?? 0) * rate.inputUsdPerMtok * (opts?.cacheWriteMult ?? 1.25) +
     (usage.cache_read_input_tokens ?? 0) * rate.inputUsdPerMtok * 0.1 +
     usage.output_tokens * rate.outputUsdPerMtok;
   return { costMicroUsd: Math.round(cost), rate };

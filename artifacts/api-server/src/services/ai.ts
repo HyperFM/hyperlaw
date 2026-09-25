@@ -342,9 +342,9 @@ export class AiService {
     output_tokens: number;
     cache_creation_input_tokens?: number | null;
     cache_read_input_tokens?: number | null;
-  }, model: string = MODEL): { estimatedCostMicroUsd: number; cacheHit: boolean } {
+  }, model: string = MODEL, opts?: { cacheWriteMult?: number }): { estimatedCostMicroUsd: number; cacheHit: boolean } {
     return {
-      estimatedCostMicroUsd: costMicroUsd(model, usage).costMicroUsd,
+      estimatedCostMicroUsd: costMicroUsd(model, usage, opts).costMicroUsd,
       cacheHit: (usage.cache_read_input_tokens ?? 0) > 0,
     };
   }

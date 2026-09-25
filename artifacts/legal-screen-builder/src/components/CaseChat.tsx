@@ -45,6 +45,7 @@ export function CaseChat({ hlCase, onClose, onUpdateCase, onRequestCrop, onBuyCr
   const [missing, setMissing] = useState<string[] | null>(null); // null = checking
   const [court, setCourt] = useState("");
   const [proposal, setProposal] = useState<ConfirmedFacts | null>(null);
+  const [reminded, setReminded] = useState<Record<string, "saving" | "done" | "error">>({});
   const endRef = useRef<HTMLDivElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const caseRef = useRef(hlCase);
@@ -81,6 +82,17 @@ export function CaseChat({ hlCase, onClose, onUpdateCase, onRequestCrop, onBuyCr
       setTurns(next);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function setReminder(filing: string, dueDate: string) {
+    const key = `${filing}|${dueDate}`;
+    setReminded(r => ({ ...r, [key]: "saving" }));
+    try {
+      await aiApi.createReminder({ caseId: hlCase.id, title: filing, dueDate });
+      setReminded(r => ({ ...r, [key]: "done" }));
+    } catch {
+      setReminded(r => ({ ...r, [key]: "error" }));
     }
   }
 
@@ -189,6 +201,16 @@ export function CaseChat({ hlCase, onClose, onUpdateCase, onRequestCrop, onBuyCr
                       {t.reply.deadline.flag && t.reply.deadline.dueDate && t.reply.deadline.filing ? `${t.reply.deadline.filing} due ${fmtDate(t.reply.deadline.dueDate)}` : t.reply.deadline.text}
                     </div>
                     {t.reply.deadline.flag && <div style={{ fontSize: 11.5, color: "#a08060", marginTop: 3, lineHeight: 1.4 }}>{t.reply.deadline.rule} — confirm with your court clerk. Added to your Index.</div>}
+                    {t.reply.deadline.flag && t.reply.deadline.dueDate && t.reply.deadline.filing && (() => {
+                      const key = `${t.reply.deadline!.filing}|${t.reply.deadline!.dueDate}`;
+                      const st = reminded[key];
+                      return st === "done"
+                        ? <div style={{ fontSize: 12.5, color: "#7fd39a", marginTop: 8, fontWeight: 700 }}>✓ Reminders set — 7, 3 and 1 days before, and the day of.</div>
+                        : <button disabled={st === "saving"} onClick={() => void setReminder(t.reply.deadline!.filing!, t.reply.deadline!.dueDate!)}
+                            style={{ marginTop: 8, background: ORANGE, color: "#0a0908", border: "none", borderRadius: 999, padding: "8px 16px", fontWeight: 800, fontSize: 13, cursor: st === "saving" ? "default" : "pointer" }}>
+                            {st === "saving" ? "Setting…" : st === "error" ? "Try again — set a reminder" : "Set a reminder?"}
+                          </button>;
+                    })()}
                   </div>
                 </div>
               )}

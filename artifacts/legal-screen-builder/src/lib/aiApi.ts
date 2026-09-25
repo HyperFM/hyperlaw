@@ -498,6 +498,11 @@ export const aiApi = {
     return aiFetch(`/case-chat/gate?caseId=${encodeURIComponent(caseId)}`);
   },
 
+  /** One-tap deadline reminders (in-app + email; text when configured). */
+  createReminder(input: { caseId: string; title: string; dueDate: string }): Promise<{ ok: boolean; count: number }> {
+    return aiFetch("/reminders", { method: "POST", body: JSON.stringify(input) });
+  },
+
   /** Marks the free intake as used once the person has confirmed and finished. */
   intakeFinish(): Promise<{ ok: boolean }> {
     return aiFetch("/intake/finish", { method: "POST", body: "{}" });

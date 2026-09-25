@@ -64,3 +64,14 @@ export async function sendFeedbackReplyEmail(to: string, original: string, reply
 export async function sendOwnerAlert(subject: string, body: string): Promise<void> {
   await sendEmail(FEEDBACK_NOTIFY_EMAIL, subject, `<p style="white-space:pre-wrap">${esc(body)}</p>`);
 }
+
+/** A deadline reminder. offsetDays: 0 = due today. */
+export async function sendReminderEmail(to: string, title: string, dueDate: string, offsetDays: number): Promise<void> {
+  const when = offsetDays === 0 ? "today" : offsetDays === 1 ? "tomorrow" : `in ${offsetDays} days`;
+  await sendEmail(
+    to,
+    `Reminder: ${title} — due ${when}`,
+    `<p><b>${esc(title)}</b> is due <b>${esc(when)}</b> (${esc(dueDate)}).</p>
+     <p style="color:#666;font-size:13px">HyperLaw can't see your court's records. Please confirm this date with your court clerk. Open HyperLaw to see your case.</p>`,
+  );
+}

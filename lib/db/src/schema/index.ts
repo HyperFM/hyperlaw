@@ -106,6 +106,25 @@ export const appSettingsTable = pgTable("app_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** Deadline reminders. One row per person per reminder time (so a co-parent can get their own copy later). */
+export const remindersTable = pgTable("reminders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  caseId: text("case_id"),
+  /** Rows created together (one deadline -> several reminder times) share a group so they can be removed together. */
+  groupId: uuid("group_id").notNull(),
+  title: text("title").notNull(),
+  /** The deadline itself, YYYY-MM-DD. */
+  dueDate: text("due_date").notNull(),
+  remindAt: timestamp("remind_at").notNull(),
+  offsetDays: integer("offset_days").notNull().default(0),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  remindersDueIdx: index("reminders_due_idx").on(t.remindAt),
+  remindersUserIdx: index("reminders_user_idx").on(t.userId),
+}));
+
 // ── AI Analysis Cache ─────────────────────────────────────────────────────────
 
 export const aiAnalysisCacheTable = pgTable("ai_analysis_cache", {

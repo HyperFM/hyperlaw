@@ -2,12 +2,16 @@ import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
 import { db, notificationsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
+import { processDueReminders } from "../services/reminders.js";
 
 const router = Router();
 
 router.get("/notifications", async (req: Request, res: Response): Promise<void> => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  // Deliver this person's due reminders now, so they show up even if the outside scheduler hasn't run yet.
+  await processDueReminders(auth.userId).catch(() => {});
 
   const rows = await db
     .select()

@@ -22,6 +22,7 @@ import transcriptRouter from "./transcript";
 import hearingScriptsRouter from "./hearing-scripts";
 import intakeRouter from "./intake";
 import caseChatRouter from "./case-chat";
+import remindersRouter from "./reminders";
 
 import { aiDailyCap } from "../services/aiCap.js";
 
@@ -53,5 +54,6 @@ router.use(transcriptRouter);
 router.use(hearingScriptsRouter);
 router.use(intakeRouter);
 router.use(caseChatRouter);
+router.use(remindersRouter);
 
 export default router;

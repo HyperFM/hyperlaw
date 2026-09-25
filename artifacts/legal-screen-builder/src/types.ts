@@ -544,7 +544,7 @@ export interface StructuredCase {
   /** One or two plain sentences: what most recently happened and where the case stands. */
   whereThingsStand?: string;
   /** "Where you left off": things to do and things being waited on, most urgent first. */
-  nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string }>;
+  nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string; origin?: "chat" }>;
   /** Rights that MAY apply to these facts, in plain language — never a conclusion. */
   rightsThatMayApply?: Array<{ right: string; why: string }>;
   /** Types of relief a person in this kind of case can generally ask for. Never dollar amounts. */

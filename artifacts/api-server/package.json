@@ -9,7 +9,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:billing": "node --import tsx/esm --test src/tests/billing-integrity.test.ts",
-    "test:pricing": "node --import tsx/esm --test src/tests/pricing.test.ts"
+    "test:pricing": "node --import tsx/esm --test src/tests/pricing.test.ts",
+    "test:deadlines": "node --import tsx/esm --test src/tests/deadlines.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.0",

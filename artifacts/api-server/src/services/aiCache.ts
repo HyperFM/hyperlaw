@@ -47,7 +47,8 @@ export type AiFeature =
   | "transcript_find_moments"
   | "exhibit_analyze_photos"
   | "transcript_audio"
-  | "intake_chat";
+  | "intake_chat"
+  | "case_chat";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

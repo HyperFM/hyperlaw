@@ -17,6 +17,7 @@ const AI_ROUTES: RegExp[] = [
   /^\/exhibit\/(court-script|generate|analyze-photos)$/,
   /^\/transcript\//,
   /^\/intake\/chat$/,
+  /^\/case-chat\/message$/,
 ];
 
 // Multi-call actions that can cost real money. With billing on, they need a balance that covers a typical run BEFORE any provider call.

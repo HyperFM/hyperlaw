@@ -34,11 +34,11 @@ export async function setBillingEnabled(on: boolean): Promise<void> {
   await kvSet("billing_enabled", on);
 }
 
-/** Never charged: billing off, admins, and Apex members (their protection is the per-user daily limit). */
+/** Never charged: billing off, admins, and members (Pro-Say / Apex — their plan covers usage; the per-user daily limit is their protection). */
 export async function isUserWaived(userId: string): Promise<boolean> {
   if (!(await isBillingEnabled())) return true;
   const user = await storage.getUser(userId);
-  return !!(user?.isAdmin || user?.planTier === "apex");
+  return !!(user?.isAdmin || user?.planTier === "apex" || user?.planTier === "prosay");
 }
 
 // Work in integer 'billed micro-USD' (real cost x markup) so $0.50 is exactly 15 credits with no float drift.

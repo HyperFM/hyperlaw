@@ -35,8 +35,10 @@ import CreditShopModal from "./components/CreditShopModal";
 import { CaseIndexHeader } from "./components/CaseIndexHeader";
 import { CaseEmptyState } from "./components/CaseEmptyState";
 import { IntakeChat, type IntakeResult } from "./components/IntakeChat";
+import { CaseChat } from "./components/CaseChat";
 import { CaseSummaryCompact } from "./components/CaseSummaryCompact";
 import { caseSourceKey } from "./lib/caseSourceKey";
+import { mergeFactsIntoCase, keepChatItems } from "./lib/caseMerge";
 import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
@@ -1739,39 +1741,12 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   // navigated away and came back.
   const [caseDetailsOpen, setCaseDetailsOpen] = useState(true); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [showIntakeChat, setShowIntakeChat] = useState(false);
+  const [showCaseChat, setShowCaseChat] = useState(false);
 
   // The free intake chat finished: fold what the person confirmed into the case, build the Index right
   // away (no waiting for the background refresh), then take them to it.
   async function handleIntakeComplete(r: IntakeResult) {
-    const used: string[] = hlCase.parties.map(p => p.nickname);
-    const newParties: Party[] = r.parties.map(p => {
-      const tokens = p.name.trim().split(/\s+/).filter(Boolean);
-      const { word, emoji } = assignNickname(used);
-      used.push(word);
-      const isOfficial = !!p.isOfficial;
-      return {
-        id: crypto.randomUUID(),
-        firstName: tokens[0] || p.name || "Person",
-        lastName: tokens.slice(1).join(" "),
-        type: isOfficial ? "official" : "civilian",
-        nickname: word,
-        nicknameEmoji: emoji,
-        ...(isOfficial ? { agency: (p.agency ?? "").trim() || undefined, title: (p.role ?? "").trim() || undefined } : {}),
-      };
-    });
-    const newEvents: TimelineEvent[] = r.events.map((ev, i) => ({
-      id: crypto.randomUUID(),
-      title: (ev.when ?? "").trim() || `Event ${hlCase.timeline.length + i + 1}`,
-      description: ev.what,
-      order: hlCase.timeline.length + i,
-    }));
-    const updated: HLCase = {
-      ...hlCase,
-      parties: [...hlCase.parties, ...newParties],
-      timeline: [...hlCase.timeline, ...newEvents],
-      story: [hlCase.story, r.story].filter(s => s?.trim()).join("\n\n"),
-      jurisdiction: hlCase.jurisdiction?.trim() ? hlCase.jurisdiction : (r.court ?? hlCase.jurisdiction),
-    };
+    const updated: HLCase = mergeFactsIntoCase(hlCase, r);
     onUpdateCase(updated);
     let final = updated;
     try {
@@ -1963,6 +1938,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
       {/* Two thin glowing orange side lines framing the Assembly screen (brief §3) */}
       <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 2, background: `linear-gradient(180deg, transparent, ${ORANGE}, transparent)`, boxShadow: `0 0 8px ${ORANGE}, 0 0 16px ${ORANGE}55`, opacity: 0.4, animation: "hlSideGlow 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 3 }} />
       <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: 2, background: `linear-gradient(180deg, transparent, ${ORANGE}, transparent)`, boxShadow: `0 0 8px ${ORANGE}, 0 0 16px ${ORANGE}55`, opacity: 0.4, animation: "hlSideGlow 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 3 }} />
+      {showCaseChat && <CaseChat hlCase={hlCase} onClose={() => setShowCaseChat(false)} onUpdateCase={onUpdateCase} onRequestCrop={onRequestCrop} onBuyCredits={onBuyCredits} />}
       {showIntakeChat && <IntakeChat caseId={hlCase.id} onClose={() => setShowIntakeChat(false)} onComplete={handleIntakeComplete} />}
       {/* "Case details confirmed" — appears then fades after an upload is organized (brief §2) */}
       {showConfirmedFlash && (
@@ -2051,6 +2027,17 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
 
         {/* Compact summary — the full case details still live on the case (they feed the AI); this only shows the essentials. */}
         <CaseSummaryCompact hlCase={hlCase} statusLabel={STATUS_LABELS[hlCase.status]} />
+        {!isEmptyCase && (
+          <button onClick={() => setShowCaseChat(true)}
+            style={{ width: "100%", marginBottom: 20, background: `${ORANGE}14`, border: `1px solid ${ORANGE}55`, borderRadius: 12, padding: "13px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <MessageSquare size={18} color={ORANGE} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#eee" }}>Chat about this case</div>
+              <div style={{ fontSize: 12, color: "#777", marginTop: 2 }}>Ask what's next, check your status, track a deadline</div>
+            </div>
+            <ChevronRight size={16} color="#555" />
+          </button>
+        )}
 
         {isEmptyCase ? (
           <>
@@ -5788,7 +5775,7 @@ export default function App() {
       const key = caseSourceKey(c);
       aiApi.organizeCase({ hlCase: c as Parameters<typeof aiApi.organizeCase>[0]["hlCase"], caseId: c.id })
         .then(structured => {
-          const fullStructured = { ...structured, organizedAt: Date.now(), sourceKey: key };
+          const fullStructured = { ...structured, nextUp: keepChatItems(c.structuredCase?.nextUp, structured.nextUp), organizedAt: Date.now(), sourceKey: key };
           setDataRaw(prev => {
             const target = prev.cases.find(x => x.id === c.id);
             if (!target) return prev;

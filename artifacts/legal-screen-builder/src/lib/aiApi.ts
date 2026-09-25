@@ -26,6 +26,11 @@ export interface StructuredCase {
   claims: string[];
   importantQuotes: Array<{ quote: string; context: string }>;
   gapQuestions?: string[];
+  whereThingsStand?: string;
+  nextUp?: Array<{ kind: "todo" | "waiting"; text: string; dueDate?: string | null; note?: string; origin?: "chat" }>;
+  rightsThatMayApply?: Array<{ right: string; why: string }>;
+  whatYouMayAskFor?: Array<{ type: string; plain: string }>;
+  sourceKey?: string;
   organizedAt: number;
 }
 
@@ -473,6 +478,26 @@ export const aiApi = {
     return aiFetch("/intake/chat", { method: "POST", body: JSON.stringify({ messages }) });
   },
 
+  /** Case chat with bubbles — one turn. The server keeps no transcript; the app holds it. */
+  caseChat(caseId: string, messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<{
+    happening: string;
+    deadline: { flag: boolean; text: string; dueDate?: string; rule?: string; filing?: string; verified?: boolean } | null;
+    next_step: string;
+    why: string;
+    bubbles: string[];
+    proposeFacts: {
+      parties: Array<{ name: string; role?: string; isOfficial?: boolean; agency?: string | null }>;
+      events: Array<{ when?: string | null; what: string }>;
+    };
+  }> {
+    return aiFetch("/case-chat/message", { method: "POST", body: JSON.stringify({ caseId, messages }) });
+  },
+
+  /** What still blocks the case chat for this case (no AI call): "jurisdiction" | "photo" | "topup". */
+  caseChatGate(caseId: string): Promise<{ missing: string[] }> {
+    return aiFetch(`/case-chat/gate?caseId=${encodeURIComponent(caseId)}`);
+  },
+
   /** Marks the free intake as used once the person has confirmed and finished. */
   intakeFinish(): Promise<{ ok: boolean }> {
     return aiFetch("/intake/finish", { method: "POST", body: "{}" });
@@ -693,7 +718,7 @@ export const aiApi = {
   // ── Stripe / Credits ───────────────────────────────────────────────────────
 
   /** Get the authenticated user's current credit balance and plan tier */
-  creditBalance(): Promise<{ creditBalance: number; planTier?: string }> {
+  creditBalance(): Promise<{ creditBalance: number; planTier?: string; billingEnabled?: boolean; canTopUp?: boolean; firstTopUpAvailable?: boolean }> {
     return aiFetch("/stripe/credits");
   },
 

@@ -4593,7 +4593,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           straight into IosPaygTopUpModal instead: no "Membership" wording, no
           plan browsing, nothing that reads as subscription management —
           that all lives on hyperlaw.site now, never in the app. */}
-      {isIosApp() && !canSwitchPlansFreely ? (
+      {isIosApp() && !canSwitchPlansFreely && (planTier === "prosay" || planTier === "apex") ? null : isIosApp() && !canSwitchPlansFreely ? (
         <button
           onClick={onBuyCredits}
           style={{
@@ -4607,7 +4607,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           <Zap size={18} color={ORANGE} style={{ flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: "#ccc" }}>Quick Top-Up</div>
-            <div style={{ color: "#555", fontSize: 12 }}>Add $5 of AI credit, spent as you draft</div>
+            <div style={{ color: "#555", fontSize: 12 }}>Add AI credit, spent as you draft</div>
           </div>
           <ChevronRight size={15} color="#333" />
         </button>

@@ -49,7 +49,8 @@ export default function CreditShopModal({ onClose, onPurchaseStarted }: Props) {
   }
 
   const PACK_HIGHLIGHTS: Record<string, { badge?: string; highlight?: boolean }> = {
-    "100": { badge: "TOP-UP", highlight: true },
+    "20": { badge: "TRY IT · ONE TIME", highlight: true },
+    "100": { badge: "TOP-UP" },
   };
 
   return (
@@ -89,7 +90,7 @@ export default function CreditShopModal({ onClose, onPurchaseStarted }: Props) {
 
         {!loading && products.length === 0 && !error && (
           <div style={{ color: "#555", fontSize: 14, textAlign: "center", padding: 24 }}>
-            No credit packs available yet. Check back soon.
+            Nothing to buy right now — if you're on a membership, your plan already covers AI usage.
           </div>
         )}
 

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Stripe from "stripe";
 import { creditsForCost, costMicroUsd, audioCostMicroUsd } from "../services/aiRates.js";
-import { packById, CREDIT_PACKS } from "../services/creditPacks.js";
+import { packById, CREDIT_PACKS, topUpState } from "../services/creditPacks.js";
 
 test("credits = real cost x 1.5 / $0.05", () => {
   assert.equal(creditsForCost(500_000), 15);   // $0.50 -> 15 credits
@@ -36,4 +36,13 @@ test("webhook signatures: valid accepted, wrong secret and tampered body rejecte
   assert.equal(s.webhooks.constructEvent(Buffer.from(payload), header, secret).type, "checkout.session.completed");
   assert.throws(() => s.webhooks.constructEvent(Buffer.from(payload), header, "whsec_other"));
   assert.throws(() => s.webhooks.constructEvent(Buffer.from(payload + " "), header, secret));
+});
+
+test("first top-up: $1 = 20 credits, once, and never for members", () => {
+  assert.equal(packById("first1")?.credits, 20);
+  assert.equal(packById("first1")?.amountCents, 100);
+  assert.deepEqual(topUpState("free", 0), { canTopUp: true, firstTopUpAvailable: true });
+  assert.deepEqual(topUpState("free", 1), { canTopUp: true, firstTopUpAvailable: false });
+  assert.deepEqual(topUpState("prosay", 0), { canTopUp: false, firstTopUpAvailable: false });
+  assert.deepEqual(topUpState("apex", 0), { canTopUp: false, firstTopUpAvailable: false });
 });

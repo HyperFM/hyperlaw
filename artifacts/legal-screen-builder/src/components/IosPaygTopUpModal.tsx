@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { X, Zap, Loader2 } from "lucide-react";
 import { aiApi } from "../lib/aiApi";
-import { iapPlugin, IOS_PAYG_TOPUP_PRODUCT_ID } from "../lib/iapPlugin";
+import { iapPlugin, IOS_PAYG_TOPUP_PRODUCT_ID, IOS_PAYG_FIRST_PRODUCT_ID } from "../lib/iapPlugin";
 
 const ORANGE = "#d9711f";
 
@@ -20,16 +20,18 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
   const [buying, setBuying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [balanceMicroUsd, setBalanceMicroUsd] = useState<number | null>(null);
+  // The $0.99 starter is offered once, on an account's first purchase (server decides).
+  const [firstAvailable, setFirstAvailable] = useState(false);
 
   useEffect(() => {
-    aiApi.iosPaygBalance().then(r => setBalanceMicroUsd(r.balanceMicroUsd)).catch(() => {});
+    aiApi.iosPaygBalance().then(r => { setBalanceMicroUsd(r.balanceMicroUsd); setFirstAvailable(!!r.firstTopUpAvailable); }).catch(() => {});
   }, []);
 
-  async function handleBuy() {
+  async function handleBuy(productId: string = IOS_PAYG_TOPUP_PRODUCT_ID) {
     setBuying(true);
     setError(null);
     try {
-      const purchase = await iapPlugin.purchase({ productId: IOS_PAYG_TOPUP_PRODUCT_ID });
+      const purchase = await iapPlugin.purchase({ productId });
       const verified = await aiApi.verifyApplePurchase(purchase.jwsRepresentation);
       // 200 (ok) or 409-turned-{ok:false, code:"already_processed"} both mean
       // StoreKit's side is done — finish the transaction either way so it
@@ -116,9 +118,28 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
           </div>
         )}
 
+        {firstAvailable && (
+          <button
+            disabled={buying}
+            onClick={() => handleBuy(IOS_PAYG_FIRST_PRODUCT_ID)}
+            style={{
+              width: "100%", background: "#1a1208", border: `1px solid ${ORANGE}`,
+              borderRadius: 12, padding: "14px 16px", color: ORANGE,
+              fontSize: 15, fontWeight: 700, cursor: buying ? "not-allowed" : "pointer",
+              opacity: buying ? 0.6 : 1, marginBottom: 6,
+            }}
+          >
+            Try it for $0.99
+          </button>
+        )}
+        {firstAvailable && (
+          <p style={{ color: "#666", fontSize: 12, textAlign: "center", marginBottom: 14 }}>
+            A one-time starter so you can see how it works. After this, top-ups are $5.
+          </p>
+        )}
         <button
           disabled={buying}
-          onClick={handleBuy}
+          onClick={() => handleBuy()}
           style={{
             width: "100%", background: ORANGE, border: `1px solid ${ORANGE}`,
             borderRadius: 12, padding: "14px 16px", color: "#fff",

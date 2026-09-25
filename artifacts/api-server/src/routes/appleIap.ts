@@ -6,6 +6,7 @@ import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
 import { storage } from "../storage.js";
 import { verifyAppleTransaction, VerificationException } from "../appleIapClient.js";
+import { IOS_FIRST_PRODUCT_ID, IOS_FIRST_MICRO_USD, topUpState } from "../services/creditPacks.js";
 
 const router = Router();
 
@@ -17,14 +18,17 @@ const PRODUCT_CREDIT_MICRO_USD: Record<string, number> = {
   // invisibly on the spend side (see IOS_PAYG_MARKUP_MULTIPLIER in
   // services/iosPayg.ts), not by shorting the credit granted here.
   "com.hyperlaw.app.payg.topup": 5_000_000,
+  // One-time first top-up. Apple's lowest price tier is $0.99, credited at face value.
+  [IOS_FIRST_PRODUCT_ID]: IOS_FIRST_MICRO_USD,
 };
 
 // ── GET /iap/balance ─────────────────────────────────────────────────────────
 router.get("/iap/balance", async (req: Request, res: Response): Promise<void> => {
   const { userId } = getAuth(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const balanceMicroUsd = await storage.getIosPaygBalance(userId);
-  res.json({ balanceMicroUsd });
+  const [balanceMicroUsd, user, purchases] = await Promise.all([storage.getIosPaygBalance(userId), storage.getUser(userId), storage.countUserPurchases(userId)]);
+  // canTopUp / firstTopUpAvailable let the app show only what this account may buy.
+  res.json({ balanceMicroUsd, ...topUpState(user?.planTier, purchases) });
 });
 
 // ── POST /iap/verify-purchase ─────────────────────────────────────────────────

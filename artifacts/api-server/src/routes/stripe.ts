@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import { getAuth } from "../services/auth.js";
 import { storage } from '../storage.js';
 import { isBillingEnabled, TYPICAL_CREDITS } from '../services/billing.js';
-import { CREDIT_PACKS, packById } from '../services/creditPacks.js';
+import { CREDIT_PACKS, packById, topUpState } from '../services/creditPacks.js';
 import { stripeService } from '../stripeService.js';
 import { getUncachableStripeClient } from '../stripeClient.js';
 import { logger } from '../lib/logger.js';
@@ -16,7 +16,8 @@ router.get('/stripe/credits', async (req: Request, res: Response): Promise<void>
   try {
     if (!userId) { res.json({ creditBalance: 0, planTier: 'free' }); return; }
     const [creditBalance, user] = await Promise.all([storage.getCreditBalance(userId), storage.getUser(userId)]);
-    res.json({ creditBalance, planTier: user?.planTier ?? 'free', billingEnabled: await isBillingEnabled(), typicalCredits: TYPICAL_CREDITS });
+    const ts = topUpState(user?.planTier, await storage.countUserPurchases(userId));
+    res.json({ creditBalance, planTier: user?.planTier ?? 'free', billingEnabled: await isBillingEnabled(), typicalCredits: TYPICAL_CREDITS, ...ts });
   } catch {
     res.json({ creditBalance: 0, planTier: 'free' });
   }
@@ -52,9 +53,17 @@ router.post('/stripe/set-plan-tier', async (req: Request, res: Response): Promis
 // ── GET /stripe/products ──────────────────────────────────────────────────────
 // Served from the server-side pack list (services/creditPacks.ts), shaped like the Stripe product list
 // the Credit Shop already expects. The price id IS the pack id, so a client can only ever ask for a known pack.
-router.get('/stripe/products', (_req: Request, res: Response): void => {
+router.get('/stripe/products', async (req: Request, res: Response): Promise<void> => {
+  const { userId } = getAuth(req);
+  let packs = CREDIT_PACKS.filter(p => !p.firstPurchaseOnly);
+  if (userId) {
+    const user = await storage.getUser(userId);
+    const ts = topUpState(user?.planTier, await storage.countUserPurchases(userId));
+    if (!ts.canTopUp) packs = [];                                       // members: plan covers usage
+    else if (ts.firstTopUpAvailable) packs = CREDIT_PACKS;              // first time: the $1 starter is offered too
+  }
   res.json({
-    data: CREDIT_PACKS.map(p => ({
+    data: packs.map(p => ({
       id: p.id,
       name: p.name,
       description: null,
@@ -81,6 +90,12 @@ router.post('/stripe/checkout', async (req: Request, res: Response): Promise<voi
   const { priceId } = req.body as { priceId?: string };
   const pack = packById(priceId);
   if (!pack) { res.status(400).json({ error: 'Unknown credit pack.' }); return; }
+  {
+    const u = await storage.getUser(userId);
+    const ts = topUpState(u?.planTier, await storage.countUserPurchases(userId));
+    if (!ts.canTopUp) { res.status(403).json({ error: 'Your membership already covers AI usage — no top-ups needed.' }); return; }
+    if (pack.firstPurchaseOnly && !ts.firstTopUpAvailable) { res.status(403).json({ error: 'The starter top-up is only available for your first purchase.' }); return; }
+  }
 
   try {
     const user = await storage.getUser(userId);

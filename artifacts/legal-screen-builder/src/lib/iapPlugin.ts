@@ -21,3 +21,5 @@ export const iapPlugin = registerPlugin<HyperLawIAPPlugin>("HyperLawIAP");
 /** The single consumable product this app sells — see also
  *  artifacts/api-server/src/routes/appleIap.ts's PRODUCT_CREDIT_MICRO_USD map. */
 export const IOS_PAYG_TOPUP_PRODUCT_ID = "com.hyperlaw.app.payg.topup";
+/** One-time first top-up ($0.99). Must also exist in App Store Connect and in appleIap.ts's product map. */
+export const IOS_PAYG_FIRST_PRODUCT_ID = "com.hyperlaw.app.payg.first";

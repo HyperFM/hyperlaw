@@ -726,7 +726,7 @@ export const aiApi = {
   },
 
   /** iOS-only pay-as-you-go balance, in micro-USD (÷1,000,000 for dollars). */
-  iosPaygBalance(): Promise<{ balanceMicroUsd: number }> {
+  iosPaygBalance(): Promise<{ balanceMicroUsd: number; canTopUp?: boolean; firstTopUpAvailable?: boolean }> {
     return aiFetch("/iap/balance");
   },
 

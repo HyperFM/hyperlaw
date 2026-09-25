@@ -146,6 +146,13 @@ export class Storage {
     return rows.length > 0;
   }
 
+  /** How many purchases (web or Apple) this user has ever completed — drives the one-time first top-up offer. */
+  async countUserPurchases(userId: string): Promise<number> {
+    const [web] = await db.select({ n: sql<number>`cast(count(*) as int)` }).from(stripeProcessedSessionsTable).where(eq(stripeProcessedSessionsTable.userId, userId));
+    const [apple] = await db.select({ n: sql<number>`cast(count(*) as int)` }).from(appleProcessedTransactionsTable).where(eq(appleProcessedTransactionsTable.userId, userId));
+    return (web?.n ?? 0) + (apple?.n ?? 0);
+  }
+
   // ── Stripe product queries (from stripe-replit-sync stripe schema) ──────────
 
   async listProductsWithPrices() {

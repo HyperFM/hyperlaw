@@ -13,7 +13,7 @@ export interface Rate {
 }
 
 const DEFAULT_RATES: Record<string, Rate> = {
-  "claude-sonnet-5": { inputUsdPerMtok: 3, outputUsdPerMtok: 15, perMinuteUsd: null, updatedAt: null },
+  "claude-sonnet-5": { inputUsdPerMtok: 2, outputUsdPerMtok: 10, perMinuteUsd: null, updatedAt: null },
   "claude-haiku-4-5": { inputUsdPerMtok: 1, outputUsdPerMtok: 5, perMinuteUsd: null, updatedAt: null },
   "claude-3-5-haiku-20241022": { inputUsdPerMtok: 0.8, outputUsdPerMtok: 4, perMinuteUsd: null, updatedAt: null },
   "whisper-1": { inputUsdPerMtok: 0, outputUsdPerMtok: 0, perMinuteUsd: 0.006, updatedAt: null },

@@ -16,7 +16,7 @@ test("credits = real cost x 1.5 / $0.05", () => {
 });
 
 test("token and audio costs", () => {
-  assert.equal(costMicroUsd("claude-sonnet-5", { input_tokens: 100_000, output_tokens: 20_000 }).costMicroUsd, 600_000);
+  assert.equal(costMicroUsd("claude-sonnet-5", { input_tokens: 100_000, output_tokens: 20_000 }).costMicroUsd, 400_000);
   assert.equal(audioCostMicroUsd("whisper-1", 600).costMicroUsd, 60_000);
 });
 

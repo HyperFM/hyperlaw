@@ -40,7 +40,7 @@ router.get("/family/threads", async (req: Request, res: Response): Promise<void>
   const out = await Promise.all(rows.map(async t => ({
     id: t.id, title: t.title, status: t.status, isOwner: t.ownerId === userId,
     inviteCode: t.ownerId === userId ? t.inviteCode : null, // only the person who started it needs the code
-    otherName: otherOf(t, userId) ? await firstName(otherOf(t, userId)!) : (t.inviteEmail ?? "Waiting for them to join"),
+    otherName: otherOf(t, userId) ? await firstName(otherOf(t, userId)!) : (t.inviteEmail ?? ""),
     createdAt: t.createdAt,
   })));
   res.json(out);

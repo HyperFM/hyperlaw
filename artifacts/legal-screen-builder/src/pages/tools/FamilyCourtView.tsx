@@ -56,6 +56,9 @@ export default function FamilyCourtView({ onBack, homeMode, onPersonalize }: { o
 
   const load = useCallback(() => { aiApi.familyThreads().then(setThreads).catch(e => { setThreads([]); setErr((e as Error).message); }); }, []);
   useEffect(load, [load]);
+  // Remember which chat is open (its photo shows on the Chat button). This must NOT run during render: it broadcasts a change event,
+  // and doing that while rendering made every listener re-render, over and over, and froze the page.
+  useEffect(() => { if (openId) rememberThread(openId); }, [openId]);
 
   const back = (label: string, fn: () => void) => (
     <button onClick={fn} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 18, display: "flex", alignItems: "center", gap: 6, color: "#666", fontSize: 13, fontWeight: 700 }}>
@@ -65,7 +68,6 @@ export default function FamilyCourtView({ onBack, homeMode, onPersonalize }: { o
 
   if (openId) {
     const t = threads?.find(x => x.id === openId);
-    rememberThread(openId);
     return <ThreadView thread={t ?? null} threadId={openId} onBack={() => { setOpenId(null); load(); }} />;
   }
 
@@ -134,7 +136,7 @@ export default function FamilyCourtView({ onBack, homeMode, onPersonalize }: { o
             <ChildAvatar threadId={t.id} size={40} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5, color: "#ddd" }}>{t.title}</div>
-              <div style={{ fontSize: 12, color: t.status === "active" ? "#7fd39a" : "#a08060", marginTop: 2 }}>{t.status === "active" ? `With ${t.otherName}` : `Waiting for ${t.otherName}`}</div>
+              <div style={{ fontSize: 12, color: t.status === "active" ? "#7fd39a" : "#a08060", marginTop: 2 }}>{t.status === "active" ? `With ${t.otherName}` : t.inviteCode ? `Waiting for the other parent — give them code ${t.inviteCode}` : "Waiting for the other parent to join"}</div>
             </div>
             <ChevronRight size={15} color="#444" />
           </button>

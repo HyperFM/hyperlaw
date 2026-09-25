@@ -38,7 +38,7 @@ export function autoEnableChatTab(): boolean {
 
 export function getThreadPhoto(threadId: string): string | null { return read(photoKey(threadId)); }
 export function setThreadPhoto(threadId: string, dataUrl: string | null) { write(photoKey(threadId), dataUrl); write(K_LAST, threadId); emit(); }
-export function rememberThread(threadId: string) { write(K_LAST, threadId); emit(); }
+export function rememberThread(threadId: string) { if (read(K_LAST) === threadId) return; write(K_LAST, threadId); emit(); }
 export function lastThreadPhoto(): string | null { const id = read(K_LAST); return id ? read(photoKey(id)) : null; }
 
 /** Downscale to a small centered square JPEG so it is cheap to keep on the device. */

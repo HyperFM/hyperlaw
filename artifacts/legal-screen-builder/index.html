@@ -69,6 +69,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
     <style>
+      /* Refresh App skips the intro: the flag is set right before the reload and cleared right away. */
+      html.hl-skip-splash #hl-splash { display: none !important; }
+
       /* ── SPLASH SCREEN ── rendered before React boots ── */
       :root {
         --bg-0: #07070a;
@@ -281,6 +284,16 @@
       }
       #hl-splash .icon.pulse { animation: iconPulse 0.45s ease-out forwards !important; }
     </style>
+    <script>
+      (function () {
+        try {
+          if (sessionStorage.getItem('hl_skip_splash') === '1') {
+            sessionStorage.removeItem('hl_skip_splash');
+            document.documentElement.classList.add('hl-skip-splash');
+          }
+        } catch (e) { /* storage blocked: the splash just plays as usual */ }
+      })();
+    </script>
   </head>
   <body>
 

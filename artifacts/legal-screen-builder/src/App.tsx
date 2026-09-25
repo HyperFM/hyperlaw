@@ -4790,6 +4790,11 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
               // to guarantee the latest deployed version, not "maybe." Adding
               // a fresh query param forces this to be treated as a genuinely
               // new request instead of a cache hit.
+              // Skip the intro animation and come back to this same tab (see index.html and navTab's initial state).
+              try {
+                sessionStorage.setItem("hl_skip_splash", "1");
+                sessionStorage.setItem("hl_after_refresh_tab", "profile");
+              } catch { /* storage blocked: it just reloads normally */ }
               const url = new URL(window.location.href);
               url.searchParams.set("_r", Date.now().toString());
               window.location.replace(url.toString());
@@ -5572,7 +5577,15 @@ export default function App() {
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
-  const [navTab, setNavTab] = useState<NavTab>(() => { const c = chatTabState(); return c.enabled && c.mode === "chat" ? "tools" : "home"; });
+  const [navTab, setNavTab] = useState<NavTab>(() => {
+    // After "Refresh App", land back on the tab it was pressed from instead of the home screen.
+    try {
+      const t = sessionStorage.getItem("hl_after_refresh_tab");
+      if (t) { sessionStorage.removeItem("hl_after_refresh_tab"); if (t === "profile") return "profile"; }
+    } catch { /* ignore */ }
+    const c = chatTabState();
+    return c.enabled && c.mode === "chat" ? "tools" : "home";
+  });
   const chatTabHook = useChatTab();
   /** Set by a "hearing_script_stale" notification's "Review script now" —
    *  jumps ToolsView straight into that case+script instead of its own

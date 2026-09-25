@@ -524,7 +524,7 @@ export const aiApi = {
   },
 
   /** Voir dire: tailored juror questions, each with what a bad / good answer sounds like. */
-  voirDireQuestions(caseId: string): Promise<{ questions: Array<{ question: string; bad: string; good: string }> }> {
+  voirDireQuestions(caseId: string): Promise<{ questions: Array<{ question: string; individual?: string; bad: string; good: string }> }> {
     return aiFetch("/voir-dire/questions", { method: "POST", body: JSON.stringify({ caseId }) });
   },
 

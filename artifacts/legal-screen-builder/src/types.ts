@@ -556,7 +556,8 @@ export interface StructuredCase {
 
 // ─── Voir Dire ────────────────────────────────────────────────────────────────
 
-export interface VoirDireQuestion { id: string; question: string; bad: string; good: string }
+/** `question` is worded for the whole panel ("Has anyone here…"); `individual` is the same question for one juror ("Have you…"). */
+export interface VoirDireQuestion { id: string; question: string; individual?: string; bad: string; good: string }
 
 /** One jury-selection session for a case: who sat in which chair, how each juror answered each question. */
 export interface VoirDireSession {
@@ -567,6 +568,12 @@ export interface VoirDireSession {
   /** Optional juror names/notes, by seat number. */
   seatNames: Record<string, string>;
   currentIndex: number;
+  /** Where each chair sits, as fractions (0-1) of the seating area, so the app can match the real courtroom. */
+  layout?: Record<string, { x: number; y: number }>;
+  /** True once the person has arranged the chairs and locked them; taps then rate jurors instead of moving chairs. */
+  layoutLocked?: boolean;
+  /** Whether questions are shown worded for the whole panel or for one juror at a time. */
+  askMode?: "group" | "individual";
   updatedAt: number;
 }
 

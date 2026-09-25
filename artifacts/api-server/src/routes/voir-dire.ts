@@ -14,12 +14,13 @@ const SYSTEM = `You help a person who is representing themselves in a civil case
 
 Given the case record, write 8 questions to ask jurors, tailored to THIS case's actual issues (for example attitudes toward police or government officials, toward the kind of harm alleged, toward large damages awards, toward people who represent themselves). Rules:
 - Each question must be neutral and non-leading, the way a court would allow it — it should invite the juror to talk, not argue the case.
+- Write every question TWICE. "group": phrased for the whole panel at once, starting like "Has anyone here...", "Does anyone...", "Is there anyone who...". "individual": the same question asked of one juror, starting like "Have you...", "Do you...", "Would you...". Both must ask for the same thing.
 - For each question give "bad" (what an answer that is BAD for this person's side sounds like — one plain sentence) and "good" (what to listen for that is GOOD for their side — one plain sentence).
 - Plain language a non-lawyer can use. No case law, no advice about who to strike.
 - Base everything on the case record only. Never invent facts.
 
 Respond with ONLY raw JSON, no markdown fences:
-{ "questions": [ { "question": "...", "bad": "...", "good": "..." } ] }`;
+{ "questions": [ { "group": "...", "individual": "...", "bad": "...", "good": "..." } ] }`;
 
 function parseJson(text: string): Record<string, unknown> | null {
   const cleaned = text.replace(/```(?:json)?/g, "").trim();
@@ -62,9 +63,10 @@ router.post("/voir-dire/questions", async (req: Request, res: Response): Promise
 
   const parsed = parseJson(response.content.find(b => b.type === "text")?.text ?? "");
   const questions = (Array.isArray(parsed?.questions) ? (parsed!.questions as any[]) : [])
-    .filter(q => q && typeof q.question === "string" && q.question.trim())
+    .map(q => ({ group: String(q?.group ?? q?.question ?? "").trim(), individual: String(q?.individual ?? "").trim(), bad: String(q?.bad ?? "").trim(), good: String(q?.good ?? "").trim() }))
+    .filter(q => q.group)
     .slice(0, 12)
-    .map(q => ({ question: String(q.question).trim(), bad: String(q.bad ?? "").trim(), good: String(q.good ?? "").trim() }));
+    .map(q => ({ question: q.group, individual: q.individual || q.group, bad: q.bad, good: q.good }));
   if (questions.length === 0) { res.status(502).json({ error: "Couldn't generate questions right now — please try again." }); return; }
   res.json({ questions });
 });

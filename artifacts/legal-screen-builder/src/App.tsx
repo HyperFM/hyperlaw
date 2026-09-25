@@ -4667,7 +4667,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
           straight into IosPaygTopUpModal instead: no "Membership" wording, no
           plan browsing, nothing that reads as subscription management —
           that all lives on hyperlaw.site now, never in the app. */}
-      {isIosApp() && !canSwitchPlansFreely && (planTier === "prosay" || planTier === "apex") ? null : isIosApp() && !canSwitchPlansFreely ? (
+      {isIosApp() && !canSwitchPlansFreely && (planTier === "prosay" || planTier === "apex") ? null : isIosApp() ? (
         <button
           onClick={onBuyCredits}
           style={{

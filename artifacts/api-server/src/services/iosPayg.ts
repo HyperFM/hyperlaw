@@ -7,6 +7,7 @@
 import type { Request } from "express";
 import { storage } from "../storage.js";
 import { chargeOneCredit, type ChargeResult } from "./credits.js";
+import { isUserWaived } from "./billing.js";
 
 /** True when the request came from the iOS app (see src/lib/platform.ts and
  *  the X-Client-Platform header added to apiFetch/aiFetch on the client).
@@ -26,6 +27,8 @@ export interface IosPaygCheck {
  *  balance left, not that it covers this specific call. */
 export async function checkIosPaygBalance(userId: string): Promise<IosPaygCheck> {
   const balanceMicroUsd = await storage.getIosPaygBalance(userId);
+  // Members (bought a plan on the web), admins, and everyone while billing is off never need an iOS balance.
+  if (await isUserWaived(userId)) return { ok: true, balanceMicroUsd };
   return { ok: balanceMicroUsd > 0, balanceMicroUsd };
 }
 
@@ -45,6 +48,7 @@ export async function chargeIosPaygActual(
   userId: string,
   realCostMicroUsd: number,
 ): Promise<{ balanceMicroUsd: number }> {
+  if (await isUserWaived(userId)) return { balanceMicroUsd: await storage.getIosPaygBalance(userId) };
   const balanceMicroUsd = await storage.deductIosPaygBalance(
     userId,
     realCostMicroUsd * IOS_PAYG_MARKUP_MULTIPLIER,

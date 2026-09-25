@@ -1155,7 +1155,7 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
   if (cases.length === 0) return null;
 
-  const BUBBLE_W = 84;
+  const BUBBLE_W = 96;
 
   return (
     <div style={{
@@ -1199,7 +1199,7 @@ function CaseBubbleBar({ cases, onOpenCase }: {
                   {/* Photo — only shown once the user has actually added one */}
                   {photo && (
                     <div style={{
-                      width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
+                      width: 56, height: 56, borderRadius: "50%", flexShrink: 0,
                       border: `1.5px solid ${ORANGE}`,
                       overflow: "hidden",
                       boxShadow: `0 0 14px ${ORANGE}55, 0 4px 14px rgba(0,0,0,0.5)`,
@@ -1210,7 +1210,7 @@ function CaseBubbleBar({ cases, onOpenCase }: {
 
                   {/* Case name — single slim line, no icon fallback */}
                   <div style={{
-                    fontSize: 10, fontWeight: 800, letterSpacing: 0.1,
+                    fontSize: 12, fontWeight: 700, letterSpacing: 0.1,
                     color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)",
                     textAlign: "center", lineHeight: 1.2, width: "100%",
                     overflow: "hidden", textOverflow: "ellipsis",
@@ -1228,15 +1228,15 @@ function CaseBubbleBar({ cases, onOpenCase }: {
         {cases.length > 1 && (
           <div style={{ display: "flex", justifyContent: "center", gap: 5, marginTop: 6 }}>
             {cases.map((_, i) => (
-              <button key={i} onClick={() => emblaApi?.scrollTo(i)}
-                style={{
-                  width: i === selected ? 14 : 5, height: 4, borderRadius: 2,
-                  border: "none", padding: 0, cursor: "pointer",
-                  background: i === selected ? ORANGE : "#3a3a3a",
+              <button key={i} onClick={() => emblaApi?.scrollTo(i)} aria-label={`Case ${i + 1}`}
+                style={{ background: "none", border: "none", padding: "10px 3px", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                <div style={{
+                  width: i === selected ? 16 : 7, height: 6, borderRadius: 3,
+                  background: i === selected ? ORANGE : "#4a4a4a",
                   boxShadow: "0 1px 3px rgba(0,0,0,0.6)",
                   transition: "width 0.22s ease, background 0.22s",
-                  WebkitTapHighlightColor: "transparent",
                 }} />
+              </button>
             ))}
           </div>
         )}
@@ -1310,19 +1310,25 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
   const suggestedJurisdiction = analysis.jurisdictionSuggestions?.[0]?.trim();
   if (!hlCase.jurisdiction?.trim() && suggestedJurisdiction) patch.jurisdiction = suggestedJurisdiction;
 
-  // Parties — only when none captured yet.
-  if (hlCase.parties.length === 0 && analysis.parties?.length) {
+  // Parties — added from EVERY analysis (not only the first), skipping anyone already on the case by name.
+  // Previously this only ran when the case had no parties, so people found in a second or third document
+  // showed up on the upload screen and then never made it onto the case.
+  if (analysis.parties?.length) {
     const OFFICIAL_HINTS = /\b(officer|police|deputy|sheriff|detective|sergeant|trooper|department|agency|city|county|state|federal|government|court|judge|magistrate|prosecut|district attorney|marshal|correctional|jail|prison|warden|official)\b/i;
-    const used: string[] = [];
-    patch.parties = analysis.parties.slice(0, 100).map(p => {
+    const known = new Set(hlCase.parties.map(p => `${p.firstName} ${p.lastName}`.trim().toLowerCase()));
+    const used: string[] = hlCase.parties.map(p => p.nickname);
+    const added: Party[] = [];
+    for (const p of analysis.parties.slice(0, 100)) {
       const name = (p.name || "").trim();
+      if (!name || known.has(name.toLowerCase())) continue;
+      known.add(name.toLowerCase());
       const tokens = name.split(/\s+/).filter(Boolean);
       const firstName = tokens[0] || name || "Party";
       const lastName = tokens.slice(1).join(" ");
       const isOfficial = OFFICIAL_HINTS.test(`${p.role || ""} ${p.details || ""} ${name}`);
       const { word, emoji } = assignNickname(used);
       used.push(word);
-      const party: Party = {
+      added.push({
         id: crypto.randomUUID(),
         firstName,
         lastName,
@@ -1330,19 +1336,24 @@ function mergeAnalysisIntoCase(hlCase: HLCase, analysis: {
         nickname: word,
         nicknameEmoji: emoji,
         ...(isOfficial ? { agency: (p.details || p.role || "").trim() || undefined, title: (p.role || "").trim() || undefined } : {}),
-      };
-      return party;
-    });
+      });
+    }
+    if (added.length) patch.parties = [...hlCase.parties, ...added];
   }
 
-  // Timeline — only when empty.
-  if (hlCase.timeline.length === 0 && analysis.events?.length) {
-    patch.timeline = analysis.events.slice(0, 40).map((ev, i): TimelineEvent => ({
-      id: crypto.randomUUID(),
-      title: (ev.date || "").trim() || `Event ${i + 1}`,
-      description: [ev.description, ev.significance].filter(Boolean).join(" — ").trim(),
-      order: i,
-    }));
+  // Timeline — likewise added from every analysis, skipping events already on the case.
+  if (analysis.events?.length) {
+    const key = (t: string, d: string) => `${t}|${d}`.trim().toLowerCase();
+    const known = new Set(hlCase.timeline.map(e => key(e.title, e.description)));
+    const added: TimelineEvent[] = [];
+    for (const ev of analysis.events.slice(0, 40)) {
+      const title = (ev.date || "").trim() || `Event ${hlCase.timeline.length + added.length + 1}`;
+      const description = [ev.description, ev.significance].filter(Boolean).join(" — ").trim();
+      if (known.has(key(title, description))) continue;
+      known.add(key(title, description));
+      added.push({ id: crypto.randomUUID(), title, description, order: hlCase.timeline.length + added.length });
+    }
+    if (added.length) patch.timeline = [...hlCase.timeline, ...added];
   }
 
   // Structured case (claims + keyFacts) — this is what the exhibit and script
@@ -1969,6 +1980,12 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           <ChevronLeft size={18} /><span style={{ fontSize: 13, fontWeight: 700 }}>Cases</span>
         </button>
         <div style={{ flex: 1 }} />
+        {/* Index — at the top of the case, right beside the other header actions. */}
+        <button onClick={() => onOpenInTutor(hlCase)} title="Open this case in the Index"
+          style={{ background: `${ORANGE}14`, border: `1px solid ${ORANGE}55`, borderRadius: 10, padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, minHeight: 36 }}>
+          <IndexIcon size={18} />
+          <span style={{ fontSize: 13, fontWeight: 800, color: "#e8d9c8" }}>Index</span>
+        </button>
         <button onClick={() => { setPendingCaseExport(() => () => exportCasePDF(hlCase, data.incidents).catch(() => {})); setShowCaseDocConfirm(true); }} title="Export PDF"
           style={{ background: "none", border: "none", cursor: "pointer", color: "#555", padding: 8 }}><Download size={16} /></button>
       </div>
@@ -2161,15 +2178,6 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
           )}
         </div>
         )}
-
-        {/* Index — small optional shortcut, same cloud icon/behavior as the bottom nav tab */}
-        <button onClick={() => onOpenInTutor(hlCase)} title="Open this case in the Index"
-          style={{ background: "none", border: "1px solid #1e1e1e", borderRadius: 10, padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, width: "25%", marginBottom: 20 }}
-          onMouseEnter={e => (e.currentTarget.style.borderColor = ORANGE + "44")}
-          onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}>
-          <IndexIcon size={20} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#888" }}>Index</span>
-        </button>
 
         {/* Checklist/Index tabs removed — Assembly is drafting-focused (Section 8) */}
         <>
@@ -3006,15 +3014,19 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
       onPointerCancel={reset}
       onPointerMove={onMove}
       onContextMenu={e => e.preventDefault()}
-      className="hl-cloud-shape"
       style={{
-        background: color + "18",
-        border: `1.5px solid ${holding ? ORANGE : color + "55"}`,
-        padding: "10px 22px",
-        color: holding ? ORANGE : color,
-        fontSize: 14, fontWeight: 700,
+        // A plain pill: standard 44px tap target, readable light text, the category color carried by the dot and border.
+        // (It used to be a lumpy cloud outline with colored text that was hard to read on dark.)
+        position: "relative",
+        borderRadius: 999,
+        minHeight: 44,
+        background: color + "22",
+        border: `1.5px solid ${holding ? ORANGE : color + "88"}`,
+        padding: "10px 18px",
+        color: holding ? "#ffb877" : "#ece6db",
+        fontSize: 14, fontWeight: 600,
         cursor: "pointer",
-        display: "flex", alignItems: "center", gap: 8,
+        display: "flex", alignItems: "center", gap: 9,
         WebkitTapHighlightColor: "transparent",
         userSelect: "none",
         animation: holding ? "none" : `cloudFloat ${2.8 + (idx % 5) * 0.35}s ease-in-out ${(idx % 7) * 0.28}s infinite`,
@@ -3023,10 +3035,10 @@ function HoldCloud({ cloud, color, idx, onUnlock }: {
         transition: "border-color 0.12s, color 0.12s, transform 0.08s",
       }}
     >
-      <div style={{ width: 7, height: 7, borderRadius: "50%", background: holding ? ORANGE : color, flexShrink: 0 }} />
+      <div style={{ width: 9, height: 9, borderRadius: "50%", background: holding ? ORANGE : color, flexShrink: 0 }} />
       {cloud.label}
       {holding && p < 1 && (
-        <div style={{ position: "absolute", left: 10, right: 10, bottom: 5, height: 2, background: "rgba(217,113,31,0.22)", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 14, right: 14, bottom: 4, height: 2, background: "rgba(217,113,31,0.22)", borderRadius: 2, overflow: "hidden" }}>
           <div style={{ width: `${p * 100}%`, height: "100%", background: ORANGE, borderRadius: 2 }} />
         </div>
       )}

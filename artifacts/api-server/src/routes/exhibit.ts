@@ -609,6 +609,7 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
   // candidates" instruction (EXHIBIT_SYSTEM_PROMPT line ~157) — without
   // this, that instruction was competing with the correction request and
   // winning, producing a re-drafted screen instead of a corrected one.
+  const singleDesign = !existingContent && ((candidatesRequested ?? 1) <= 1 || !!forceType);
   const systemPrompt = existingContent
     ? `${EXHIBIT_SYSTEM_PROMPT}\n\nCORRECTION MODE — OVERRIDES THE ABOVE: ignore the "generate 2-3 distinct candidates" instruction. The user is not asking for a new screen; they are correcting one specific detail on an existing, already-approved one. Return exactly ONE candidate whose content is the existing JSON given in the user message, unchanged except for the minimal edit the stated correction requires.`
     : ((candidatesRequested ?? 1) <= 1 || forceType)
@@ -646,7 +647,7 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
           // The case-wide context is identical for every screen in a batch, so it is cached for an hour: the first screen
           // pays a one-time 2x write, every later screen in that hour reads it at 0.1x (~90% off that half of the cost).
           { type: "text", text: `SOURCE MATERIAL (case-wide context — parties, court, documents, full video timeline):\n${staticBlock}`, cache_control: { type: "ephemeral", ttl: "1h" } },
-          { type: "text", text: dynamicBlock },
+          { type: "text", text: singleDesign ? `${dynamicBlock}\n\nREMINDER: draft exactly ONE candidate exhibit (the single strongest framing) — not two or three.` : dynamicBlock },
         ],
       }],
       // Raised alongside max_tokens — a bigger allowed response can
@@ -702,7 +703,7 @@ ${priorBlock}${forceBlock}${feedbackBlock}`;
 
   // Basic shape validation
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
-  const validCandidates = rawCandidates.filter(
+  const validCandidates = (singleDesign ? rawCandidates.slice(0, 1) : rawCandidates).filter(
     (c): c is { selectedType: string; content: Record<string, unknown>; rationale?: string; confidence_flags?: unknown; corrections?: unknown } =>
       !!c && typeof c === "object" && !!(c as Record<string, unknown>).selectedType && typeof (c as Record<string, unknown>).content === "object",
   );

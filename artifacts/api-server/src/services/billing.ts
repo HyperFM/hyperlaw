@@ -75,10 +75,12 @@ export async function chargeForCall(userId: string, costMicroUsd: number, featur
 /** Typical credit cost of an action, for the up-front balance check and the "about X credits" estimate.
  *  Starter values from measured/estimated costs — refine from real ai_logs averages once users are on. */
 export const TYPICAL_CREDITS: Record<string, number> = {
-  exhibit_generate: 15,   // ~$0.50 real cost x1.5 / $0.05
-  exhibit_court_script: 15,
-  exhibit_analyze_photos: 5,
-  hearing_script: 6,
-  organize: 3,
+  // Measured from real logs (Sonnet 5 at $2 in / $10 out): one exhibit screen is ~39K tokens in + 5-11K out = $0.14-0.20 real cost,
+  // i.e. about 4-6 credits at cost x1.5 / $0.05. 8 leaves headroom for a big one.
+  exhibit_generate: 8,
+  exhibit_court_script: 8,   // one court-script call measured at ~$0.23 real
+  exhibit_analyze_photos: 3,
+  hearing_script: 2,         // measured ~$0.02
+  organize: 2,               // measured ~$0.07-0.10
   chat: 1,
 };

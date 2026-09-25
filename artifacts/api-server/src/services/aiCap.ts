@@ -13,7 +13,7 @@ import { storage } from "../storage.js";
 const AI_ROUTES: RegExp[] = [
   /^\/ai\/(?!estimate$|generated-documents)/,
   /^\/tutor\/help$/,
-  /^\/hearing-scripts\/[^/]+\/generate$/,
+  /^\/hearing-scripts\/([^/]+\/generate|auto)$/,
   /^\/exhibit\/(court-script|generate|analyze-photos)$/,
   /^\/transcript\//,
   /^\/intake\/chat$/,
@@ -26,7 +26,7 @@ const EXPENSIVE: Array<[RegExp, string]> = [
   [/^\/exhibit\/generate$/, "exhibit_generate"],
   [/^\/exhibit\/court-script$/, "exhibit_court_script"],
   [/^\/exhibit\/analyze-photos$/, "exhibit_analyze_photos"],
-  [/^\/hearing-scripts\/[^/]+\/generate$/, "hearing_script"],
+  [/^\/hearing-scripts\/([^/]+\/generate|auto)$/, "hearing_script"],
 ];
 
 export async function aiDailyCap(req: Request, res: Response, next: NextFunction): Promise<void> {

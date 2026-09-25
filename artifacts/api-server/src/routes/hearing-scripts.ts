@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "../services/auth.js";
-import { db, hearingScripts, hearingScriptSections } from "@workspace/db";
-import { and, eq, asc, desc } from "drizzle-orm";
+import { db, hearingScripts, hearingScriptSections, casesTable, generatedDocumentsTable, uploadedDocumentsTable } from "@workspace/db";
+import { and, eq, asc, desc, ne } from "drizzle-orm";
 import { generateHearingScript } from "../services/hearingScript.js";
 
 const router = Router();
@@ -75,6 +75,93 @@ router.post("/hearing-scripts", requireAuth, async (req: Request, res: Response)
   } catch {
     res.status(500).json({ error: "Failed to create hearing script" });
   }
+});
+
+// ── Prepare the script for the person's next hearing — automatically ─────────────
+// The script is meant to be waiting for them, not something they have to start: it is built from the case's most
+// recent filings and the Index (which already holds the next hearing date once they've told us about it).
+// Idempotent: if a live (not yet delivered, not in the past) script exists, that one is returned and nothing is spent.
+router.post("/hearing-scripts/auto", requireAuth, async (req: Request, res: Response) => {
+  const userId = (req as any).userId as string;
+  const { caseId } = req.body as { caseId?: string };
+  if (!caseId) { res.status(400).json({ error: "caseId is required" }); return; }
+
+  const [row] = await db.select().from(casesTable).where(and(eq(casesTable.id, caseId), eq(casesTable.userId, userId)));
+  if (!row) { res.status(404).json({ error: "Case not found" }); return; }
+
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const existing = await db.select().from(hearingScripts).where(and(eq(hearingScripts.userId, userId), eq(hearingScripts.caseId, caseId)));
+  const live = existing
+    .filter(s => s.status !== "delivered" && s.status !== "archived" && (!s.hearingDate || s.hearingDate >= startOfToday))
+    .sort((a, b) => (a.hearingDate?.getTime() ?? Infinity) - (b.hearingDate?.getTime() ?? Infinity) || b.updatedAt.getTime() - a.updatedAt.getTime());
+  if (live.length) {
+    res.json({ script: { ...live[0], sections: await loadSections(live[0].id) }, created: false });
+    return;
+  }
+
+  const c = (row.caseData ?? {}) as Record<string, any>;
+  const sc = (row.structuredCase ?? c.structuredCase ?? {}) as Record<string, any>;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const hearing = ((sc.nextUp ?? []) as Array<{ text?: string; dueDate?: string | null }>)
+    .filter(i => i.dueDate && i.dueDate >= todayISO && /hearing|court date|trial|conference|oral argument|motion/i.test(i.text ?? ""))
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))[0];
+
+  const gen = await db.select({ id: generatedDocumentsTable.id, title: generatedDocumentsTable.title, type: generatedDocumentsTable.documentType })
+    .from(generatedDocumentsTable)
+    .where(and(eq(generatedDocumentsTable.userId, userId), eq(generatedDocumentsTable.caseId, caseId), ne(generatedDocumentsTable.status, "archived")))
+    .orderBy(desc(generatedDocumentsTable.createdAt)).limit(3);
+  const up = gen.length ? [] : await db.select({ id: uploadedDocumentsTable.id })
+    .from(uploadedDocumentsTable)
+    .where(and(eq(uploadedDocumentsTable.userId, userId), eq(uploadedDocumentsTable.caseId, caseId)))
+    .orderBy(desc(uploadedDocumentsTable.createdAt)).limit(3);
+
+  const hasMaterial = gen.length > 0 || up.length > 0 || !!sc.executiveSummary || (sc.claims ?? []).length > 0;
+  if (!hasMaterial) { res.json({ script: null, created: false, needsMaterial: true }); return; }
+
+  const latestMotion = gen.find(g => g.type === "motion");
+  const pretty = hearing?.dueDate ? new Date(`${hearing.dueDate}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : null;
+  const title = pretty ? `Hearing — ${pretty}` : latestMotion ? `Hearing on ${latestMotion.title}`.slice(0, 120) : "Next hearing";
+
+  try {
+    const [script] = await db.insert(hearingScripts).values({
+      userId, caseId, title,
+      hearingDate: hearing?.dueDate ? new Date(`${hearing.dueDate}T12:00:00Z`) : null,
+      court: (c.court?.name as string | undefined) ?? (String(c.jurisdiction ?? "").trim() || null),
+      sourceGeneratedDocIds: gen.map(g => g.id),
+      sourceUploadedDocIds: up.map(u => u.id),
+    }).returning();
+    const result = await generateHearingScript({
+      caseId, userId, hearingDate: script.hearingDate, court: script.court, division: null, judge: null,
+      sourceGeneratedDocIds: gen.map(g => g.id), sourceUploadedDocIds: up.map(u => u.id),
+    });
+    await db.insert(hearingScriptSections).values(result.sections.map((s, i) => ({
+      scriptId: script.id, sortOrder: i, heading: s.heading, body: s.body, triggerType: s.triggerType, conditionNote: s.conditionNote,
+    })));
+    const [updated] = await db.update(hearingScripts).set({ version: 2, lastGeneratedAt: new Date(), updatedAt: new Date() }).where(eq(hearingScripts.id, script.id)).returning();
+    res.json({ script: { ...updated, sections: await loadSections(script.id) }, created: true });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message || "Couldn't prepare your script right now — try again." });
+  }
+});
+
+// ── Add a section by hand (the manual path) ──────────────────────────────────────
+router.post("/hearing-scripts/:id/sections", requireAuth, async (req: Request, res: Response) => {
+  const userId = (req as any).userId as string;
+  const id = String(req.params.id);
+  const { heading, body, triggerType } = req.body as { heading?: string; body?: string; triggerType?: string };
+  if (!heading?.trim() || !body?.trim()) { res.status(400).json({ error: "heading and body are required" }); return; }
+  const [owned] = await db.select({ id: hearingScripts.id }).from(hearingScripts).where(and(eq(hearingScripts.id, id), eq(hearingScripts.userId, userId)));
+  if (!owned) { res.status(404).json({ error: "Not found" }); return; }
+  const existing = await loadSections(id);
+  const [section] = await db.insert(hearingScriptSections).values({
+    scriptId: id,
+    sortOrder: existing.length ? Math.max(...existing.map(s => s.sortOrder)) + 1 : 0,
+    heading: heading.trim().slice(0, 200),
+    body: body.trim().slice(0, 8000),
+    triggerType: ["opening", "responsive", "closing", "conditional"].includes(triggerType ?? "") ? triggerType! : "responsive",
+    conditionNote: null,
+  }).returning();
+  res.status(201).json(section);
 });
 
 // ── Generate (or regenerate) a script's sections ──────────────────────────────

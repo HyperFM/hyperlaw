@@ -946,6 +946,16 @@ export const aiApi = {
       return aiFetch(`/hearing-scripts/${id}`);
     },
 
+    /** The script for the person's next hearing, prepared for them from their latest filing and Index (returns the existing one if there is one). */
+    auto(caseId: string): Promise<{ script: HearingScript | null; created: boolean; needsMaterial?: boolean }> {
+      return aiFetch("/hearing-scripts/auto", { method: "POST", body: JSON.stringify({ caseId }) });
+    },
+
+    /** Manual path: add one section by hand. */
+    addSection(scriptId: string, section: { heading: string; body: string; triggerType?: string }): Promise<HearingScript["sections"][number]> {
+      return aiFetch(`/hearing-scripts/${scriptId}/sections`, { method: "POST", body: JSON.stringify(section) });
+    },
+
     create(payload: {
       caseId: string;
       title: string;

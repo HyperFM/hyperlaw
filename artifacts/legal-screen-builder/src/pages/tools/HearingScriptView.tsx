@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ChevronRight, ArrowLeft, Gavel, Plus, AlertCircle, Sparkles, FileText, CheckCircle2, Presentation } from "lucide-react";
+import { ChevronRight, ArrowLeft, Gavel, Plus, AlertCircle, Sparkles, FileText, CheckCircle2, Presentation, Loader2 } from "lucide-react";
 import type { HLCase, HearingScript, HearingScriptSection } from "../../types";
 import { aiApi } from "../../lib/aiApi";
 import HearingScriptReaderView from "./HearingScriptReaderView";
@@ -27,6 +27,9 @@ export default function HearingScriptView({ cases, onBack, initialSelection, onI
   const [loadingScripts, setLoadingScripts] = useState(false);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
   const [readerMode, setReaderMode] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [needsMaterial, setNeedsMaterial] = useState(false);
+  const [prepError, setPrepError] = useState<string | null>(null);
 
   // Once the scripts for the deep-linked case have loaded, jump straight to
   // the specific script and consume the pending selection so navigating away
@@ -42,13 +45,37 @@ export default function HearingScriptView({ cases, onBack, initialSelection, onI
   const selectedCase = cases.find(c => c.id === selectedCaseId) ?? null;
   const activeScript = scripts.find(s => s.id === activeScriptId) ?? null;
 
+  // Opening a case prepares the script for its next hearing automatically (built from the latest filing and the
+  // Index) and shows it — the person doesn't have to start one. A deep link from a "new filing" notification skips this.
   useEffect(() => {
     if (!selectedCaseId) return;
+    let cancelled = false;
     setLoadingScripts(true);
-    aiApi.hearingScripts.list(selectedCaseId)
-      .then(rows => setScripts(rows))
-      .catch(() => setScripts([]))
-      .finally(() => setLoadingScripts(false));
+    setNeedsMaterial(false);
+    setPrepError(null);
+    (async () => {
+      const rows = await aiApi.hearingScripts.list(selectedCaseId).catch(() => [] as HearingScript[]);
+      if (cancelled) return;
+      setScripts(rows);
+      setLoadingScripts(false);
+      if (initialSelection?.caseId === selectedCaseId) return;
+      setPreparing(true);
+      try {
+        const r = await aiApi.hearingScripts.auto(selectedCaseId);
+        if (cancelled) return;
+        if (r.needsMaterial) setNeedsMaterial(true);
+        if (r.script) {
+          setScripts(prev => (prev.some(x => x.id === r.script!.id) ? prev.map(x => (x.id === r.script!.id ? r.script! : x)) : [r.script!, ...prev]));
+          setActiveScriptId(r.script.id);
+        }
+      } catch (e) {
+        if (!cancelled) setPrepError((e as Error).message || "Couldn't prepare your script right now.");
+      } finally {
+        if (!cancelled) setPreparing(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCaseId]);
 
   function refreshScript(updated: HearingScript) {
@@ -71,7 +98,7 @@ export default function HearingScriptView({ cases, onBack, initialSelection, onI
             <div style={{ fontSize: 20, fontWeight: 900 }}>Hearing Script</div>
           </div>
           <div style={{ color: "#666", fontSize: 13, lineHeight: 1.6, marginBottom: 24 }}>
-            Get a sectioned script for a specific hearing, built from your case's own filings — with a nudge if a new filing lands after you've marked it ready.
+            Your script for the next hearing, prepared for you from your latest filing and your Index — ready to read when you open a case, with a nudge if a new filing lands after you've marked it ready.
           </div>
           <div style={{ background: "#141008", border: `1px solid ${ORANGE}33`, borderRadius: 12, padding: "11px 14px", color: "#c9a878", fontSize: 12.5, lineHeight: 1.55, marginBottom: 22 }}>
             <b style={{ color: ORANGE }}>One thing per hearing.</b> Handle one simple thing at a time and don't let other issues pile on top. If you need more, file a motion. Anything can be handled later — ask for the record or a copy of the order and pick it up then.
@@ -105,6 +132,21 @@ export default function HearingScriptView({ cases, onBack, initialSelection, onI
             <ArrowLeft size={15} /> All cases
           </button>
           <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 18 }}>{selectedCase.title}</div>
+
+          {preparing && (
+            <div style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "18px 16px", display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <Loader2 size={20} color={ORANGE} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+              <div style={{ fontSize: 13.5, color: "#ddd", lineHeight: 1.5 }}>Preparing your script for the next hearing from your latest filing and Index… this takes about half a minute.</div>
+            </div>
+          )}
+          {needsMaterial && !preparing && (
+            <div style={{ background: "#141008", border: `1px solid ${ORANGE}33`, borderRadius: 14, padding: "16px", fontSize: 13.5, color: "#c9a878", lineHeight: 1.55, marginBottom: 14 }}>
+              <b style={{ color: ORANGE }}>Nothing to prepare a script from yet.</b> Once this case has a motion or filing, or you've told us about it in the chat, your script will be waiting here automatically.
+            </div>
+          )}
+          {prepError && !preparing && (
+            <div style={{ background: "#2a0f0f", border: "1px solid #5a1a1a", borderRadius: 10, padding: "10px 14px", marginBottom: 14, color: "#ff9a8a", fontSize: 12.5 }}>{prepError}</div>
+          )}
 
           <NewScriptButton caseId={selectedCase.id} onCreated={s => { setScripts(prev => [s, ...prev]); setActiveScriptId(s.id); }} />
 
@@ -189,8 +231,8 @@ function NewScriptButton({ caseId, onCreated }: { caseId: string; onCreated: (s:
   if (!open) {
     return (
       <button onClick={() => setOpen(true)}
-        style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: 14, color: "#000" }}>
-        <Plus size={16} /> New Hearing Script
+        style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#999" }}>
+        <Plus size={14} /> Add my own script (manual)
       </button>
     );
   }
@@ -340,6 +382,8 @@ function ScriptDetail({ caseId, script, onBack, onUpdated, onOpenReader }: {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 500 }} />
         )}
 
+        <AddSectionForm scriptId={script.id} onAdded={sec => onUpdated({ ...script, sections: [...script.sections, sec] })} />
+
         {hasSections && (
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
@@ -483,6 +527,46 @@ function PostHearingCapture({ script, onSaved }: { script: HearingScript; onSave
         style={{ width: "100%", background: ORANGE, border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, color: "#000", cursor: "pointer" }}>
         {saving ? "Saving…" : "Save"}
       </button>
+    </div>
+  );
+}
+
+/** Manual path: type a section yourself (lawyers, or anyone who wants to write their own). */
+function AddSectionForm({ scriptId, onAdded }: { scriptId: string; onAdded: (s: HearingScriptSection) => void }) {
+  const [open, setOpen] = useState(false);
+  const [heading, setHeading] = useState("");
+  const [body, setBody] = useState("");
+  const [kind, setKind] = useState<HearingScriptSection["triggerType"]>("responsive");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{ background: "none", border: "1px dashed #2a2a2a", borderRadius: 12, padding: "10px 14px", cursor: "pointer", color: "#888", fontSize: 13, fontWeight: 700, width: "100%", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Plus size={14} /> Add a section by hand
+      </button>
+    );
+  }
+  const field: React.CSSProperties = { width: "100%", background: "#0a0a0a", border: "1px solid #252525", borderRadius: 10, padding: "10px 12px", fontSize: 14, color: "#fff", boxSizing: "border-box", marginBottom: 10, fontFamily: "inherit" };
+  return (
+    <div style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: 14, marginBottom: 16 }}>
+      <input value={heading} onChange={e => setHeading(e.target.value)} placeholder='Heading, e.g. "Opening statement"' style={field} />
+      <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} placeholder="What you'll say…" style={{ ...field, resize: "vertical" }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {(["opening", "responsive", "closing", "conditional"] as const).map(k => (
+          <button key={k} onClick={() => setKind(k)} style={{ flex: 1, padding: "7px 2px", borderRadius: 8, border: `1px solid ${kind === k ? ORANGE : "#2a2a2a"}`, background: kind === k ? `${ORANGE}22` : "none", color: kind === k ? "#ffb877" : "#777", fontSize: 11.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize" }}>{k}</button>
+        ))}
+      </div>
+      {err && <div style={{ color: "#ff9a8a", fontSize: 12.5, marginBottom: 8 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => setOpen(false)} style={{ flex: 1, background: "none", border: "1px solid #333", borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer" }}>Cancel</button>
+        <button disabled={saving || !heading.trim() || !body.trim()} onClick={async () => {
+          setSaving(true); setErr(null);
+          try { const sec = await aiApi.hearingScripts.addSection(scriptId, { heading, body, triggerType: kind }); onAdded(sec); setHeading(""); setBody(""); setOpen(false); }
+          catch (e) { setErr((e as Error).message || "Couldn't save that section."); }
+          finally { setSaving(false); }
+        }} style={{ flex: 1, background: heading.trim() && body.trim() ? ORANGE : "#2a2a2a", border: "none", borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 800, color: heading.trim() && body.trim() ? "#000" : "#666", cursor: "pointer" }}>{saving ? "Saving…" : "Add section"}</button>
+      </div>
     </div>
   );
 }

@@ -6604,6 +6604,7 @@ export default function App() {
             isApex={planTier === "apex" || isTester}
             onRequireApexUpgrade={() => setShowApexUpgradeGate(true)}
             onCreateApexOverride={handleCreateApexOverride}
+            onBuyCredits={() => setShowCreditShop(true)}
           />
         );
         return (
@@ -6625,6 +6626,7 @@ export default function App() {
           isApex={planTier === "apex" || isTester}
           onRequireApexUpgrade={() => setShowApexUpgradeGate(true)}
           onCreateApexOverride={handleCreateApexOverride}
+          onBuyCredits={() => setShowCreditShop(true)}
         />
       );
     }

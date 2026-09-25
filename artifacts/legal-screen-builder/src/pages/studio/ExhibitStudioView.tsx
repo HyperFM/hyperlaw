@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { aiApi } from "../../lib/aiApi";
+import { STUDIO_SAMPLE } from "../../lib/studioSample";
 import { Info, ChevronRight, CheckCircle2, AlertCircle, XCircle, Folder, Film, X, FolderOpen, Zap, Plus, FilePlus2, PenLine } from "lucide-react";
 import type { HLCase } from "../../types";
 
@@ -28,10 +30,17 @@ interface Props {
    *  workspace's own APEX Override toggle does the real work once a video
    *  is loaded. */
   onCreateApexOverride: () => void;
+  /** Opens the credit shop — Exhibit Studio is the highest-usage tool, so the top-up sits right on its screen. */
+  onBuyCredits?: () => void;
 }
 
-export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, onCreateManualProject, isApex, onRequireApexUpgrade, onCreateApexOverride }: Props) {
+export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, onCreateManualProject, isApex, onRequireApexUpgrade, onCreateApexOverride, onBuyCredits }: Props) {
   const [showInfo, setShowInfo] = useState(false);
+  const [showSample, setShowSample] = useState(false);
+  const [credits, setCredits] = useState<{ balance: number; billingEnabled: boolean; planTier: string; canTopUp: boolean } | null>(null);
+  useEffect(() => {
+    aiApi.creditBalance().then(r => setCredits({ balance: r.creditBalance, billingEnabled: !!r.billingEnabled, planTier: r.planTier ?? "free", canTopUp: r.canTopUp !== false })).catch(() => {});
+  }, []);
   const [showNewProjectPicker, setShowNewProjectPicker] = useState(false);
   const [showManualPicker, setShowManualPicker] = useState(false);
   const [showApexPicker, setShowApexPicker] = useState(false);
@@ -64,6 +73,41 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
 
       <div style={{ padding: "20px 20px 120px", display: "flex", flexDirection: "column" }}>
 
+      {/* ── Credits: this is the highest-usage tool, so the balance and top-up live right here ─────────── */}
+      <div style={{ marginBottom: 16, background: "#141008", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Zap size={18} color={ORANGE} fill={ORANGE} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: ORANGE, fontWeight: 800, letterSpacing: 0.8 }}>STUDIO CREDITS</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1.2 }}>
+              {credits === null ? "…" : credits.planTier === "apex" || credits.planTier === "prosay" ? "Included with your plan" : credits.billingEnabled ? `${credits.balance} credits` : "Free during early access"}
+            </div>
+          </div>
+          {credits?.billingEnabled && credits.canTopUp && onBuyCredits && (
+            <button onClick={onBuyCredits} style={{ background: ORANGE, color: "#0a0908", border: "none", borderRadius: 999, padding: "9px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", flexShrink: 0 }}>Add credits</button>
+          )}
+        </div>
+        <div style={{ fontSize: 12.5, color: "#c9a878", lineHeight: 1.55, marginTop: 10 }}>
+          Exhibit Studio is HyperLaw's most powerful tool — and the one that uses the most AI. Load credits before you start building. Each screen typically uses a few credits.
+        </div>
+      </div>
+
+      {STUDIO_SAMPLE.url && (
+        <div style={{ marginBottom: 16 }}>
+          <button onClick={() => setShowSample(v => !v)} style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
+            <Film size={20} color={ORANGE} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff" }}>{STUDIO_SAMPLE.title}</div>
+              <div style={{ fontSize: 12, color: "#777", marginTop: 2 }}>{STUDIO_SAMPLE.caption}</div>
+            </div>
+            <ChevronRight size={15} color="#444" style={{ transform: showSample ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+          </button>
+          {showSample && (
+            <video src={STUDIO_SAMPLE.url} controls playsInline preload="metadata" style={{ width: "100%", borderRadius: 12, marginTop: 10, background: "#000", maxHeight: "60vh" }} />
+          )}
+        </div>
+      )}
+
       {/* ── More Info ────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
         <button
@@ -77,6 +121,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ABOUT THIS TOOL</div>
             <ul style={{ margin: 0, padding: "0 0 0 16px", display: "flex", flexDirection: "column", gap: 8 }}>
               {[
+                "This is HyperLaw's highest-usage tool. Building screens uses more AI than anything else here, so load credits before you start. Each screen typically uses a few credits, and you'll never be charged for more than your balance.",
                 "This tool is designed to help organize and present video evidence.",
                 "Rules regarding illustrative aids differ by jurisdiction.",
                 "Users are responsible for confirming admissibility in their court.",

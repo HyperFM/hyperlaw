@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getAuth } from "../services/auth.js";
 import { db, generatedDocumentsTable } from "@workspace/db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, lt } from "drizzle-orm";
 
 const router = Router();
 
@@ -16,12 +16,26 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+// Lifecycle: draft -> verified (read-aloud check done) -> filed -> archived.
+// A filed document moves to "archived" ARCHIVE_AFTER_DAYS after it was marked filed. Archived is a quiet storage
+// tier, NOT deletion: it is restorable, and nothing here ever deletes a document — only the person can, on purpose.
+// (Owner decision still open: whether the window should be user-configurable.)
+const ARCHIVE_AFTER_DAYS = 7;
+const VALID_STATUSES = new Set(["draft", "verified", "filed", "archived"]);
+
+async function archiveOldFiled(userId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - ARCHIVE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  await db.update(generatedDocumentsTable).set({ status: "archived" })
+    .where(and(eq(generatedDocumentsTable.userId, userId), eq(generatedDocumentsTable.status, "filed"), lt(generatedDocumentsTable.updatedAt, cutoff)));
+}
+
 // ── List generated documents (optionally filtered by caseId) ──────────────────
 router.get("/ai/generated-documents", requireAuth, async (req: Request, res: Response) => {
   const userId = (req as any).userId as string;
   const rawCaseId = req.query.caseId;
   const caseId = typeof rawCaseId === "string" ? rawCaseId : undefined;
   try {
+    await archiveOldFiled(userId).catch(() => {});
     const rows = await (caseId
       ? db.select().from(generatedDocumentsTable)
           .where(and(eq(generatedDocumentsTable.userId, userId), eq(generatedDocumentsTable.caseId, caseId)))
@@ -72,6 +86,10 @@ router.patch("/ai/generated-documents/:id", requireAuth, async (req: Request, re
   const { status, title } = req.body as { status?: string; title?: string };
   if (!status && !title?.trim()) {
     res.status(400).json({ error: "Provide at least one of: status, title" });
+    return;
+  }
+  if (status && !VALID_STATUSES.has(status)) {
+    res.status(400).json({ error: "Invalid status" });
     return;
   }
   try {

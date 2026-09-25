@@ -1797,6 +1797,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
     }
   }
   const [genDocs, setGenDocs] = useState<ServerGeneratedDoc[]>([]);
+  const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [genDocsLoading, setGenDocsLoading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [generatingDocType, setGeneratingDocType] = useState<DocumentType | null>(null);
@@ -2540,7 +2541,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {genDocs.map(doc => {
+              {genDocs.filter(d => d.status !== "archived").map(doc => {
                 const statusColor = doc.status === "filed" ? "#22c55e" : doc.status === "verified" ? ORANGE : "#555";
                 return (
                   <div key={doc.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px" }}>
@@ -2554,6 +2555,16 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {doc.status !== "filed" && (
+                          <button
+                            title="Mark as filed — it moves to Archived a week later, and you can always restore it"
+                            onClick={async () => {
+                              const updated = await aiApi.generatedDocs.update(doc.id, { status: "filed" }).catch(() => null);
+                              if (updated) setGenDocs(prev => prev.map(d => d.id === doc.id ? updated : d));
+                            }}
+                            style={{ background: "none", border: `1px solid ${statusColor}55`, borderRadius: 6, padding: "5px 8px", cursor: "pointer", color: statusColor === "#555" ? "#888" : statusColor, fontSize: 11, fontWeight: 700 }}
+                          >Mark filed</button>
+                        )}
                         <button
                           title="View document"
                           onClick={() => setViewingDoc(doc)}
@@ -2576,6 +2587,41 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             </div>
           )}
         </div>
+
+        {/* Archived documents — filed a week or more ago. Stored, restorable, never auto-deleted. */}
+        {genDocs.some(d => d.status === "archived") && (
+          <div style={{ marginBottom: 28 }}>
+            <button onClick={() => setShowArchivedDocs(v => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <Archive size={12} color="#444" />
+              <span style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5 }}>ARCHIVED ({genDocs.filter(d => d.status === "archived").length})</span>
+              {showArchivedDocs ? <ChevronUp size={13} color="#444" /> : <ChevronDown size={13} color="#444" />}
+            </button>
+            {showArchivedDocs && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {genDocs.filter(d => d.status === "archived").map(doc => (
+                  <div key={doc.id} style={{ background: "#0d0d0d", border: "1px solid #181818", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#999", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
+                      <div style={{ fontSize: 11, color: "#444" }}>{doc.documentType.replace("_", " ")} · {new Date(doc.createdAt).toLocaleDateString()}</div>
+                    </div>
+                    <button onClick={() => setViewingDoc(doc)} title="View" style={{ background: "none", border: "1px solid #2a3a2a", borderRadius: 6, padding: "5px 7px", cursor: "pointer", color: "#22c55e", display: "flex" }}><Eye size={13} /></button>
+                    <button onClick={async () => {
+                      const updated = await aiApi.generatedDocs.update(doc.id, { status: "filed" }).catch(() => null);
+                      if (updated) setGenDocs(prev => prev.map(d => d.id === doc.id ? updated : d));
+                    }} style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 6, padding: "5px 8px", cursor: "pointer", color: "#aaa", fontSize: 11, fontWeight: 700 }}>Restore</button>
+                    <ConfirmDeleteButton
+                      onDelete={async () => {
+                        await aiApi.generatedDocs.remove(doc.id).catch(() => {});
+                        setGenDocs(prev => prev.filter(d => d.id !== doc.id));
+                      }}
+                      iconSize={13} title="Delete permanently"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Verify readiness before drafting (Section 3) */}
         <VerifyPanel hlCase={hlCase} hasFacts={hlCase.parties.length > 0 || hlCase.timeline.length > 0 || hlCase.story.trim().length > 0 || hlCase.notes.trim().length > 0 || !!hlCase.structuredCase} />

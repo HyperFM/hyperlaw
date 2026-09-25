@@ -5816,6 +5816,7 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
       // Refresh balance after a short delay to allow webhook to process
       setTimeout(() => fetchCreditBalance(), 2000);
+      setTimeout(() => fetchCreditBalance(), 7000); // the webhook can lag a few seconds
       setTimeout(() => setCheckoutToast(null), 6000);
     }
   }, [fetchCreditBalance, user?.id]);

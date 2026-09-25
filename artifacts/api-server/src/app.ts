@@ -7,6 +7,8 @@ import { sessionMiddleware, passport } from "./middlewares/passportConfig";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers.js";
+import type Stripe from "stripe";
+import { getUncachableStripeClient } from "./stripeClient.js";
 import { storage } from "./storage.js";
 
 const app: Express = express();
@@ -35,29 +37,36 @@ app.post(
       return;
     }
 
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret || !process.env.STRIPE_LIVE_API_KEY) {
+      logger.error('Stripe webhook received but STRIPE_WEBHOOK_SECRET / STRIPE_LIVE_API_KEY are not set');
+      res.status(503).json({ error: 'Webhook not configured' });
+      return;
+    }
+
+    // Verify the signature ourselves. Credits must never depend on the (optional) data-sync library below.
+    let event: Stripe.Event;
     try {
-      // 1. Sync Stripe data to the stripe schema tables
-      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(req.body as Buffer, sig, webhookSecret);
+    } catch (err) {
+      logger.warn({ err }, 'Stripe webhook signature verification failed');
+      res.status(400).json({ error: 'Invalid signature' });
+      return;
+    }
 
-      // 2. Handle application events (credit fulfillment)
-      const event = JSON.parse((req.body as Buffer).toString()) as {
-        type: string;
-        data: { object: Record<string, unknown> };
-      };
+    try {
+      // 1. Credit fulfillment FIRST. A non-2xx makes Stripe retry, and the idempotency guard makes retries safe.
+      if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const sessionId = session.id;
+        const userId = session.metadata?.userId;
+        const creditAmount = parseInt(session.metadata?.creditAmount ?? '0', 10);
 
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const sessionId = session.id as string | undefined;
-        const userId = (session.metadata as Record<string, string> | null)?.userId;
-        const creditAmount = parseInt(
-          (session.metadata as Record<string, string> | null)?.creditAmount ?? '0',
-          10,
-        );
-
-        if (userId && creditAmount > 0 && sessionId) {
-          // ── Idempotency guard ────────────────────────────────────────────────
-          // Stripe may retry webhook deliveries; markSessionProcessed uses a
-          // UNIQUE constraint so only the first delivery credits the user.
+        if (session.payment_status !== 'paid') {
+          logger.info({ sessionId, status: session.payment_status }, 'Checkout completed but not paid yet — waiting for async success');
+        } else if (userId && creditAmount > 0 && sessionId) {
+          // UNIQUE-constraint guard: only the first delivery credits the user.
           const recorded = await storage.markSessionProcessed(sessionId, userId, creditAmount);
           if (!recorded) {
             logger.warn({ sessionId, userId }, 'Duplicate webhook delivery — skipping credit fulfillment');
@@ -66,6 +75,13 @@ app.post(
             logger.info({ sessionId, userId, creditAmount, newBalance }, 'Credits added after checkout');
           }
         }
+      }
+
+      // 2. Best-effort data sync (analytics/reporting). Never allowed to fail the webhook.
+      try {
+        await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+      } catch (err) {
+        logger.warn({ err }, 'Stripe data sync failed (credits were already handled)');
       }
 
       res.status(200).json({ received: true });

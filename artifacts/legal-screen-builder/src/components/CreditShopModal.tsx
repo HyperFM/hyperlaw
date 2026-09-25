@@ -49,8 +49,7 @@ export default function CreditShopModal({ onClose, onPurchaseStarted }: Props) {
   }
 
   const PACK_HIGHLIGHTS: Record<string, { badge?: string; highlight?: boolean }> = {
-    "5": { badge: "POPULAR", highlight: true },
-    "15": { badge: "BEST VALUE" },
+    "100": { badge: "TOP-UP", highlight: true },
   };
 
   return (
@@ -76,10 +75,10 @@ export default function CreditShopModal({ onClose, onPurchaseStarted }: Props) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <Zap size={20} color={ORANGE} fill={ORANGE} />
-          <span style={{ fontWeight: 800, fontSize: 18 }}>Document Credits</span>
+          <span style={{ fontWeight: 800, fontSize: 18 }}>Credits</span>
         </div>
         <p style={{ color: "#666", fontSize: 13, lineHeight: 1.5, marginBottom: 24 }}>
-          Each credit unlocks one AI-generated formal legal document — a civil rights complaint, litigation motion, or structured timeline. Credits never expire.
+          Credits pay for the AI work in your case, charged by what it actually costs to run. Your Index, cases and timelines stay free. Credits never expire.
         </p>
 
         {loading && (
@@ -140,7 +139,7 @@ export default function CreditShopModal({ onClose, onPurchaseStarted }: Props) {
                       )}
                     </div>
                     <div style={{ color: "#555", fontSize: 12 }}>
-                      ${((price.unit_amount / 100) / credits).toFixed(2)}/document
+                      ${((price.unit_amount / 100) / credits).toFixed(2)} per credit
                     </div>
                   </div>
 

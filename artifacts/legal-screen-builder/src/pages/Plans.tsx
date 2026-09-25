@@ -28,20 +28,21 @@ const ALL_PLANS = [
     tagline: "You don't have to be fearless. Doing it afraid is just as brave.",
     price: "Pay As You Go",
     cycle: null as string | null,
-    priceNote: "No subscription · credits are spent only as you draft",
+    priceNote: "No subscription · $5 adds 100 credits, spent only on AI work you use",
     badge: null as string | null,
     quote:
       '"You\'ll make mistakes. That\'s not disqualifying — quitting is. Stay determined and the scale tips your way eventually, even when it doesn\'t look like it yet."',
     features: [
       { text: "<b>Cases, incidents & timelines — always free</b> — build and document everything at no cost", tbd: false },
-      { text: "<b>See the price before you draft</b> — every AI document shows a clear credit estimate up front, so you decide before anything is generated", tbd: false },
-      { text: "<b>Pay only for what you generate</b> — credits are spent by usage, and never above the estimate we show first", tbd: false },
+      { text: "<b>Your first intake is free</b> — tell your story and get your case organized before you pay anything", tbd: false },
+      { text: "<b>Pay only for what you use</b> — credits are charged by the real cost of the AI work, and they never expire", tbd: false },
       { text: "Guided case tutor included — plain-English answers to your legal questions", tbd: false },
       { text: "A document & evidence checklist: keep the camera rolling, save every receipt", tbd: false },
     ],
     ctaLabel: "Start Building Your Case",
     ctaStyle: "secondary" as const,
     signUpPath: "/sign-up",
+    comingSoon: false as boolean,
   },
   {
     id: "prosay",
@@ -49,7 +50,7 @@ const ALL_PLANS = [
     tagline: "Say it right, every filing",
     price: "$25",
     cycle: "/ month" as string | null,
-    priceNote: "Billed monthly · cancel anytime",
+    priceNote: "Coming soon — not available to buy yet",
     badge: null as string | null,
     quote:
       '"The law rewards those who show up prepared. Pro-Say gives you every tool to make sure that person is you."',
@@ -60,9 +61,10 @@ const ALL_PLANS = [
       { text: "<b>Factual gap checklist</b> — know exactly what documentation is missing before you file", tbd: false },
       { text: "<b>Advanced reminders</b> — deadline tracking across all your cases", tbd: false },
     ],
-    ctaLabel: "Select Pro-Say",
+    ctaLabel: "Coming soon",
     ctaStyle: "primary" as const,
     signUpPath: "/sign-up",
+    comingSoon: true as boolean,
   },
   {
     id: "apex",
@@ -70,7 +72,7 @@ const ALL_PLANS = [
     tagline: "THE MANEATER PACKAGE — NO CAP",
     price: "$100",
     cycle: "/ month" as string | null,
-    priceNote: "Billed monthly · cancel anytime",
+    priceNote: "Coming soon — not available to buy yet",
     badge: "Full Docket" as string | null,
     quote:
       '"For attorneys, power litigants, and anyone who refuses to leave anything on the table. Sink your teeth into the docket and don\'t let go."',
@@ -81,9 +83,10 @@ const ALL_PLANS = [
       { text: "<b>Priority everything</b> — support, tutor, document analysis, front of the line", tbd: false },
       { text: "<b>Run your entire practice</b> — fight every battle at once, on your terms", tbd: false },
     ],
-    ctaLabel: "Select Apex Litigant",
+    ctaLabel: "Coming soon",
     ctaStyle: "primary" as const,
     signUpPath: "/sign-up",
+    comingSoon: true as boolean,
   },
 ];
 
@@ -244,7 +247,7 @@ export default function Plans() {
         </div>
 
         <p style={{ textAlign: "center", color: "#4a4542", fontSize: 11, marginTop: 36, lineHeight: 1.6 }}>
-          No subscription required · Pay only for what you use · Cancel paid plans anytime
+          No subscription required · Pay only for what you use
         </p>
       </div>
     </div>
@@ -307,7 +310,7 @@ function PlanCard({ plan, iconSrc, isActive, onCta }: {
           ))}
         </ul>
 
-        <button onClick={onCta} style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none", transition: "filter .2s ease, transform .15s ease" }}>
+        <button onClick={onCta} disabled={plan.comingSoon} style={{ opacity: plan.comingSoon ? 0.5 : 1, width: "100%", padding: "14px 18px", borderRadius: 12, border: plan.ctaStyle === "primary" ? "none" : `1px solid ${LINE}`, cursor: plan.comingSoon ? "default" : "pointer", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 13.5, marginTop: "auto", background: plan.ctaStyle === "primary" ? `linear-gradient(90deg, ${ORANGE}, ${ORANGE_HOT})` : "transparent", color: plan.ctaStyle === "primary" ? "#0a0908" : PAPER, boxShadow: plan.ctaStyle === "primary" ? "0 10px 30px -10px rgba(244,93,1,.75)" : "none", transition: "filter .2s ease, transform .15s ease" }}>
           {plan.ctaLabel}
         </button>
       </div>

@@ -37,6 +37,12 @@ interface Props {
 export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, onCreateManualProject, isApex, onRequireApexUpgrade, onCreateApexOverride, onBuyCredits }: Props) {
   const [showInfo, setShowInfo] = useState(false);
   const [showSample, setShowSample] = useState(false);
+  const [creditsOpen, setCreditsOpen] = useState(true);
+  // Once dismissed, the credits card and the example video move into "More Info" and stay there.
+  const readDismissed = (k: string) => { try { return localStorage.getItem(k) === "1"; } catch { return false; } };
+  const [creditsDismissed, setCreditsDismissed] = useState(() => readDismissed("hl_studio_credits_dismissed"));
+  const [sampleDismissed, setSampleDismissed] = useState(() => readDismissed("hl_studio_sample_dismissed"));
+  const dismiss = (k: string, set: (v: boolean) => void) => { set(true); try { localStorage.setItem(k, "1"); } catch { /* ignore */ } };
   const [credits, setCredits] = useState<{ balance: number; billingEnabled: boolean; planTier: string; canTopUp: boolean } | null>(null);
   useEffect(() => {
     aiApi.creditBalance().then(r => setCredits({ balance: r.creditBalance, billingEnabled: !!r.billingEnabled, planTier: r.planTier ?? "free", canTopUp: r.canTopUp !== false })).catch(() => {});
@@ -61,19 +67,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
   // as "tie this to an existing case" options.
   const realCases = sorted.filter(c => !c.exhibitOnly);
 
-  return (
-    <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-
-      {/* ── Banner image — smaller, full image visible, left-flush ── */}
-      <img
-        src="/exhibit-studio-banner.png"
-        alt="Exhibit Studio"
-        style={{ height: 130, width: "auto", display: "block", flexShrink: 0, alignSelf: "flex-start" }}
-      />
-
-      <div style={{ padding: "20px 20px 120px", display: "flex", flexDirection: "column" }}>
-
-      {/* ── Credits: this is the highest-usage tool, so the balance and top-up live right here ─────────── */}
+  const renderCredits = (dismissible: boolean) => (
       <div style={{ marginBottom: 16, background: "#141008", border: `1px solid ${ORANGE}44`, borderRadius: 14, padding: "14px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Zap size={18} color={ORANGE} fill={ORANGE} />
@@ -86,14 +80,23 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
           {credits?.billingEnabled && credits.canTopUp && onBuyCredits && (
             <button onClick={onBuyCredits} style={{ background: ORANGE, color: "#0a0908", border: "none", borderRadius: 999, padding: "9px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", flexShrink: 0 }}>Add credits</button>
           )}
+          <button onClick={() => setCreditsOpen(v => !v)} aria-label={creditsOpen ? "Shrink" : "Expand"} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
+            <ChevronRight size={16} color="#c9a878" style={{ transform: creditsOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+          </button>
+          {dismissible && (
+            <button onClick={() => dismiss("hl_studio_credits_dismissed", setCreditsDismissed)} aria-label="Dismiss" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
+              <X size={16} color="#8a7050" />
+            </button>
+          )}
         </div>
-        <div style={{ fontSize: 12.5, color: "#c9a878", lineHeight: 1.55, marginTop: 10 }}>
+        {creditsOpen && <div style={{ fontSize: 12.5, color: "#c9a878", lineHeight: 1.55, marginTop: 10 }}>
           Exhibit Studio is HyperLaw's most powerful tool — and the one that uses the most AI. Load credits before you start building. Each screen uses about 4–6 credits (roughly $0.20–$0.30). A one-hour exhibit usually needs 5 or more screens, so plan on about 20–30 credits (around $1–$1.50) or more, and extra if you regenerate.
-        </div>
+        </div>}
       </div>
+  );
 
-      {STUDIO_SAMPLE.url && (
-        <div style={{ marginBottom: 16 }}>
+  const renderSample = (dismissible: boolean) => (STUDIO_SAMPLE.url ? (
+        <div style={{ marginBottom: 16, position: "relative" }}>
           <button onClick={() => setShowSample(v => !v)} style={{ width: "100%", background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
             <Film size={20} color={ORANGE} />
             <div style={{ flex: 1 }}>
@@ -102,11 +105,32 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
             </div>
             <ChevronRight size={15} color="#444" style={{ transform: showSample ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
           </button>
+          {dismissible && (
+            <button onClick={() => dismiss("hl_studio_sample_dismissed", setSampleDismissed)} aria-label="Dismiss" style={{ position: "absolute", top: 6, right: 6, background: "#000a", border: "none", borderRadius: 999, cursor: "pointer", padding: 4, display: "flex" }}>
+              <X size={14} color="#aaa" />
+            </button>
+          )}
           {showSample && (
             <video src={STUDIO_SAMPLE.url} controls playsInline preload="metadata" style={{ width: "100%", borderRadius: 12, marginTop: 10, background: "#000", maxHeight: "60vh" }} />
           )}
         </div>
-      )}
+
+  ) : null);
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+
+      {/* ── Banner image — smaller, full image visible, left-flush ── */}
+      <img
+        src="/exhibit-studio-banner.png"
+        alt="Exhibit Studio"
+        style={{ height: 130, width: "auto", display: "block", flexShrink: 0, alignSelf: "flex-start" }}
+      />
+
+      <div style={{ padding: "20px 20px 120px", display: "flex", flexDirection: "column" }}>
+
+      {!creditsDismissed && renderCredits(true)}
+      {!sampleDismissed && renderSample(true)}
 
       {/* ── More Info ────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
@@ -117,7 +141,10 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
           {showInfo ? "Hide Info" : "More Info"}
         </button>
         {showInfo && (
-          <div style={{ marginTop: 10, background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ marginTop: 10 }}>
+            {creditsDismissed && renderCredits(false)}
+            {sampleDismissed && renderSample(false)}
+          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "16px 18px" }}>
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ABOUT THIS TOOL</div>
             <ul style={{ margin: 0, padding: "0 0 0 16px", display: "flex", flexDirection: "column", gap: 8 }}>
               {[
@@ -130,6 +157,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
                 <li key={i} style={{ fontSize: 13, color: "#888", lineHeight: 1.55 }}>{line}</li>
               ))}
             </ul>
+          </div>
           </div>
         )}
       </div>

@@ -104,6 +104,10 @@ export default function IosPaygTopUpModal({ onClose, onPurchased }: Props) {
           Adds $5.00 to your balance, spent only as you actually draft — the easy way to keep going right here
           in the app.
         </p>
+        <p style={{ color: "#666", fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
+          Want a full plan upgrade instead? That's managed on{" "}
+          <span style={{ color: ORANGE, fontWeight: 700 }}>hyperlaw.site</span>, not here.
+        </p>
         <p style={{ color: ORANGE, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 24 }}>
           In-App Purchase
         </p>

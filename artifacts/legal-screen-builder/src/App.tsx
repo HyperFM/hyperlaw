@@ -41,7 +41,8 @@ import { CaseChat } from "./components/CaseChat";
 import { OtherAppsModal } from "./components/OtherAppsModal";
 import { CaseSummaryCompact } from "./components/CaseSummaryCompact";
 import { caseSourceKey } from "./lib/caseSourceKey";
-import { mergeFactsIntoCase, keepChatItems } from "./lib/caseMerge";
+import { keepChatItems } from "./lib/caseMerge";
+import { runIntakeCompletion } from "./lib/caseIntake";
 import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
@@ -1054,8 +1055,9 @@ function CaseSlider({ cases, onOpenCase, onContinueCase, onUpdateCase, onRequest
 // names/details are something to fill in later, not a blocker to starting),
 // an existing complaint document to extract from, or the original guided
 // step-by-step wizard for anyone who wants that structure.
-function CaseStartChoiceView({ hlCase, onTellStory, onSubmitComplaint, onFullIntake, uploading, uploadPct, uploadError, onClearUploadError }: {
+function CaseStartChoiceView({ hlCase, onTellChat, onTellStory, onSubmitComplaint, onFullIntake, uploading, uploadPct, uploadError, onClearUploadError }: {
   hlCase: HLCase;
+  onTellChat: () => void;
   onTellStory: () => void;
   onSubmitComplaint: (file: File) => void;
   onFullIntake: () => void;
@@ -1086,14 +1088,15 @@ function CaseStartChoiceView({ hlCase, onTellStory, onSubmitComplaint, onFullInt
       />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <button onClick={onTellStory} disabled={uploading}
+        <button onClick={onTellChat} disabled={uploading}
           style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 16, padding: 18, textAlign: "left", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.5 : 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-            <Mic size={17} color={ORANGE} />
-            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Tell the Whole Story</div>
+            <MessageSquare size={17} color={ORANGE} />
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Tell us what happened</div>
+            <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: ORANGE, border: `1px solid ${ORANGE}66`, borderRadius: 999, padding: "2px 8px" }}>FREE</span>
           </div>
           <div style={{ fontSize: 13, color: "#999", lineHeight: 1.55 }}>
-            Write out everything that happened, in your own words — every party involved and what you feel was done wrong. Don't know a name? List them as "Jane Doe" and explain why they matter; you can fill in the real details later.
+            Just talk it through, in your own words. I'll ask the questions I need to organize your case. The chat isn't kept — only what you confirm is saved to your Index.
           </div>
         </button>
 
@@ -1127,6 +1130,10 @@ function CaseStartChoiceView({ hlCase, onTellStory, onSubmitComplaint, onFullInt
           </div>
         </button>
       </div>
+
+      <button onClick={onTellStory} disabled={uploading} style={{ marginTop: 16, background: "none", border: "none", padding: 0, color: "#777", fontSize: 13, textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
+        Prefer to write it all out in one go instead?
+      </button>
 
       {uploadError && (
         <div style={{ marginTop: 16, padding: "10px 14px", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 10, fontSize: 13, color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1784,19 +1791,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
   // The free intake chat finished: fold what the person confirmed into the case, build the Index right
   // away (no waiting for the background refresh), then take them to it.
   async function handleIntakeComplete(r: IntakeResult) {
-    const updated: HLCase = mergeFactsIntoCase(hlCase, r);
-    onUpdateCase(updated);
-    let final = updated;
-    try {
-      const structured = await aiApi.organizeCase({ hlCase: updated as Parameters<typeof aiApi.organizeCase>[0]["hlCase"], caseId: hlCase.id });
-      const full = { ...structured, organizedAt: Date.now(), sourceKey: caseSourceKey(updated) };
-      final = { ...updated, structuredCase: full, structuredCaseGeneratedAt: Date.now() };
-      onUpdateCase(final);
-      api.cases.saveStructured(hlCase.id, full as unknown as Record<string, unknown>).catch(() => {});
-    } catch {
-      // The Index will build itself in the background; the confirmed details are already saved.
-    }
-    void aiApi.intakeFinish().catch(() => {});
+    const final = await runIntakeCompletion(hlCase, r, onUpdateCase);
     setShowIntakeChat(false);
     onOpenInTutor(final);
   }
@@ -5598,6 +5593,7 @@ export default function App() {
   const serverSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Tracks which cases have already had organize triggered to prevent double-firing */
   const organizingCasesRef = useRef<Set<string>>(new Set());
+  const [startIntakeCaseId, setStartIntakeCaseId] = useState<string | null>(null);
   // Mirrors `data` outside React state so the visibility/pagehide flush below
   // (registered once, empty deps) always sees the latest cases instead of
   // whatever was current when the listener was attached.
@@ -6269,8 +6265,10 @@ export default function App() {
       const hlCase = data.cases.find(c => c.id === view.caseId);
       if (!hlCase) { goHome(); return null; }
       return (
+        <>
         <CaseStartChoiceView
           hlCase={hlCase}
+          onTellChat={() => setStartIntakeCaseId(hlCase.id)}
           onTellStory={() => setView({ type: "case_story", caseId: hlCase.id, cameFromStartChoice: true })}
           onSubmitComplaint={file => handleUploadForExistingCase(hlCase.id, file)}
           onFullIntake={() => setView({ type: "case_parties", caseId: hlCase.id })}
@@ -6279,6 +6277,19 @@ export default function App() {
           uploadError={newCaseUploadError}
           onClearUploadError={() => setNewCaseUploadError(null)}
         />
+        {startIntakeCaseId === hlCase.id && (
+          <IntakeChat
+            caseId={hlCase.id}
+            onClose={() => setStartIntakeCaseId(null)}
+            onComplete={async r => {
+              const final = await runIntakeCompletion(hlCase, r, c => setData(updateCase(data, c)));
+              setStartIntakeCaseId(null);
+              setNavTab("tutor");
+              setView({ type: "tutor", hlCase: final });
+            }}
+          />
+        )}
+        </>
       );
     }
 

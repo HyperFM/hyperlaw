@@ -6,7 +6,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "../services/auth.js";
-import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable } from "@workspace/db";
+import { db, aiLogsTable, aiAnalysisCacheTable, errorLogsTable, stripeProcessedSessionsTable, appleProcessedTransactionsTable } from "@workspace/db";
 import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
 import { staleRates } from "../services/aiRates.js";
 import { isBillingEnabled, setBillingEnabled } from "../services/billing.js";
@@ -159,7 +159,8 @@ router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void>
   const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
   const weekStart = new Date(dayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
   const cost = sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)`;
-  const [today, week, byRoute, byUser, todaySpend, stale, paused] = await Promise.all([
+  const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+  const [today, week, byRoute, byUser, todaySpend, stale, paused, monthCost, webRev, appleRev] = await Promise.all([
     db.select({ cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, dayStart)),
     db.select({ cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, weekStart)),
     db.select({ feature: aiLogsTable.feature, cost, calls: sql<number>`cast(count(*) as int)` }).from(aiLogsTable)
@@ -169,7 +170,12 @@ router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void>
     globalSpendTodayMicroUsd(),
     staleRates(),
     isAiPaused(),
+    db.select({ cost }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, monthStart)),
+    db.select({ credits: sql<number>`cast(coalesce(sum(credit_amount), 0) as bigint)` }).from(stripeProcessedSessionsTable).where(gte(stripeProcessedSessionsTable.processedAt, monthStart)),
+    db.select({ micro: sql<number>`cast(coalesce(sum(amount_micro_usd), 0) as bigint)` }).from(appleProcessedTransactionsTable).where(gte(appleProcessedTransactionsTable.processedAt, monthStart)),
   ]);
+  // Revenue in real dollars: web credits are $0.05 each; Apple purchases are credited at face value.
+  const revenueMonthMicroUsd = Number(webRev[0]?.credits ?? 0) * 50_000 + Number(appleRev[0]?.micro ?? 0);
   res.json({
     todayMicroUsd: Number(today[0]?.cost ?? 0), todayCalls: today[0]?.calls ?? 0,
     weekMicroUsd: Number(week[0]?.cost ?? 0), weekCalls: week[0]?.calls ?? 0,
@@ -180,6 +186,8 @@ router.get("/admin/ai/spend", async (req: Request, res: Response): Promise<void>
     globalPauseMicroUsd: globalPauseMicroUsd(),
     perUserLimitMicroUsd: { free: userDailyLimitMicroUsd("free"), prosay: userDailyLimitMicroUsd("prosay"), apex: userDailyLimitMicroUsd("apex") },
     paused,
+    monthCostMicroUsd: Number(monthCost[0]?.cost ?? 0),
+    monthRevenueMicroUsd: revenueMonthMicroUsd,
     billingEnabled: await isBillingEnabled(),
     staleRates: stale,
   });

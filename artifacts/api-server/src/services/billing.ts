@@ -49,8 +49,11 @@ const BILLED_MICRO_PER_CREDIT = Math.round(USD_PER_CREDIT * 1_000_000); // 50,00
  * doesn't cost a whole credit: cost accumulates, whole credits are deducted as they add up.
  * Returns the credits actually deducted (0 when waived, cached, or still under a credit).
  */
-export async function chargeForCall(userId: string, costMicroUsd: number): Promise<number> {
-  if (costMicroUsd <= 0) return 0;
+// Features that are free to the person by design (their cost is still logged and counted by the spend guards).
+const FREE_FEATURES = new Set(['intake_chat']);
+
+export async function chargeForCall(userId: string, costMicroUsd: number, feature?: string): Promise<number> {
+  if (costMicroUsd <= 0 || (feature && FREE_FEATURES.has(feature))) return 0;
   try {
     if (await isUserWaived(userId)) return 0;
     const carryKey = `carry:${userId}`;

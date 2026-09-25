@@ -35,6 +35,16 @@ export function SpendPanel() {
         <div style={{ ...box, flex: 1 }}><div style={label}>Last 7 days</div><div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>{usd(d.weekMicroUsd)}</div><div style={{ fontSize: 11, color: "#666" }}>{d.weekCalls} calls</div></div>
       </div>
 
+      <div style={{ ...box, marginBottom: 10, borderColor: d.monthCostMicroUsd > d.monthRevenueMicroUsd && d.billingEnabled ? "#5a1a1a" : "#1e1e1e" }}>
+        <div style={label}>This month: money in vs money out</div>
+        <div style={{ display: "flex", gap: 18, marginTop: 6, fontSize: 13.5, color: "#ccc" }}>
+          <span>Paid by users <b style={{ color: "#7fd39a" }}>{usd(d.monthRevenueMicroUsd)}</b></span>
+          <span>AI cost <b style={{ color: "#eee" }}>{usd(d.monthCostMicroUsd)}</b></span>
+          <span>Net <b style={{ color: d.monthRevenueMicroUsd - d.monthCostMicroUsd >= 0 ? "#7fd39a" : "#ef4444" }}>{usd(d.monthRevenueMicroUsd - d.monthCostMicroUsd)}</b></span>
+        </div>
+        {!d.billingEnabled && <div style={{ fontSize: 11.5, color: "#777", marginTop: 6 }}>Billing is off, so nothing is being paid yet — all AI cost is yours.</div>}
+      </div>
+
       <div style={{ ...box, marginBottom: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <div style={label}>Combined spend vs emergency pause</div>

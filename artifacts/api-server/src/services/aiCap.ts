@@ -36,6 +36,15 @@ export async function aiDailyCap(req: Request, res: Response, next: NextFunction
   const verdict = await checkSpend(userId, !!req.user?.isAdmin);
   if (!verdict.ok) { res.status(verdict.status).json({ error: verdict.error, code: verdict.code }); return; }
 
+  // Any AI route needs at least one credit once billing is on (the free intake is the one exception).
+  if (req.path !== "/intake/chat" && req.get("X-Client-Platform") !== "ios" && (await isBillingEnabled()) && !(await isUserWaived(userId))) {
+    const balance = await storage.getCreditBalance(userId);
+    if (balance < 1) {
+      res.status(402).json({ code: "insufficient_credits", error: "You're out of credits. Add credits to keep using the AI.", creditsNeeded: 1, creditBalance: balance });
+      return;
+    }
+  }
+
   // Balance pre-check (web only; the iOS app has its own balance and check). Only when billing is on and the user pays.
   const hit = EXPENSIVE.find(([re]) => re.test(req.path));
   if (hit && req.get("X-Client-Platform") !== "ios" && (await isBillingEnabled()) && !(await isUserWaived(userId))) {

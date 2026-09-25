@@ -132,7 +132,7 @@ export interface LogCallParams {
 export async function logAiCall(params: LogCallParams): Promise<void> {
   const rate = params.cacheHit ? null : rateFor(params.model);
   // Cost-based charging: a real call is charged here, once, when billing is on (services/billing.ts).
-  const charged = params.cacheHit ? 0 : await chargeForCall(params.userId, params.estimatedCostMicroUsd);
+  const charged = params.cacheHit ? 0 : await chargeForCall(params.userId, params.estimatedCostMicroUsd, params.feature);
   const base = {
     userId: params.userId,
     caseId: params.caseId ?? null,

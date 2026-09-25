@@ -296,6 +296,7 @@ export interface AdminSpend {
   globalSpendTodayMicroUsd: number; globalAlertMicroUsd: number; globalPauseMicroUsd: number;
   perUserLimitMicroUsd: { free: number; prosay: number; apex: number };
   paused: boolean; billingEnabled: boolean;
+  monthCostMicroUsd: number; monthRevenueMicroUsd: number;
   staleRates: Array<{ model: string; daysOld: number | null }>;
 }
 

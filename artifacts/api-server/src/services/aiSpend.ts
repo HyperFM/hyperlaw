@@ -4,7 +4,8 @@
 //   - total spend across everyone passes $60   -> email only, nothing pauses
 //   - total spend passes $40                   -> AI pauses app-wide + email, until the owner resumes it
 
-import { db, aiLogsTable, appSettingsTable } from "@workspace/db";
+import { db, aiLogsTable, appSettingsTable, stripeProcessedSessionsTable, appleProcessedTransactionsTable } from "@workspace/db";
+import { isBillingEnabled } from "./billing.js";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { sendOwnerAlert } from "./email.js";
 import { staleRates } from "./aiRates.js";
@@ -20,10 +21,34 @@ export function userDailyLimitMicroUsd(planTier: string | null | undefined): num
   const usd =
     planTier === "apex" ? usdEnv("AI_USER_LIMIT_APEX_USD", 75)
     : planTier === "prosay" ? usdEnv("AI_USER_LIMIT_PRO_USD", 30)
-    : usdEnv("AI_USER_LIMIT_FREE_USD", 15); // free + pay-as-you-go
+    : usdEnv("AI_USER_LIMIT_FREE_USD", 5); // free + pay-as-you-go (with billing on, their credit balance is the tighter limit)
   return Math.round(usd * 1_000_000);
 }
 /** Total provider spend across ALL users (owner included) that triggers an owner email. Default $60. Never blocks. */
+/**
+ * Members (Pro-Say / Apex) pay a flat monthly price, so their AI cost has to stay under a share of that price, or a
+ * heavy user costs more than they pay. Monthly real-cost caps: defaults keep at least ~50% of the price as margin.
+ */
+export function memberMonthlyCapMicroUsd(planTier: string | null | undefined): number | null {
+  if (planTier === "prosay") return Math.round(usdEnv("AI_MEMBER_MONTHLY_PRO_USD", 12) * 1_000_000);   // $25/mo plan
+  if (planTier === "apex") return Math.round(usdEnv("AI_MEMBER_MONTHLY_APEX_USD", 60) * 1_000_000);   // $100/mo plan
+  return null;
+}
+
+function startOfMonth(): Date {
+  const d = new Date();
+  d.setUTCDate(1); d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+export async function userSpendMonthMicroUsd(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)` })
+    .from(aiLogsTable)
+    .where(and(eq(aiLogsTable.userId, userId), gte(aiLogsTable.createdAt, startOfMonth())));
+  return Number(row?.total ?? 0);
+}
+
 export const globalAlertMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_ALERT_USD", 60) * 1_000_000);
 /** Total provider spend across ALL users that auto-pauses AI app-wide. Default $150. The one true kill switch. */
 export const globalPauseMicroUsd = () => Math.round(usdEnv("AI_GLOBAL_PAUSE_USD", 150) * 1_000_000);
@@ -88,12 +113,32 @@ function alertOnce(key: string, subject: string, body: string): void {
   void sendOwnerAlert(subject, body).catch((err) => logger.warn({ err }, "owner alert email failed"));
 }
 
+// Money in vs money out: once billing is on, an email if this month's real AI cost is heading past what people have paid.
+let lastMarginCheck = 0;
+async function checkMargin(): Promise<void> {
+  if (Date.now() - lastMarginCheck < 30 * 60_000) return;
+  lastMarginCheck = Date.now();
+  if (!(await isBillingEnabled())) return;
+  const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+  const [[c], [w], [a]] = await Promise.all([
+    db.select({ t: sql<number>`cast(coalesce(sum(estimated_cost_micro_usd), 0) as bigint)` }).from(aiLogsTable).where(gte(aiLogsTable.createdAt, monthStart)),
+    db.select({ t: sql<number>`cast(coalesce(sum(credit_amount), 0) as bigint)` }).from(stripeProcessedSessionsTable).where(gte(stripeProcessedSessionsTable.processedAt, monthStart)),
+    db.select({ t: sql<number>`cast(coalesce(sum(amount_micro_usd), 0) as bigint)` }).from(appleProcessedTransactionsTable).where(gte(appleProcessedTransactionsTable.processedAt, monthStart)),
+  ]);
+  const cost = Number(c?.t ?? 0), revenue = Number(w?.t ?? 0) * 50_000 + Number(a?.t ?? 0);
+  if (cost > 10_000_000 && cost > revenue * 0.8) {
+    alertOnce("margin", "HyperLaw: AI cost is close to (or past) what people have paid this month",
+      `This month: real AI cost $${(cost / 1e6).toFixed(2)} vs $${(revenue / 1e6).toFixed(2)} paid by users. Check the spend dashboard for who is using the most.`);
+  }
+}
+
 export type SpendVerdict = { ok: true } | { ok: false; status: number; code: string; error: string };
 
 /** Run before every model-calling request. Rejects when AI is paused app-wide, or when this user has reached their plan's daily limit. */
 export async function checkSpend(userId: string, isAdmin: boolean): Promise<SpendVerdict> {
   const paused: SpendVerdict = { ok: false, status: 503, code: "ai_paused", error: "AI features are paused for a moment. Your work is saved — please try again later." };
   if (await isAiPaused()) return paused;
+  void checkMargin().catch(() => {});
   try {
     const globalSpend = await globalSpendTodayMicroUsd();
     if (globalSpend >= globalPauseMicroUsd()) {
@@ -113,6 +158,15 @@ export async function checkSpend(userId: string, isAdmin: boolean): Promise<Spen
     }
     if (!isAdmin) {
       const [spend, user] = await Promise.all([userSpendTodayMicroUsd(userId), storage.getUser(userId)]);
+      const memberCap = memberMonthlyCapMicroUsd(user?.planTier);
+      if (memberCap !== null) {
+        const month = await userSpendMonthMicroUsd(userId);
+        if (month >= memberCap) {
+          alertOnce(`member:${userId}`, "HyperLaw: a member reached their monthly AI allowance",
+            `User ${userId} (${user?.planTier}) has used $${(month / 1e6).toFixed(2)} of real AI cost this month (allowance $${(memberCap / 1e6).toFixed(2)}). They're paused until the 1st.`);
+          return { ok: false, status: 429, code: "rate_limited", error: "You've used this month's included AI usage. It resets on the 1st, and everything you've done is saved." };
+        }
+      }
       const limit = userDailyLimitMicroUsd(user?.planTier);
       if (spend >= limit) {
         alertOnce(`user:${userId}`, "HyperLaw: a user hit their daily AI limit",

@@ -6780,12 +6780,13 @@ export default function App() {
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
               {isIosApp()
-                ? <>You're on <strong style={{ color: "#ccc" }}>1 case</strong> right now. Unlimited cases and more are available — managed on hyperlaw.site, not in the app.</>
+                ? <>You're on <strong style={{ color: "#ccc" }}>1 case</strong> right now. </>
                 : <>The free plan includes <strong style={{ color: "#ccc" }}>1 case</strong>. Upgrade to Pro-Say or Apex for unlimited cases, priority AI processing, and advanced document generation.</>}
             </p>
             <p style={{ color: "#555", fontSize: 12, lineHeight: 1.5, margin: "0 0 24px" }}>
               💡 <strong style={{ color: "#666" }}>Tip:</strong> You can also delete an existing case to free up a slot.
             </p>
+            {!isIosApp() && (
             <button
               onClick={() => {
                 setShowUpgradeGate(false);
@@ -6795,6 +6796,7 @@ export default function App() {
               style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
               {isIosApp() ? "Upgrade at hyperlaw.site" : "View Plans & Upgrade"}
             </button>
+            )}
             <button
               onClick={() => setShowUpgradeGate(false)}
               style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>
@@ -6826,8 +6828,9 @@ export default function App() {
             </div>
             <p style={{ color: "#888", fontSize: 14, lineHeight: 1.65, margin: "0 0 24px" }}>
               This is man eater material. Load raw footage and AI transcribes it, finds the moments that matter, and builds your exhibits automatically. Less thinking, less work, way more firepower — but it's Apex Litigant only
-              {isIosApp() ? ", and that upgrade is managed on hyperlaw.site, not in the app." : "."}
+              .
             </p>
+            {!isIosApp() && (
             <button
               onClick={() => {
                 setShowApexUpgradeGate(false);
@@ -6837,6 +6840,7 @@ export default function App() {
               style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 15, background: `linear-gradient(90deg, ${ORANGE}, #f45d01)`, color: "#000", marginBottom: 10 }}>
               {isIosApp() ? "Upgrade at hyperlaw.site" : "View Plans & Upgrade"}
             </button>
+            )}
             <button
               onClick={() => setShowApexUpgradeGate(false)}
               style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1px solid #2a2a2a", cursor: "pointer", fontWeight: 700, fontSize: 14, background: "none", color: "#555" }}>

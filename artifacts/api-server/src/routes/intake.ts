@@ -54,7 +54,7 @@ router.post("/intake/chat", async (req: Request, res: Response): Promise<void> =
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!aiService.isConfigured()) { res.status(503).json({ error: "AI service not configured" }); return; }
 
-  const { messages } = req.body as { messages?: Array<{ role: string; content: string }> };
+  const { messages, captured } = req.body as { messages?: Array<{ role: string; content: string }>; captured?: { parties?: string[]; events?: string[] } };
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 80) { res.status(400).json({ error: "Invalid messages" }); return; }
   const clean = messages.map(m => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: String(m.content ?? "").slice(0, 4000) }));
   if (clean[clean.length - 1].role !== "user" || !clean[clean.length - 1].content.trim()) { res.status(400).json({ error: "Last message must be the person's" }); return; }
@@ -89,7 +89,13 @@ router.post("/intake/chat", async (req: Request, res: Response): Promise<void> =
   const start = Date.now();
   let response: Awaited<ReturnType<typeof aiService.createMessage>>;
   try {
-    response = await aiService.createMessage({ model: MODEL, max_tokens: 700, system: SYSTEM_PROMPT, messages: apiMessages });
+    // Tell the model what the app already has so it reports only what is genuinely new this turn.
+    const have = [
+      ...(captured?.parties ?? []).slice(0, 30).map(x => `person: ${String(x).slice(0, 80)}`),
+      ...(captured?.events ?? []).slice(0, 30).map(x => `event: ${String(x).slice(0, 140)}`),
+    ];
+    const system = have.length ? `${SYSTEM_PROMPT}\n\nALREADY CAPTURED (do NOT list these again, in any wording, and do not list the same person twice with or without a title):\n${have.join("\n")}` : SYSTEM_PROMPT;
+    response = await aiService.createMessage({ model: MODEL, max_tokens: 700, system, messages: apiMessages });
   } catch (err) {
     logger.warn({ err }, "intake chat call failed");
     res.status(502).json({ error: "Couldn't reach the intake guide right now — please try again." });

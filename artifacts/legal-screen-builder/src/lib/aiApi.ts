@@ -470,7 +470,7 @@ export const aiApi = {
   },
 
   /** Free intake chat — one turn. The server keeps no transcript; the app holds it. */
-  intakeChat(messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<{
+  intakeChat(messages: Array<{ role: "user" | "assistant"; content: string }>, captured?: { parties: string[]; events: string[] }): Promise<{
     reply: string;
     new: {
       parties: Array<{ name: string; role?: string; isOfficial?: boolean; agency?: string | null }>;
@@ -480,7 +480,7 @@ export const aiApi = {
     readyToWrapUp: boolean;
     messagesLeft: number | null;
   }> {
-    return aiFetch("/intake/chat", { method: "POST", body: JSON.stringify({ messages }) });
+    return aiFetch("/intake/chat", { method: "POST", body: JSON.stringify({ messages, captured }) });
   },
 
   /** Case chat with bubbles — one turn. The server keeps no transcript; the app holds it. */

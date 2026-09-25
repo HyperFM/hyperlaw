@@ -2672,7 +2672,7 @@ function CaseDetailView({ hlCase, data, onUpdateCase, onDeleteCase, onOpenIncide
             )}
           </div>
           <div style={{ color: "#444", fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-            We'll check if your case is ready, then show a credit estimate before drafting. You're only charged for what's generated — never more than the estimate.
+            We'll check if your case is ready before drafting.
           </div>
 
           {/* Primary group of four */}

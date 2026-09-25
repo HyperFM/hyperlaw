@@ -1371,9 +1371,10 @@ Return a single JSON object (no markdown, no code fences):
 - Order by what is most recent and most urgent first. At most 6 items.
 - "todo" = something the person needs to do. "waiting" = something they are waiting to receive or hear back on (a ruling, a response, a hearing date, a served copy).
 - Use ONLY deadlines, hearing dates, waiting periods and next steps that appear in the provided documents, case memory, timeline or narrative. Never invent a deadline or a date. If a source gives a waiting period (e.g. "14 days after service"), put it in "note" and set "dueDate" only when the start date is known so you can compute it; otherwise dueDate is null.
+- Never state a statute of limitations, filing window or any deadline period that is not written in the provided documents; if timing matters, the item should simply say to ask the court clerk or an attorney about it. Never tell the person to consult an attorney as a generic filler item.
 - If nothing is pending, return an empty array. Do not pad.
 
-Coverage rules for clouds (generate 8–20 total):
+Coverage rules for clouds (generate 8–12 total, the most important ones only; at most 3 facts per cloud):
 - Every named party → one "party" cloud
 - Every constitutional amendment implicated → one "amendment" cloud (e.g. "Fourth Amendment", "Fourteenth Amendment")
 - Every relevant federal statute → one "statute" cloud (e.g. "42 U.S.C. § 1983")

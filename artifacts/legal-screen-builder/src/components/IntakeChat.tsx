@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Send, Loader2, ShieldCheck } from "lucide-react";
 import { aiApi } from "../lib/aiApi";
+import { mergeEvents, mergeParties } from "../lib/intakeDedupe";
 
 const ORANGE = "#d9711f";
 
@@ -67,10 +68,10 @@ export function IntakeChat({ caseId, onClose, onComplete }: {
     setSending(true);
     try {
       // The opening prompt is the app's, not the AI's, so send only the real back-and-forth.
-      const r = await aiApi.intakeChat(next);
+      const r = await aiApi.intakeChat(next, { parties: parties.map(p => p.name), events: events.map(e => e.what) });
       setMessages([...next, { role: "assistant", content: r.reply }]);
-      if (r.new.parties.length) setParties(p => [...p, ...r.new.parties.filter(np => !p.some(x => x.name.toLowerCase() === np.name.toLowerCase()))]);
-      if (r.new.events.length) setEvents(e => [...e, ...r.new.events]);
+      if (r.new.parties.length) setParties(p => mergeParties(p, r.new.parties));
+      if (r.new.events.length) setEvents(e => mergeEvents(e, r.new.events));
       if (r.new.court) setCourt(r.new.court);
       if (r.readyToWrapUp) setReady(true);
       if (r.messagesLeft === 0) setLimitReached(true);
@@ -165,7 +166,7 @@ export function IntakeChat({ caseId, onClose, onComplete }: {
 
         {error && <div style={{ marginTop: 14, fontSize: 13, color: "#ef4444" }}>{error}</div>}
         <button onClick={confirm} disabled={finishing} style={{ marginTop: 22, width: "100%", background: ORANGE, color: "#0a0908", border: "none", borderRadius: 12, padding: "15px", fontWeight: 800, fontSize: 15, cursor: finishing ? "default" : "pointer", opacity: finishing ? 0.7 : 1 }}>
-          {finishing ? "Building your case…" : "Yes — build my case"}
+          {finishing ? "Building your case… this takes about a minute" : "Yes — build my case"}
         </button>
         {!finishing && <button onClick={() => setReviewing(false)} style={{ marginTop: 10, width: "100%", background: "none", color: "#888", border: "none", padding: 10, fontSize: 14, cursor: "pointer" }}>Back to the chat</button>}
       </div>

@@ -1,12 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Baby, Plus, Send, Loader2, Calendar, Handshake, Calculator, Download, ChevronRight } from "lucide-react";
+import { ArrowLeft, Baby, Plus, Send, Loader2, Calendar, Handshake, Calculator, Download, ChevronRight, Camera, SlidersHorizontal } from "lucide-react";
 import { aiApi, type FamilyMessage } from "../../lib/aiApi";
+import { autoEnableChatTab, getThreadPhoto, rememberThread, resizeSquare, setThreadPhoto, useChatTab } from "../../lib/chatTab";
 
 const ORANGE = "#d9711f";
 type Thread = Awaited<ReturnType<typeof aiApi.familyThreads>>[number];
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const money = (n: number) => `$${n.toFixed(2)}`;
+
+/** The child's photo, kept only on this device. Tap (when `editable`) to choose or change it. */
+function ChildAvatar({ threadId, size = 40, editable }: { threadId: string; size?: number; editable?: boolean }) {
+  useChatTab(); // re-render when the photo changes
+  const photo = getThreadPhoto(threadId);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const face = photo
+    ? <img src={photo} alt="" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `2px solid ${ORANGE}` }} />
+    : <div style={{ width: size, height: size, borderRadius: "50%", background: `${ORANGE}16`, border: `1.5px dashed ${ORANGE}66`, display: "flex", alignItems: "center", justifyContent: "center" }}>{editable ? <Camera size={size * 0.42} color={ORANGE} /> : <Baby size={size * 0.45} color={ORANGE} />}</div>;
+  if (!editable) return face;
+  return (
+    <>
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={async e => {
+        const f = e.target.files?.[0];
+        e.currentTarget.value = "";
+        if (f) { try { setThreadPhoto(threadId, await resizeSquare(f)); } catch { /* ignore an unreadable file */ } }
+      }} />
+      <button onClick={() => inputRef.current?.click()} title="Add a photo of your child — it stays on this device" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}>{face}</button>
+    </>
+  );
+}
 
 /**
  * Expense split: each parent's share of a shared child expense, in proportion to their incomes.
@@ -19,7 +41,7 @@ export function splitExpense(incomeA: number, incomeB: number, expense: number):
   return { shareA, shareB: 1 - shareA, owedA: expense * shareA, owedB: expense * (1 - shareA) };
 }
 
-export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
+export default function FamilyCourtView({ onBack, homeMode, onPersonalize }: { onBack: () => void; homeMode?: boolean; onPersonalize?: () => void }) {
   const [threads, setThreads] = useState<Thread[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [mode, setMode] = useState<"list" | "new" | "join">("list");
@@ -28,6 +50,9 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const noticeAfterStart = () => { if (autoEnableChatTab()) setNotice("Your Tools button is now a Chat button that opens right here. Double-tap it any time to switch back to all your tools."); };
 
   const load = useCallback(() => { aiApi.familyThreads().then(setThreads).catch(e => { setThreads([]); setErr((e as Error).message); }); }, []);
   useEffect(load, [load]);
@@ -40,6 +65,7 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
 
   if (openId) {
     const t = threads?.find(x => x.id === openId);
+    rememberThread(openId);
     return <ThreadView thread={t ?? null} threadId={openId} onBack={() => { setOpenId(null); load(); }} />;
   }
 
@@ -57,7 +83,7 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
         {err && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 10 }}>{err}</div>}
         <button disabled={busy} style={primary} onClick={async () => {
           setBusy(true); setErr(null);
-          try { const r = await aiApi.familyCreateThread({ title, inviteEmail: inviteEmail.trim() || undefined }); load(); setMode("list"); setOpenId(r.id); setTitle(""); setInviteEmail(""); }
+          try { const r = await aiApi.familyCreateThread({ title, inviteEmail: inviteEmail.trim() || undefined }); noticeAfterStart(); load(); setMode("list"); setOpenId(r.id); setTitle(""); setInviteEmail(""); }
           catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
         }}>Create chat</button>
       </div>
@@ -74,7 +100,7 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
         {err && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 10 }}>{err}</div>}
         <button disabled={busy || code.trim().length < 4} style={primary} onClick={async () => {
           setBusy(true); setErr(null);
-          try { const r = await aiApi.familyJoin(code); load(); setMode("list"); setCode(""); setOpenId(r.id); }
+          try { const r = await aiApi.familyJoin(code); noticeAfterStart(); load(); setMode("list"); setCode(""); setOpenId(r.id); }
           catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
         }}>Join</button>
       </div>
@@ -83,11 +109,17 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 120px" }}>
-      {back("Tools", onBack)}
+      {back(homeMode ? "All tools" : "Tools", onBack)}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center" }}><Baby size={19} color={ORANGE} /></div>
-        <div style={{ fontSize: 20, fontWeight: 900 }}>Family Court</div>
+        <div style={{ fontSize: 20, fontWeight: 900, flex: 1 }}>Family Court</div>
+        {onPersonalize && (
+          <button onClick={onPersonalize} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "1px solid #2a2a2a", borderRadius: 999, padding: "7px 12px", color: "#bbb", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+            <SlidersHorizontal size={13} /> Personalize
+          </button>
+        )}
       </div>
+      {notice && <div style={{ background: "#141008", border: `1px solid ${ORANGE}55`, borderRadius: 12, padding: "11px 14px", color: "#e8c9a0", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>{notice}</div>}
       <div style={{ color: "#666", fontSize: 13, lineHeight: 1.6, marginBottom: 18 }}>
         A private chat between you and the other parent, with custody and court dates that remind you both, and tools for making offers and splitting costs. Every message is kept as a record — it can't be edited or deleted, and either of you can export it.
       </div>
@@ -98,7 +130,8 @@ export default function FamilyCourtView({ onBack }: { onBack: () => void }) {
       {threads === null && <div style={{ color: "#666", fontSize: 13 }}>Loading…</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {threads?.map(t => (
-          <button key={t.id} onClick={() => setOpenId(t.id)} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10 }}>
+          <button key={t.id} onClick={() => setOpenId(t.id)} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12 }}>
+            <ChildAvatar threadId={t.id} size={40} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5, color: "#ddd" }}>{t.title}</div>
               <div style={{ fontSize: 12, color: t.status === "active" ? "#7fd39a" : "#a08060", marginTop: 2 }}>{t.status === "active" ? `With ${t.otherName}` : `Waiting for ${t.otherName}`}</div>
@@ -170,7 +203,10 @@ function ThreadView({ thread, threadId, onBack }: { thread: Thread | null; threa
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid #161616", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700 }}><ArrowLeft size={16} /> Back</button>
-        <div style={{ flex: 1, minWidth: 0, textAlign: "center", fontWeight: 800, fontSize: 14, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{thread?.title ?? "Chat"}</div>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <ChildAvatar threadId={threadId} size={34} editable />
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{thread?.title ?? "Chat"}</div>
+        </div>
         <button onClick={exportLog} title="Export the record" style={{ background: "none", border: "none", cursor: "pointer", color: "#888", padding: 6 }}><Download size={17} /></button>
       </div>
 

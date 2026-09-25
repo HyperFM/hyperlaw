@@ -43,6 +43,7 @@ import { CaseSummaryCompact } from "./components/CaseSummaryCompact";
 import { caseSourceKey } from "./lib/caseSourceKey";
 import { keepChatItems } from "./lib/caseMerge";
 import { runIntakeCompletion } from "./lib/caseIntake";
+import { useChatTab, chatTabState } from "./lib/chatTab";
 import IosPaygTopUpModal from "./components/IosPaygTopUpModal";
 import NotificationBell from "./components/NotificationBell";
 import AdminPanel from "./components/AdminPanel";
@@ -532,8 +533,12 @@ const TOOLS_MARQUEE_REPEATS = 8;
 const TOOLS_MARQUEE_GLOW_STAGGER = 0.35;
 const TOOLS_MARQUEE_GLOW_CYCLE = 10 * TOOLS_MARQUEE_GLOW_STAGGER;
 
-function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePendingHearingScript }: {
+function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePendingHearingScript, chatMode, onExitChat, onPersonalize }: {
   cases: HLCase[]; onUpdateCase: (c: HLCase) => void;
+  /** The Tools tab is acting as the Chat tab: open straight onto the co-parenting chat. */
+  chatMode?: boolean;
+  onExitChat?: () => void;
+  onPersonalize?: () => void;
   /** Set when the user tapped "Review script now" on a staleness notification
    *  — jumps straight into that case+script instead of the tool's own
    *  case-picker/list screens. */
@@ -544,14 +549,14 @@ function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePending
   const [scriptOpen, setScriptOpen] = useState(false);
   const [witnessExamOpen, setWitnessExamOpen] = useState(false);
   const [voirDireOpen, setVoirDireOpen] = useState(false);
-  const [familyOpen, setFamilyOpen] = useState(false);
+  const [familyOpen, setFamilyOpen] = useState(!!chatMode);
   const [hearingScriptOpen, setHearingScriptOpen] = useState(!!pendingHearingScript);
 
   if (scriptOpen) {
     return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
   }
   if (familyOpen) {
-    return <FamilyCourtView onBack={() => setFamilyOpen(false)} />;
+    return <FamilyCourtView onBack={() => { if (chatMode) onExitChat?.(); else setFamilyOpen(false); }} homeMode={!!chatMode} onPersonalize={onPersonalize} />;
   }
   if (voirDireOpen) {
     return <VoirDireView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setVoirDireOpen(false)} />;
@@ -4401,6 +4406,7 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
   const [showPlans, setShowPlans] = useState(false);
   useEffect(() => { if (openPlansSignal) setShowPlans(true); }, [openPlansSignal]);
   const [showSupport, setShowSupport] = useState(false);
+  const chatTabPref = useChatTab();
   const [showOtherApps, setShowOtherApps] = useState(false);
   const [showCreditHistory, setShowCreditHistory] = useState(false);
 
@@ -4862,6 +4868,21 @@ function ProfileView({ data, onOpenCase, onEasterEgg, onBuyCredits, onAboutCreat
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PREFERENCES</div>
         <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+          <button
+            id="chat-tab-setting"
+            onClick={() => chatTabPref.setEnabled(!chatTabPref.enabled)}
+            style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #1a1a1a", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <MessageSquare size={16} color={chatTabPref.enabled ? ORANGE : "#666"} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "#ccc", fontWeight: 600 }}>Chat button</div>
+              <div style={{ fontSize: 12, color: "#555" }}>
+                {chatTabPref.enabled ? "On — the Tools button opens your co-parenting chat. Double-tap it to switch back to all tools." : "Off — turn on to make the Tools button open your co-parenting chat"}
+              </div>
+            </div>
+            <div style={{ width: 38, height: 22, borderRadius: 11, background: chatTabPref.enabled ? ORANGE : "#2a2a2a", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 2, left: chatTabPref.enabled ? 18 : 2, transition: "left 0.15s" }} />
+            </div>
+          </button>
           <button
             onClick={() => onSetTrainingWheels(!trainingWheelsEnabled)}
             style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
@@ -5333,13 +5354,26 @@ const BUILDER_ITEM = NAV_ITEMS[2];
 const TUTOR_ITEM   = NAV_ITEMS[3];
 const PROFILE_ITEM = NAV_ITEMS[4];
 
+// Double-tap detection for the Tools/Chat tab: the first tap navigates, a second tap within 350ms flips Chat <-> Tools.
+function useToolsTab(onChange: (t: NavTab) => void) {
+  const chat = useChatTab();
+  const last = useRef(0);
+  const tap = () => {
+    const now = Date.now();
+    if (chat.enabled && now - last.current < 350) { chat.setMode(chat.mode === "chat" ? "tools" : "chat"); last.current = 0; }
+    else { last.current = now; onChange("tools"); }
+  };
+  return { chat, tap, chatMode: chat.enabled && chat.mode === "chat" };
+}
+
 function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; caseCount: number }) {
   const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
+  const { chat, tap: tapTools, chatMode } = useToolsTab(onChange);
   const left  = [TOOLS_ITEM, BUILDER_ITEM];
   const right = [TUTOR_ITEM, PROFILE_ITEM];
 
   function handleItemClick(id: NavTab) {
-    onChange(id);
+    if (id === "tools") tapTools(); else onChange(id);
   }
 
   function handleBarrelClick() {
@@ -5350,6 +5384,12 @@ function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChang
   function renderIcon(item: NavItem) {
     if (item.id === "tools") {
       const on = active === "tools";
+      if (chatMode) {
+        // The child's photo (kept on this device) replaces the bubble once one is set.
+        return chat.photo
+          ? <img src={chat.photo} alt="" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: `2px solid ${on ? "#fff" : ORANGE}` }} />
+          : <MessageSquare size={26} color={ORANGE} fill={on ? "#fff" : "none"} />;
+      }
       return <Wrench size={26} color={ORANGE} fill={on ? "#fff" : "none"} />;
     }
     if (item.id === "tutor")   return <IndexIcon   size={55} />;
@@ -5373,7 +5413,7 @@ function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChang
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", overflow: "visible" }}>
             <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.id === "tools" && chatMode ? "Chat" : item.label}</span>
           </button>
         ))}
         <div style={{ flex: 1 }} />
@@ -5381,7 +5421,7 @@ function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChang
           <button key={item.id} onClick={() => handleItemClick(item.id)}
             style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "6px 4px", cursor: "pointer", color: active === item.id ? ORANGE : "#555", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", overflow: "visible" }}>
             <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>{renderIcon(item)}</div>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.label}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{item.id === "tools" && chatMode ? "Chat" : item.label}</span>
           </button>
         ))}
       </div>
@@ -5391,15 +5431,19 @@ function BottomNavBar({ active, onChange, caseCount }: { active: NavTab; onChang
 
 function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab; onChange: (t: NavTab) => void; onFab: () => void; caseCount: number }) {
   const [barrelSpinKey,  setBarrelSpinKey]  = useState(0);
+  const { chat, tap: tapTools, chatMode } = useToolsTab(onChange);
   function handleItemClick(id: NavTab) {
     if (id === "home") setBarrelSpinKey(k => k + 1);
-    onChange(id);
+    if (id === "tools") tapTools(); else onChange(id);
   }
 
   function renderSideIcon(item: NavItem) {
     if (item.id === "home")    return <BarrelIcon  size={28} caseCount={caseCount} spinKey={barrelSpinKey} />;
     if (item.id === "tools") {
       const on = active === "tools";
+      if (chatMode) return chat.photo
+        ? <img src={chat.photo} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
+        : <MessageSquare size={18} color={ORANGE} fill={on ? "#fff" : "none"} />;
       return <Wrench size={18} color={ORANGE} fill={on ? "#fff" : "none"} />;
     }
     if (item.id === "tutor")   return <IndexIcon   size={28} />;
@@ -5424,7 +5468,7 @@ function DesktopSideNav({ active, onChange, onFab, caseCount }: { active: NavTab
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, background: isActive ? `${ORANGE}18` : "transparent", border: `1px solid ${isActive ? ORANGE + "44" : "transparent"}`, color: isActive ? ORANGE : "#666", cursor: "pointer", fontWeight: 700, fontSize: 14, textAlign: "left", transition: "all 0.15s" }}
             onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
             onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>
-            {renderSideIcon(item)} {item.label}
+            {renderSideIcon(item)} {item.id === "tools" && chatMode ? "Chat" : item.label}
           </button>
         );
       })}
@@ -5528,7 +5572,8 @@ export default function App() {
 
   const [data, setDataRaw] = useState<AppData>(() => loadData());
   useDeadlineNotifications(data.reminders);
-  const [navTab, setNavTab] = useState<NavTab>("home");
+  const [navTab, setNavTab] = useState<NavTab>(() => { const c = chatTabState(); return c.enabled && c.mode === "chat" ? "tools" : "home"; });
+  const chatTabHook = useChatTab();
   /** Set by a "hearing_script_stale" notification's "Review script now" —
    *  jumps ToolsView straight into that case+script instead of its own
    *  case-picker/list screens. */
@@ -6499,6 +6544,14 @@ export default function App() {
       // tool's case picker here — see HLCase.exhibitOnly.
       return (
         <ToolsView
+          key={chatTabHook.enabled && chatTabHook.mode === "chat" ? "chat" : "tools"}
+          chatMode={chatTabHook.enabled && chatTabHook.mode === "chat"}
+          onExitChat={() => chatTabHook.setMode("tools")}
+          onPersonalize={() => {
+            setNavTab("profile");
+            setView({ type: "home" });
+            window.setTimeout(() => document.getElementById("chat-tab-setting")?.scrollIntoView({ behavior: "smooth", block: "center" }), 400);
+          }}
           cases={data.cases.filter(c => !c.exhibitOnly)}
           onUpdateCase={c => setData(updateCase(data, c))}
           pendingHearingScript={pendingHearingScript}

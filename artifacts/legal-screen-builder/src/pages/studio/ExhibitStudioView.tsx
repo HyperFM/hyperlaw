@@ -88,7 +88,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
           )}
         </div>
         <div style={{ fontSize: 12.5, color: "#c9a878", lineHeight: 1.55, marginTop: 10 }}>
-          Exhibit Studio is HyperLaw's most powerful tool — and the one that uses the most AI. Load credits before you start building. Each screen typically uses a few credits.
+          Exhibit Studio is HyperLaw's most powerful tool — and the one that uses the most AI. Load credits before you start building. Each screen uses about 4–6 credits (roughly $0.20–$0.30). A one-hour exhibit usually needs 5 or more screens, so plan on about 20–30 credits (around $1–$1.50) or more, and extra if you regenerate.
         </div>
       </div>
 
@@ -121,7 +121,7 @@ export default function ExhibitStudioView({ cases, onOpenStudio, onCreateCase, o
             <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>ABOUT THIS TOOL</div>
             <ul style={{ margin: 0, padding: "0 0 0 16px", display: "flex", flexDirection: "column", gap: 8 }}>
               {[
-                "This is HyperLaw's highest-usage tool. Building screens uses more AI than anything else here, so load credits before you start. Each screen typically uses a few credits, and you'll never be charged for more than your balance.",
+                "This is HyperLaw's highest-usage tool. Building screens uses more AI than anything else here, so load credits before you start. Each screen uses about 4–6 credits (roughly $0.20–$0.30). A one-hour exhibit usually needs 5 or more screens, so plan on about 20–30 credits (around $1–$1.50) or more, and extra if you regenerate, and you'll never be charged for more than your balance.",
                 "This tool is designed to help organize and present video evidence.",
                 "Rules regarding illustrative aids differ by jurisdiction.",
                 "Users are responsible for confirming admissibility in their court.",

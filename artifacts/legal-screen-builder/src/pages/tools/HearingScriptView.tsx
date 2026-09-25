@@ -73,6 +73,9 @@ export default function HearingScriptView({ cases, onBack, initialSelection, onI
           <div style={{ color: "#666", fontSize: 13, lineHeight: 1.6, marginBottom: 24 }}>
             Get a sectioned script for a specific hearing, built from your case's own filings — with a nudge if a new filing lands after you've marked it ready.
           </div>
+          <div style={{ background: "#141008", border: `1px solid ${ORANGE}33`, borderRadius: 12, padding: "11px 14px", color: "#c9a878", fontSize: 12.5, lineHeight: 1.55, marginBottom: 22 }}>
+            <b style={{ color: ORANGE }}>One thing per hearing.</b> Handle one simple thing at a time and don't let other issues pile on top. If you need more, file a motion. Anything can be handled later — ask for the record or a copy of the order and pick it up then.
+          </div>
 
           <div style={{ fontSize: 11, color: "#444", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>SELECT A CASE</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

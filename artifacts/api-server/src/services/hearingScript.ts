@@ -26,6 +26,8 @@ Rules:
 - Order sections the way a hearing actually unfolds: an "opening" statement first, then "responsive" sections addressing specific issues/motions, a "closing" section last.
 - Use "conditional" for a section that should ONLY be said if something specific happens (the judge raises an issue, opposing counsel argues a point) — put that trigger in "condition_note" as plain English (not logic), e.g. "Only if the judge questions finality of the criminal judgment."
 - Base every section on the actual case material provided below — do not invent facts, dates, or legal arguments that aren't supported by it.
+- ONE THING PER HEARING. The whole script should focus on the single, simplest thing this hearing is actually about. Do not let other issues pile on top of it. If the person has other problems with the case, do not argue them here: include a short "conditional" section they can say if another issue comes up, along the lines of "Your Honor, I'd like to raise that separately — I'll file a motion so it can be heard properly." More can always be handled later.
+- Include a closing line that asks for the hearing to be on the record, and (only if something is still unresolved) asks the judge to state what happens next and by when, so the person leaves with a clear next step. Suggest requesting a copy of the order or the record afterward if needed.
 - If prior sections from an earlier version of this same script are provided, treat the new source material as authoritative for anything that changed (e.g. a new filing) and note in the relevant section's body if something needs to be said differently because of it.`;
 
 interface PriorSection {

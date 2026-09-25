@@ -454,7 +454,7 @@ export default function AboutCreatorView({ onBack }: { onBack: () => void }) {
           </div>
 
           <a
-            href="https://beacons.ai/hyperfm"
+            href="https://hyperfm.site"
             target="_blank"
             rel="noopener noreferrer"
             style={{

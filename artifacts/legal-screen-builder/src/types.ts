@@ -554,6 +554,22 @@ export interface StructuredCase {
   organizedAt: number;
 }
 
+// ─── Voir Dire ────────────────────────────────────────────────────────────────
+
+export interface VoirDireQuestion { id: string; question: string; bad: string; good: string }
+
+/** One jury-selection session for a case: who sat in which chair, how each juror answered each question. */
+export interface VoirDireSession {
+  seats: number;
+  questions: VoirDireQuestion[];
+  /** questionId -> seat number (as string) -> "g" (good answer) | "r" (bad answer) */
+  ratings: Record<string, Record<string, "g" | "r">>;
+  /** Optional juror names/notes, by seat number. */
+  seatNames: Record<string, string>;
+  currentIndex: number;
+  updatedAt: number;
+}
+
 export interface HLCase {
   id: string;
   title: string;
@@ -594,6 +610,8 @@ export interface HLCase {
   studioProject?: StudioProject;
   // ── Witness Examination ──────────────────────────────────────────────────────
   witnessExaminations?: WitnessExamination[];
+  // ── Voir Dire ────────────────────────────────────────────────────────────────
+  voirDire?: VoirDireSession;
   /** True only for a case created via Exhibit Studio's "+ Manual Project"
    *  shortcut when the user declined to tie it to an existing case. Still a
    *  real, fully-synced HLCase — this flag just hides it from every

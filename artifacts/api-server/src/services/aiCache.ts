@@ -48,7 +48,8 @@ export type AiFeature =
   | "exhibit_analyze_photos"
   | "transcript_audio"
   | "intake_chat"
-  | "case_chat";
+  | "case_chat"
+  | "voir_dire";
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
 

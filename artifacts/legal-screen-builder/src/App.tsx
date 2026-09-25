@@ -28,6 +28,7 @@ import ExhibitStudioView from "./pages/studio/ExhibitStudioView";
 import IllustrativeAidScriptView from "./pages/tools/IllustrativeAidScriptView";
 import WitnessExaminationView from "./pages/tools/WitnessExaminationView";
 import HearingScriptView from "./pages/tools/HearingScriptView";
+import VoirDireView from "./pages/tools/VoirDireView";
 import VideoWorkspaceView from "./pages/studio/VideoWorkspaceView";
 import AboutCreatorView from "./pages/creator/AboutCreatorView";
 import { COMPLIANCE } from "./lib/compliance";
@@ -489,13 +490,6 @@ function BodyCamIcon({ size = 17, color = "#d9711f" }: { size?: number; color?: 
 // below, duplicated once so the strip can loop seamlessly, drifting left forever.
 const TOOL_BUBBLES = [
   {
-    id: "voir-dire",
-    icon: Users,
-    title: "Voir Dire",
-    tagline: "Jury selection, simplified.",
-    detail: "A guide for picking your jury — who's in the room, what to ask them, and who to strike, for when you're doing a jury trial.",
-  },
-  {
     id: "family-court",
     icon: Baby,
     title: "Family Court",
@@ -525,6 +519,7 @@ const MARQUEE_ICONS = [
   { id: "illustrative-aid-script", icon: ScrollText },
   { id: "witness-examination", icon: SquareUser },
   { id: "hearing-script", icon: Gavel },
+  { id: "voir-dire", icon: Users },
   ...TOOL_BUBBLES.map(t => ({ id: t.id, icon: t.icon })),
 ];
 
@@ -552,10 +547,14 @@ function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePending
   const [openId, setOpenId] = useState<string | null>(null);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [witnessExamOpen, setWitnessExamOpen] = useState(false);
+  const [voirDireOpen, setVoirDireOpen] = useState(false);
   const [hearingScriptOpen, setHearingScriptOpen] = useState(!!pendingHearingScript);
 
   if (scriptOpen) {
     return <IllustrativeAidScriptView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setScriptOpen(false)} />;
+  }
+  if (voirDireOpen) {
+    return <VoirDireView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setVoirDireOpen(false)} />;
   }
   if (witnessExamOpen) {
     return <WitnessExaminationView cases={cases} onUpdateCase={onUpdateCase} onBack={() => setWitnessExamOpen(false)} />;
@@ -679,6 +678,20 @@ function ToolsView({ cases, onUpdateCase, pendingHearingScript, onConsumePending
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Hearing Script</div>
               <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>A sectioned script for a specific hearing, built from your filings.</div>
+            </div>
+            <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
+          </div>
+        </button>
+        {/* Voir Dire — a jury box of chairs, each half red / half green, with questions built from the case. */}
+        <button onClick={() => setVoirDireOpen(true)}
+          style={{ background: "#111", border: `1px solid ${ORANGE}55`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 18, background: `${ORANGE}16`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Users size={17} color={ORANGE} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>Voir Dire</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>Pick your jury: questions, red/green chairs, who to keep.</div>
             </div>
             <ChevronRight size={15} color="#444" style={{ flexShrink: 0 }} />
           </div>

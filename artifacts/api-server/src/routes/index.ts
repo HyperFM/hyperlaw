@@ -23,6 +23,7 @@ import hearingScriptsRouter from "./hearing-scripts";
 import intakeRouter from "./intake";
 import caseChatRouter from "./case-chat";
 import remindersRouter from "./reminders";
+import voirDireRouter from "./voir-dire";
 
 import { aiDailyCap } from "../services/aiCap.js";
 
@@ -55,5 +56,6 @@ router.use(hearingScriptsRouter);
 router.use(intakeRouter);
 router.use(caseChatRouter);
 router.use(remindersRouter);
+router.use(voirDireRouter);
 
 export default router;
